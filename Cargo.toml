@@ -10,7 +10,7 @@ keywords = ["cli", "domain", "whois", "rdap", "availability"]
 categories = ["command-line-utilities", "network-programming"]
 readme = "README.md"
 
-exclude = [".DS_Store"]
+exclude = [".DS_Store", "target/**/.DS_Store"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
