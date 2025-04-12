@@ -1,57 +1,74 @@
 use clap::Parser;
 use reqwest::StatusCode;
 use std::collections::HashMap;
-use futures::future::join_all;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use console::Style;
-use indicatif::{ProgressBar, ProgressStyle};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
+use tokio::time::sleep;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(name = "domain-check")]
+#[command(version, author = "Your Name <your.email@example.com>")]
 #[command(about = "Check domain availability using RDAP", long_about = None)]
+#[command(help_template = "{before-help}{name} {version}\n{author}\n{about}\n\n{usage-heading}\n  {usage}\n\n{all-args}{after-help}")]
 pub struct Args {
-    /// Domain name to check (without TLD, or full domain like example.com)
-    #[arg(value_parser = validate_domain)]
+    #[arg(value_parser = validate_domain, help = "Domain name to check (without TLD for multiple TLD checking)")]
     pub domain: String,
 
-    /// TLDs to check (defaults to .com if not provided)
-    #[arg(short = 't', long = "tld", num_args = 1.., value_delimiter = ' ')]
+    #[arg(short = 't', long = "tld", num_args = 1.., value_delimiter = ' ', help = "Check availability with these TLDs")]
     pub tld: Option<Vec<String>>,
 
-    /// Output result in JSON format
-    #[arg(short, long)]
+    #[arg(short, long, help = "Output results in JSON format")]
     pub json: bool,
 
-    /// Output a pretty formatted view instead of raw/plain
-    #[arg(short = 'p', long = "pretty")]
+    #[arg(short = 'p', long = "pretty", help = "Enable colorful, formatted output")]
     pub pretty: bool,
+    
+    // New flags
+    #[arg(short = 'i', long = "info", help = "Show detailed domain information when available (for taken domains)")]
+    pub info: bool,
+    
+    #[arg(short = 'b', long = "bootstrap", help = "Use IANA bootstrap to find RDAP endpoints for unknown TLDs")]
+    pub bootstrap: bool,
+    
+    #[arg(short = 'w', long = "whois", help = "Fallback to WHOIS when RDAP is unavailable")]
+    pub whois_fallback: bool,
 }
 
-/// Struct used for serializing JSON output
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct DomainStatus {
     domain: String,
-    available: bool,
+    available: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    info: Option<DomainInfo>,
 }
 
-/// Validate the domain input format
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct DomainInfo {
+    registrar: Option<String>,
+    creation_date: Option<String>,
+    expiration_date: Option<String>,
+    status: Vec<String>,
+}
+
 fn validate_domain(domain: &str) -> Result<String, String> {
     let domain = domain.trim();
-
     if domain.is_empty() {
         return Err("Domain name cannot be empty".into());
     }
-
-    let re = regex::Regex::new(r"^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)?$").unwrap();
-
+    
+    // Fixed regex pattern - removed the escape character before the dot
+    let re = regex::Regex::new(r"^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*$").unwrap();
+    
     if !re.is_match(domain) {
         return Err("Invalid domain format. Use something like 'example' or 'example.com'.".into());
     }
-
+    
     Ok(domain.to_string())
 }
 
-/// Splits a full domain like 'example.com' into ("example", "com")
+
 fn extract_parts(domain: &str) -> (String, Option<String>) {
     let parts: Vec<&str> = domain.split('.').collect();
     if parts.len() == 2 {
@@ -61,7 +78,6 @@ fn extract_parts(domain: &str) -> (String, Option<String>) {
     }
 }
 
-/// Returns a list of domains to check, based on CLI input and fallback
 fn normalize_domains(base: &str, cli_tlds: &Option<Vec<String>>, extracted_tld: Option<String>) -> Vec<String> {
     match cli_tlds {
         Some(tlds) => tlds.iter().map(|tld| format!("{}.{}", base, tld)).collect(),
@@ -72,113 +88,451 @@ fn normalize_domains(base: &str, cli_tlds: &Option<Vec<String>>, extracted_tld: 
     }
 }
 
-/// Returns RDAP endpoint base URL for known TLDs
 fn rdap_registry_map() -> HashMap<&'static str, &'static str> {
     HashMap::from([
+        // Original TLDs
         ("com", "https://rdap.verisign.com/com/v1/domain/"),
         ("net", "https://rdap.verisign.com/net/v1/domain/"),
         ("org", "https://rdap.publicinterestregistry.net/rdap/org/domain/"),
         ("io", "https://rdap.nic.io/domain/"),
         ("app", "https://rdap.nic.google/domain/"),
-        // Add more as needed
+        
+        // Added more TLDs
+        ("dev", "https://rdap.nic.google/domain/"),
+        ("ai", "https://rdap.nic.ai/domain/"),
+        ("co", "https://rdap.nic.co/domain/"),
+        ("xyz", "https://rdap.nic.xyz/domain/"),
+        ("me", "https://rdap.nic.me/domain/"),
+        ("info", "https://rdap.afilias.net/rdap/info/domain/"),
+        ("biz", "https://rdap.nic.biz/domain/"),
+        ("us", "https://rdap.registry.neustar/v1/domain/"),
+        ("uk", "https://rdap.nominet.uk/uk/domain/"),
+        ("eu", "https://rdap.eu.org/domain/"),
+        ("tech", "https://rdap.registry.in/rdap/domain/"),
+        ("blog", "https://rdap.nominet.uk/blog/domain/"),
+        ("page", "https://rdap.nic.google/domain/"),
+        ("zone", "https://rdap.nic.zone/domain/"),
+        ("shop", "https://rdap.nic.shop/domain/"),
+        ("de", "https://rdap.denic.de/domain/"),
+        ("ca", "https://rdap.ca-domains.ca/domain/"),
+        ("au", "https://rdap.auda.org.au/domain/"),
+        ("fr", "https://rdap.nic.fr/domain/"),
+        ("es", "https://rdap.nic.es/domain/"),
+        ("it", "https://rdap.nic.it/domain/"),
+        ("nl", "https://rdap.domain-registry.nl/domain/"),
+        ("jp", "https://rdap.jprs.jp/domain/"),
+        ("tv", "https://rdap.verisign.com/tv/v1/domain/"),
+        ("cc", "https://rdap.verisign.com/cc/v1/domain/"),
     ])
 }
 
-/// Check RDAP availability by querying the RDAP endpoint for a domain
-async fn check_rdap(domain: &str, endpoint_base: &str) -> Result<bool, reqwest::Error> {
-    let url = format!("{}{}", endpoint_base, domain);
-
+// Bootstrap Registry - Dynamically find RDAP endpoints for unknown TLDs
+async fn find_endpoint_for_tld(tld: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let bootstrap_url = "https://data.iana.org/rdap/dns.json";
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
+        .timeout(Duration::from_secs(5))
         .build()?;
+    
+    let response = client.get(bootstrap_url).send().await?;
+    
+    if response.status().is_success() {
+        let json: serde_json::Value = response.json().await?;
+        
+        if let Some(services) = json.get("services").and_then(|s| s.as_array()) {
+            for service in services {
+                if let Some(service_array) = service.as_array() {
+                    if service_array.len() >= 2 {
+                        if let Some(tlds) = service_array[0].as_array() {
+                            for t in tlds {
+                                if let Some(t_str) = t.as_str() {
+                                    if t_str.to_lowercase() == tld.to_lowercase() {
+                                        if let Some(urls) = service_array[1].as_array() {
+                                            if let Some(url) = urls.get(0).and_then(|u| u.as_str()) {
+                                                return Ok(format!("{}/domain/", url.trim_end_matches('/')));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    Err("No RDAP endpoint found for this TLD".into())
+}
 
+async fn check_rdap(domain: &str, endpoint_base: &str) -> Result<(bool, Option<serde_json::Value>), reqwest::Error> {
+    let url = format!("{}{}", endpoint_base, domain);
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+    
     let res = client.get(&url).send().await?;
-
+    
     match res.status() {
-        StatusCode::OK => Ok(false),        // Domain is taken
-        StatusCode::NOT_FOUND => Ok(true),  // Domain is available
-        _ => Ok(false),                     // Unexpected response → treat as unavailable
+        StatusCode::OK => {
+            let json = res.json::<serde_json::Value>().await?;
+            Ok((false, Some(json)))
+        },
+        StatusCode::NOT_FOUND => Ok((true, None)),
+        _ => Ok((false, None)),
     }
 }
 
-#[tokio::main]
-async fn main() {
-    let args = Args::parse();
-
-    let (base_name, tld_from_domain) = extract_parts(&args.domain);
-    let domain_list = normalize_domains(&base_name, &args.tld, tld_from_domain);
-    let registry_map = rdap_registry_map();
-
-    // Optional pretty output before checking
-    if args.pretty {
-        println!("\n🔍 Domains to check:");
-        for (i, domain) in domain_list.iter().enumerate() {
-            println!("  [{}] {}", i + 1, domain);
+// WHOIS fallback implementation
+async fn check_whois(domain: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    // We'll use a simple command-line whois call since it's reliable and available on most systems
+    let output = tokio::process::Command::new("whois")
+        .arg(domain)
+        .output()
+        .await?;
+    
+    let output_text = String::from_utf8_lossy(&output.stdout).to_lowercase();
+    
+    // Common patterns that indicate domain availability
+    let available_patterns = [
+        "no match",
+        "not found",
+        "no data found",
+        "no entries found",
+        "domain not found",
+        "domain available",
+        "status: available",
+        "status: free",
+    ];
+    
+    for pattern in available_patterns {
+        if output_text.contains(pattern) {
+            return Ok(true);
         }
-        println!("\n🌐 Querying RDAP servers...\n");
     }
+    
+    // If none of the "available" patterns matched, assume the domain is taken
+    Ok(false)
+}
 
-    // Spinner / Progress bar
-    let pb = ProgressBar::new(domain_list.len() as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.green} Checking {pos}/{len} domains...")
-            .unwrap()
-            .progress_chars("#>-"),
-    );
+// Extract domain information from RDAP response
+fn extract_domain_info(json: &serde_json::Value) -> Option<DomainInfo> {
+    let mut info = DomainInfo {
+        registrar: None,
+        creation_date: None,
+        expiration_date: None,
+        status: Vec::new(),
+    };
+    
+    // Extract registrar - try multiple possible paths in RDAP response
+    if let Some(entities) = json.get("entities").and_then(|e| e.as_array()) {
+        for entity in entities {
+            if let Some(roles) = entity.get("roles").and_then(|r| r.as_array()) {
+                let is_registrar = roles.iter().any(|role| {
+                    role.as_str().map_or(false, |s| s == "registrar")
+                });
+                
+                if is_registrar {
+                    // First try to get registrar name from vcardArray
+                    if let Some(name) = entity.get("vcardArray")
+                        .and_then(|v| v.as_array())
+                        .and_then(|a| a.get(1))
+                        .and_then(|a| a.as_array())
+                        .and_then(|items| {
+                            for item in items {
+                                if let Some(item_array) = item.as_array() {
+                                    if item_array.len() >= 4 {
+                                        if let Some(first) = item_array.get(0).and_then(|f| f.as_str()) {
+                                            if first == "fn" {
+                                                return item_array.get(3).and_then(|n| n.as_str()).map(String::from);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            None
+                        }) {
+                        info.registrar = Some(name);
+                        break;
+                    } 
+                    // Then try publicIds
+                    else if let Some(public_ids) = entity.get("publicIds").and_then(|p| p.as_array()) {
+                        if let Some(id) = public_ids.first()
+                            .and_then(|id| id.get("identifier"))
+                            .and_then(|i| i.as_str()) {
+                            info.registrar = Some(id.to_string());
+                            break;
+                        }
+                    }
+                    // Finally fall back to handle
+                    else if let Some(handle) = entity.get("handle").and_then(|h| h.as_str()) {
+                        info.registrar = Some(handle.to_string());
+                        break;
+                    }
+                    // Or try to get the name directly
+                    else if let Some(name) = entity.get("name").and_then(|n| n.as_str()) {
+                        info.registrar = Some(name.to_string());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Extract dates
+    if let Some(events) = json.get("events").and_then(|e| e.as_object()) {
+        for (event_type, event_data) in events {
+            match event_type.as_str() {
+                "registration" => {
+                    info.creation_date = event_data.get("eventDate").and_then(|d| d.as_str()).map(String::from);
+                },
+                "expiration" => {
+                    info.expiration_date = event_data.get("eventDate").and_then(|d| d.as_str()).map(String::from);
+                },
+                _ => {}
+            }
+        }
+    } else if let Some(events) = json.get("events").and_then(|e| e.as_array()) {
+        for event in events {
+            if let (Some(event_action), Some(event_date)) = (
+                event.get("eventAction").and_then(|a| a.as_str()),
+                event.get("eventDate").and_then(|d| d.as_str())
+            ) {
+                match event_action {
+                    "registration" => info.creation_date = Some(event_date.to_string()),
+                    "expiration" => info.expiration_date = Some(event_date.to_string()),
+                    _ => {}
+                }
+            }
+        }
+    }
+    
+    // Extract status
+    if let Some(statuses) = json.get("status").and_then(|s| s.as_array()) {
+        for status in statuses {
+            if let Some(status_str) = status.as_str() {
+                info.status.push(status_str.to_string());
+            }
+        }
+    }
+    
+    Some(info)
+}
 
-    // Style for output
+// Format domain information for display
+fn format_domain_info(info: &DomainInfo) -> String {
+    let mut parts = Vec::new();
+    
+    if let Some(registrar) = &info.registrar {
+        parts.push(format!("Registrar: {}", registrar));
+    }
+    
+    if let Some(creation) = &info.creation_date {
+        parts.push(format!("Created: {}", creation));
+    }
+    
+    if let Some(expiration) = &info.expiration_date {
+        parts.push(format!("Expires: {}", expiration));
+    }
+    
+    if !info.status.is_empty() {
+        parts.push(format!("Status: {}", info.status.join(", ")));
+    }
+    
+    parts.join(" | ")
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = Args::parse();
+    let (base_name, tld_from_domain) = extract_parts(&args.domain);
+    let domains = normalize_domains(&base_name, &args.tld, tld_from_domain);
+    let registry_map = rdap_registry_map();
+    let results: Arc<Mutex<Vec<DomainStatus>>> = Arc::new(Mutex::new(vec![]));
+
     let green = Style::new().green().bold();
     let red = Style::new().red().bold();
     let yellow = Style::new().yellow();
+    let blue = Style::new().blue();
+    let gray = Style::new().dim();
 
-    // Spawn tasks
-    let tasks = domain_list.iter().map(|domain| {
-        let domain = domain.clone();
-        let registry_map = registry_map.clone();
-
-        tokio::spawn(async move {
-            let parts: Vec<&str> = domain.split('.').collect();
-            let tld = parts.last().unwrap_or(&"");
-
-            if let Some(endpoint_base) = registry_map.get(tld) {
-                let available = match check_rdap(&domain, endpoint_base).await {
-                    Ok(true) => Some(true),
-                    Ok(false) => Some(false),
-                    Err(_) => None,
-                };
-                Some(DomainStatus { domain, available: available.unwrap_or(false) })
-            } else {
-                None
-            }
-        })
-    });
-
-    let results: Vec<DomainStatus> = join_all(tasks)
-        .await
-        .into_iter()
-        .filter_map(|res| res.ok().flatten()) // unwrap tokio::JoinHandle and filter None
-        .collect();
-
-    pb.finish_with_message("✅ Done checking domains!");
-
-    // Output results
-    if args.json {
-        // JSON output
-        let json = serde_json::to_string_pretty(&results).unwrap();
-        println!("{}", json);
-    } else {
-        // Pretty CLI output
-        for result in results {
-            if args.pretty {
-                if result.available {
-                    println!("{} {} is AVAILABLE", green.apply_to("✅"), result.domain);
-                } else {
-                    println!("{} {} is TAKEN", red.apply_to("❌"), result.domain);
-                }
-            } else {
-                println!("{}: {}", result.domain, if result.available { "available" } else { "taken" });
-            }
+    if args.pretty {
+        println!("🔍 Checking domain availability for: {}", base_name);
+        println!("🔍 With TLDs: {}\n", domains.iter().map(|d| d.split('.').last().unwrap_or("")).collect::<Vec<_>>().join(", "));
+        if args.info {
+            println!("{} Detailed info will be shown for taken domains\n", blue.apply_to("ℹ️"));
         }
     }
+
+    let mut handles = Vec::new();
+
+    for domain in domains.clone() {
+        let registry_map = registry_map.clone();
+        let green = green.clone();
+        let red = red.clone();
+        let yellow = yellow.clone();
+        let blue = blue.clone();
+        let gray = gray.clone();
+        let results = Arc::clone(&results);
+        let args = args.clone();
+
+        let handle = tokio::spawn(async move {
+            let parts: Vec<&str> = domain.split('.').collect();
+            let tld = parts.last().unwrap_or(&"").to_string();
+
+            let mut domain_status = DomainStatus {
+                domain: domain.clone(),
+                available: None,
+                info: None,
+            };
+
+            // Step 1: Try RDAP from known registries
+            if let Some(endpoint_base) = registry_map.get(tld.as_str()) {
+                match check_rdap(&domain, endpoint_base).await {
+                    Ok((true, _)) => {
+                        if args.info {
+                            println!("{} {} is AVAILABLE {}", green.apply_to("🟢"), domain, 
+                                     gray.apply_to("(No info available for unregistered domains)"));
+                        } else {
+                            println!("{} {} is AVAILABLE", green.apply_to("🟢"), domain);
+                        }
+                        domain_status.available = Some(true);
+                    },
+                    Ok((false, Some(json))) => {
+                        if args.info {
+                            if let Some(info) = extract_domain_info(&json) {
+                                domain_status.info = Some(info.clone());
+                                println!("{} {} is TAKEN {}", red.apply_to("🔴"), domain, blue.apply_to(format_domain_info(&info)));
+                            } else {
+                                println!("{} {} is TAKEN {}", red.apply_to("🔴"), domain, 
+                                         gray.apply_to("(No info available)"));
+                            }
+                        } else {
+                            println!("{} {} is TAKEN", red.apply_to("🔴"), domain);
+                        }
+                        domain_status.available = Some(false);
+                    },
+                    Ok((false, None)) => {
+                        if args.info {
+                            println!("{} {} is TAKEN {}", red.apply_to("🔴"), domain, 
+                                     gray.apply_to("(No info available)"));
+                        } else {
+                            println!("{} {} is TAKEN", red.apply_to("🔴"), domain);
+                        }
+                        domain_status.available = Some(false);
+                    },
+                    Err(e) => {
+                        // RDAP failed - try bootstrap or WHOIS if enabled
+                        if args.bootstrap || args.whois_fallback {
+                            println!("{} RDAP lookup failed for {}: {}", yellow.apply_to("⚠️"), domain, e);
+                        } else {
+                            println!("{} {} lookup failed: {}", yellow.apply_to("⚠️"), domain, e);
+                        }
+                    }
+                }
+            }
+            // Step 2: Try bootstrap RDAP if enabled and we don't have a result yet
+            else if args.bootstrap && domain_status.available.is_none() {
+                println!("{} No known RDAP endpoint for .{}, trying bootstrap registry...", blue.apply_to("🔍"), tld);
+                
+                match find_endpoint_for_tld(&tld).await {
+                    Ok(endpoint_base) => {
+                        match check_rdap(&domain, &endpoint_base).await {
+                            Ok((true, _)) => {
+                                if args.info {
+                                    println!("{} {} is AVAILABLE {}", green.apply_to("🟢"), domain, 
+                                             gray.apply_to("(No info available for unregistered domains)"));
+                                } else {
+                                    println!("{} {} is AVAILABLE", green.apply_to("🟢"), domain);
+                                }
+                                domain_status.available = Some(true);
+                            },
+                            Ok((false, Some(json))) => {
+                                if args.info {
+                                    if let Some(info) = extract_domain_info(&json) {
+                                        domain_status.info = Some(info.clone());
+                                        println!("{} {} is TAKEN {}", red.apply_to("🔴"), domain, blue.apply_to(format_domain_info(&info)));
+                                    } else {
+                                        println!("{} {} is TAKEN {}", red.apply_to("🔴"), domain, 
+                                                 gray.apply_to("(No info available)"));
+                                    }
+                                } else {
+                                    println!("{} {} is TAKEN", red.apply_to("🔴"), domain);
+                                }
+                                domain_status.available = Some(false);
+                            },
+                            Ok((false, None)) => {
+                                if args.info {
+                                    println!("{} {} is TAKEN {}", red.apply_to("🔴"), domain, 
+                                             gray.apply_to("(No info available)"));
+                                } else {
+                                    println!("{} {} is TAKEN", red.apply_to("🔴"), domain);
+                                }
+                                domain_status.available = Some(false);
+                            },
+                            Err(e) => {
+                                println!("{} Bootstrap RDAP lookup failed for {}: {}", yellow.apply_to("⚠️"), domain, e);
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        println!("{} Failed to find RDAP endpoint for .{}: {}", yellow.apply_to("⚠️"), tld, e);
+                    }
+                }
+            } 
+            
+            // Step 3: Try WHOIS fallback if enabled and still no result
+            if args.whois_fallback && domain_status.available.is_none() {
+                println!("{} Trying WHOIS fallback for {}...", blue.apply_to("🔍"), domain);
+                
+                // Add a small delay to prevent rate limiting
+                sleep(Duration::from_millis(100)).await;
+                
+                match check_whois(&domain).await {
+                    Ok(available) => {
+                        domain_status.available = Some(available);
+                        if available {
+                            if args.info {
+                                println!("{} {} is AVAILABLE (via WHOIS) {}", green.apply_to("🟢"), domain,
+                                         gray.apply_to("(No info available for unregistered domains)"));
+                            } else {
+                                println!("{} {} is AVAILABLE (via WHOIS)", green.apply_to("🟢"), domain);
+                            }
+                        } else {
+                            if args.info {
+                                println!("{} {} is TAKEN (via WHOIS) {}", red.apply_to("🔴"), domain,
+                                         gray.apply_to("(Detailed info not available via WHOIS fallback)"));
+                            } else {
+                                println!("{} {} is TAKEN (via WHOIS)", red.apply_to("🔴"), domain);
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        println!("{} WHOIS lookup failed for {}: {}", yellow.apply_to("⚠️"), domain, e);
+                    }
+                }
+            }
+            
+            // If we still have no result, report it
+            if domain_status.available.is_none() {
+                println!("{} Could not determine availability for {}", yellow.apply_to("⚠️"), domain);
+            }
+            
+            let mut lock = results.lock().unwrap();
+            lock.push(domain_status);
+        });
+
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        let _ = handle.await;
+    }
+
+    if args.json {
+        let lock = results.lock().unwrap();
+        let json = serde_json::to_string_pretty(&*lock).unwrap();
+        println!("\n{}", json);
+    }
+
+    Ok(())
 }
