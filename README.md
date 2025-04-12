@@ -2,22 +2,23 @@
 
 ![Crates.io Version](https://img.shields.io/crates/v/domain-check)
 ![Crates.io License](https://img.shields.io/crates/l/domain-check)
-![GitHub Workflow Status](https://img.shields.io/github/workflow/status/yourusername/domain-check/CI)
 ![Crates.io Downloads](https://img.shields.io/crates/d/domain-check)
 
-A fast, robust CLI tool for checking domain availability using RDAP protocol with WHOIS fallback and detailed domain information.
+A fast, robust CLI tool for checking domain availability using RDAP protocol with automatic WHOIS fallback and detailed domain information.
 
 ## Features
 
 - ✅ **RDAP Protocol Support** - Uses the modern Registration Data Access Protocol
 - 🔄 **IANA Bootstrap Registry** - Dynamically discovers RDAP endpoints for any TLD
-- 🌐 **WHOIS Fallback** - Gracefully falls back to WHOIS when RDAP isn't available
+- 🌐 **Automatic WHOIS Fallback** - Gracefully falls back to WHOIS when RDAP isn't available
 - 🔍 **Detailed Information** - Shows registrar, creation dates, expiration, and status
 - 🎯 **Multiple TLD Support** - Check domains across various TLDs in one command
 - 💻 **Interactive Terminal UI** - Navigate and explore domains in a beautiful terminal interface
-- 🔄 **Concurrent Checks** - Fast parallel processing with proper error handling
+- 🚀 **Optimized Concurrency** - Fast parallel processing with rate limiting and error handling
 - 📋 **JSON Output** - Machine-readable output for integration with other tools
 - 🎨 **Color-coded Results** - Clear visual indicators for domain status
+- 🐛 **Debug Mode** - Detailed logging for troubleshooting
+- ⚡ **Lightweight & Fast**
 
 ## Installation
 
@@ -30,7 +31,7 @@ cargo install domain-check
 ### From source
 
 ```bash
-git clone https://github.com/yourusername/domain-check.git
+git clone https://github.com/saidutt46/domain-check.git
 cd domain-check
 cargo install --path .
 ```
@@ -68,10 +69,12 @@ OPTIONS:
   -t, --tld <TLD>...       Check availability with these TLDs
   -i, --info               Show detailed domain information when available
   -b, --bootstrap          Use IANA bootstrap to find RDAP endpoints for unknown TLDs
-  -w, --whois              Fallback to WHOIS when RDAP is unavailable
+  -w, --whois              Fallback to WHOIS when RDAP is unavailable (deprecated, enabled by default)
+      --no-whois           Disable automatic WHOIS fallback
   -u, --ui                 Launch interactive terminal UI dashboard
   -j, --json               Output results in JSON format
   -p, --pretty             Enable colorful, formatted output
+  -d, --debug              Show detailed debug information and error messages
   -h, --help               Print help information
   -V, --version            Print version information
 ```
@@ -86,9 +89,6 @@ domain-check example
 
 Output:
 ```
-🔍 Checking domain availability for: example
-🔍 With TLDs: com
-
 🔴 example.com is TAKEN
 ```
 
@@ -100,9 +100,6 @@ domain-check myawesome -t com net org io
 
 Output:
 ```
-🔍 Checking domain availability for: myawesome
-🔍 With TLDs: com, net, org, io
-
 🔴 myawesome.com is TAKEN
 🟢 myawesome.net is AVAILABLE
 🟢 myawesome.org is AVAILABLE
@@ -138,7 +135,20 @@ domain-check example.pizza -b
 
 Output:
 ```
+🔴 example.pizza is TAKEN
+```
+
+### Debug mode for troubleshooting
+
+```bash
+domain-check example.pizza -b -d
+```
+
+Output:
+```
 🔍 No known RDAP endpoint for .pizza, trying bootstrap registry...
+🔍 Finding RDAP endpoint for TLD: pizza
+🔍 Found endpoint: https://rdap.donuts.co/domain/
 🔴 example.pizza is TAKEN
 ```
 
@@ -156,11 +166,13 @@ domain-check example -j
 domain-check mybusiness -t com net org io app dev xyz me co
 ```
 
-### Using WHOIS fallback for reliable results
+### Checking rare TLDs with automatic fallback
 
 ```bash
-domain-check rare-tld.something -b -w
+domain-check rare-tld.something -b
 ```
+
+The tool will automatically try RDAP first, then fall back to WHOIS if RDAP fails.
 
 ### Piping results to other tools
 
@@ -181,8 +193,16 @@ domain-check business -t com net org io xyz -j | jq '.[] | select(.available==tr
 
 1. Attempts to check domain via RDAP using known registry endpoints
 2. If TLD isn't in the known list, uses IANA bootstrap to discover the endpoint
-3. Falls back to WHOIS lookup if RDAP is unavailable or unsuccessful
+3. Automatically falls back to WHOIS lookup if RDAP is unavailable or unsuccessful
 4. Extracts detailed information when possible and requested
+5. Uses intelligent concurrency control with rate limiting to prevent overloading servers
+
+## Performance
+
+- Concurrent processing of multiple domains (up to 5 at once by default)
+- Rate limiting to prevent overloading RDAP endpoints
+- Automatic timeout handling to prevent hanging requests
+- Tiny binary size for fast startup and low resource usage
 
 ## Supported TLDs
 
@@ -198,11 +218,12 @@ Additional TLDs can be checked using the bootstrap (`-b`) option.
 |---------|--------------|-----------|------------|
 | RDAP Protocol | ✅ | ❌ | ❌ |
 | Bootstrap Registry | ✅ | ❌ | ❌ |
-| WHOIS Fallback | ✅ | ✅ | ❌ |
+| Auto WHOIS Fallback | ✅ | ✅ | ❌ |
 | Detailed Info | ✅ | ❌ | ❌ |
 | Multiple TLDs | ✅ | ❌ | ✅ |
 | Interactive UI | ✅ | ❌ | ❌ |
 | JSON Output | ✅ | ❌ | ✅ |
+| Concurrency Control | ✅ | ❌ | ❌ |
 | Speed | Fast ⚡ | Medium | Medium |
 
 ## Contributing

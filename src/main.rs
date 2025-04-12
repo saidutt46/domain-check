@@ -4,77 +4,61 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tokio::time::sleep;
+use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
+use tokio::time::sleep;
 
+/// CLI arguments for domain-check
 #[derive(Parser, Debug, Clone)]
 #[command(name = "domain-check")]
-#[command(version, author = "Your Name <your.email@example.com>")]
-#[command(about = "Check domain availability using RDAP", long_about = None)]
+#[command(version, author = "Sai Dutt G.V <gvs46@protonmail.com>")]
+#[command(about = "Check domain availability using RDAP with WHOIS fallback", long_about = None)]
 #[command(
     help_template = "{before-help}{name} {version}\n{author}\n{about}\n\n{usage-heading}\n  {usage}\n\n{all-args}{after-help}"
 )]
 pub struct Args {
-    #[arg(value_parser = validate_domain, help = "Domain name to check (without TLD for multiple TLD checking)")]
+    /// Domain name to check (without TLD for multiple TLD checking)
+    #[arg(value_parser = validate_domain)]
     pub domain: String,
 
-    #[arg(short = 't', long = "tld", num_args = 1.., value_delimiter = ' ', help = "Check availability with these TLDs")]
+    /// Check availability with these TLDs
+    #[arg(short = 't', long = "tld", num_args = 1.., value_delimiter = ' ')]
     pub tld: Option<Vec<String>>,
 
-    #[arg(short, long, help = "Output results in JSON format")]
+    /// Output results in JSON format
+    #[arg(short, long)]
     pub json: bool,
 
-    #[arg(
-        short = 'p',
-        long = "pretty",
-        help = "Enable colorful, formatted output"
-    )]
+    /// Enable colorful, formatted output
+    #[arg(short = 'p', long = "pretty")]
     pub pretty: bool,
 
-    // New flags
-    #[arg(
-        short = 'i',
-        long = "info",
-        help = "Show detailed domain information when available (for taken domains)"
-    )]
+    /// Show detailed domain information when available (for taken domains)
+    #[arg(short = 'i', long = "info")]
     pub info: bool,
 
-    #[arg(
-        short = 'b',
-        long = "bootstrap",
-        help = "Use IANA bootstrap to find RDAP endpoints for unknown TLDs"
-    )]
+    /// Use IANA bootstrap to find RDAP endpoints for unknown TLDs
+    #[arg(short = 'b', long = "bootstrap")]
     pub bootstrap: bool,
 
-    #[arg(
-        short = 'w',
-        long = "whois",
-        help = "Fallback to WHOIS when RDAP is unavailable"
-    )]
+    /// Fallback to WHOIS when RDAP is unavailable (deprecated, enabled by default)
+    #[arg(short = 'w', long = "whois")]
     pub whois_fallback: bool,
 
-    #[arg(
-        short = 'u',
-        long = "ui",
-        help = "Launch interactive terminal UI dashboard"
-    )]
+    /// Launch interactive terminal UI dashboard
+    #[arg(short = 'u', long = "ui")]
     pub ui: bool,
 
-    #[arg(
-        short = 'd',
-        long = "debug",
-        help = "Show detailed debug information and error messages"
-    )]
+    /// Show detailed debug information and error messages
+    #[arg(short = 'd', long = "debug")]
     pub debug: bool,
     
-    #[arg(
-        long = "nw",
-        help = "Disable automatic WHOIS fallback"
-    )]
+    /// Disable automatic WHOIS fallback
+    #[arg(long = "no-whois")]
     pub no_whois: bool,
 }
 
+/// Represents the status of a domain check
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct DomainStatus {
     domain: String,
@@ -83,6 +67,7 @@ struct DomainStatus {
     info: Option<DomainInfo>,
 }
 
+/// Detailed information about a domain
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct DomainInfo {
     registrar: Option<String>,
@@ -91,13 +76,13 @@ struct DomainInfo {
     status: Vec<String>,
 }
 
+/// Validates the domain format to ensure it's a valid domain name
 fn validate_domain(domain: &str) -> Result<String, String> {
     let domain = domain.trim();
     if domain.is_empty() {
         return Err("Domain name cannot be empty".into());
     }
 
-    // Fixed regex pattern - removed the escape character before the dot
     let re = regex::Regex::new(r"^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*$").unwrap();
 
     if !re.is_match(domain) {
@@ -107,6 +92,7 @@ fn validate_domain(domain: &str) -> Result<String, String> {
     Ok(domain.to_string())
 }
 
+/// Extracts the base name and TLD from a domain
 fn extract_parts(domain: &str) -> (String, Option<String>) {
     let parts: Vec<&str> = domain.split('.').collect();
     if parts.len() == 2 {
@@ -116,6 +102,7 @@ fn extract_parts(domain: &str) -> (String, Option<String>) {
     }
 }
 
+/// Normalizes domain names based on the provided base name and TLDs
 fn normalize_domains(
     base: &str,
     cli_tlds: &Option<Vec<String>>,
@@ -130,6 +117,7 @@ fn normalize_domains(
     }
 }
 
+/// Returns a map of TLDs to their RDAP endpoints
 fn rdap_registry_map() -> HashMap<&'static str, &'static str> {
     HashMap::from([
         // gTLDs
@@ -168,7 +156,7 @@ fn rdap_registry_map() -> HashMap<&'static str, &'static str> {
     ])
 }
 
-// Bootstrap Registry - Dynamically find RDAP endpoints for unknown TLDs
+/// Dynamically finds RDAP endpoints for unknown TLDs using IANA bootstrap registry
 async fn find_endpoint_for_tld(
     tld: &str,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -212,6 +200,8 @@ async fn find_endpoint_for_tld(
     Err("No RDAP endpoint found for this TLD".into())
 }
 
+/// Checks domain availability using RDAP protocol
+/// Returns (available, domain_info_json)
 async fn check_rdap(
     domain: &str,
     endpoint_base: &str,
@@ -233,9 +223,9 @@ async fn check_rdap(
     }
 }
 
-// WHOIS fallback implementation
+/// Checks domain availability using WHOIS
+/// Falls back to using command-line whois for reliability
 async fn check_whois(domain: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-    // We'll use a simple command-line whois call since it's reliable and available on most systems
     let output = tokio::process::Command::new("whois")
         .arg(domain)
         .output()
@@ -265,7 +255,7 @@ async fn check_whois(domain: &str) -> Result<bool, Box<dyn std::error::Error + S
     Ok(false)
 }
 
-// Extract domain information from RDAP response
+/// Extracts domain information from RDAP response
 fn extract_domain_info(json: &serde_json::Value) -> Option<DomainInfo> {
     let mut info = DomainInfo {
         registrar: None,
@@ -386,7 +376,7 @@ fn extract_domain_info(json: &serde_json::Value) -> Option<DomainInfo> {
     Some(info)
 }
 
-// Format domain information for display
+/// Formats domain information for display
 fn format_domain_info(info: &DomainInfo) -> String {
     let mut parts = Vec::new();
 
@@ -409,6 +399,7 @@ fn format_domain_info(info: &DomainInfo) -> String {
     parts.join(" | ")
 }
 
+/// Displays an interactive terminal UI dashboard for domain status information
 fn display_interactive_dashboard(
     domains: &[DomainStatus],
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -482,7 +473,7 @@ fn display_interactive_dashboard(
                     None => "Unknown",
                 };
 
-                // Create a default DomainInfo that lives for the entire scope
+                // Create a default DomainInfo for unavailable domains
                 let default_info = DomainInfo {
                     registrar: None,
                     creation_date: None,
@@ -490,7 +481,6 @@ fn display_interactive_dashboard(
                     status: Vec::new(),
                 };
 
-                // Use a reference to either the domain's info or our default info
                 let info = domain.info.as_ref().unwrap_or(&default_info);
 
                 let style = if i == selected_index {
@@ -499,7 +489,7 @@ fn display_interactive_dashboard(
                     Style::default()
                 };
 
-                // Create a longer-lived strings for the cells
+                // Create cell content
                 let registrar_text = info.registrar.clone().unwrap_or_else(|| "-".to_string());
                 let creation_text = info
                     .creation_date
@@ -563,15 +553,12 @@ fn display_interactive_dashboard(
                     }
                 }
                 KeyCode::Enter => {
-                    // Show detailed view of selected domain
-                    // Implementation details omitted for brevity
+                    // View details functionality can be implemented here
                 }
                 KeyCode::Char('s') => {
                     if selected_index < domains.len() {
-                        let domain = &domains[selected_index];
-                        if let Some(false) = domain.available {
-                            // Show domain suggestions
-                            // Implementation details omitted for brevity
+                        if let Some(false) = domains[selected_index].available {
+                            // Suggestion functionality can be implemented here
                         }
                     }
                 }
@@ -592,7 +579,7 @@ fn display_interactive_dashboard(
     Ok(())
 }
 
-// This function will control the concurrency of domain checks
+/// Controls the concurrency of domain checks with rate limiting
 async fn check_domains_with_control(
     domains: Vec<String>,
     args: Args,
@@ -601,7 +588,7 @@ async fn check_domains_with_control(
     let max_concurrent = 5; // Limit concurrent requests
     let semaphore = Arc::new(Semaphore::new(max_concurrent));
     let results = Arc::new(Mutex::new(Vec::new()));
-    let endpoint_last_used = Arc::new(Mutex::new(HashMap::<String, std::time::Instant>::new()));
+    let endpoint_last_used = Arc::new(Mutex::new(HashMap::<String, Instant>::new()));
     
     let mut handles = Vec::new();
     
@@ -619,7 +606,7 @@ async fn check_domains_with_control(
                 check_single_domain(&domain, &args, &registry_map, endpoint_last_used)
             ).await.unwrap_or_else(|_| {
                 // Timeout occurred
-                let mut status = DomainStatus {
+                let status = DomainStatus {
                     domain: domain.clone(),
                     available: None,
                     info: None,
@@ -636,7 +623,7 @@ async fn check_domains_with_control(
             let mut results_lock = results.lock().unwrap();
             results_lock.push(status);
             
-            // Release the semaphore permit
+            // Release the semaphore permit implicitly by dropping
             drop(permit);
         });
         
@@ -653,12 +640,12 @@ async fn check_domains_with_control(
     results_lock.clone()
 }
 
-// Handle checking a single domain with rate limiting for the same endpoint
+/// Checks a single domain using RDAP with WHOIS fallback
 async fn check_single_domain(
     domain: &str,
     args: &Args,
     registry_map: &HashMap<&'static str, &'static str>,
-    endpoint_last_used: Arc<Mutex<HashMap<String, std::time::Instant>>>,
+    endpoint_last_used: Arc<Mutex<HashMap<String, Instant>>>,
 ) -> DomainStatus {
     let parts: Vec<&str> = domain.split('.').collect();
     let tld = parts.last().unwrap_or(&"").to_string();
@@ -701,7 +688,7 @@ async fn check_single_domain(
         // Update last used time for this endpoint
         {
             let mut last_used_map = endpoint_last_used.lock().unwrap();
-            last_used_map.insert(endpoint.clone(), std::time::Instant::now());
+            last_used_map.insert(endpoint.clone(), Instant::now());
         }
         
         // Try RDAP check
@@ -728,7 +715,7 @@ async fn check_single_domain(
                     println!("⚠️ RDAP lookup failed for {}: {}", domain, e);
                 }
                 
-                // Try bootstrap or proceed to WHOIS
+                // Bootstrap or WHOIS fallback will be tried next
             }
         }
     } else if args.bootstrap && domain_status.available.is_none() {
@@ -737,11 +724,38 @@ async fn check_single_domain(
             println!("🔍 No known RDAP endpoint for .{}, trying bootstrap registry...", tld);
         }
         
-        // Implementation continues...
+        match find_endpoint_for_tld(&tld).await {
+            Ok(endpoint_base) => match check_rdap(domain, &endpoint_base).await {
+                Ok((true, _)) => {
+                    domain_status.available = Some(true);
+                    print_domain_available(domain, false, args, &green, &gray);
+                }
+                Ok((false, Some(json))) => {
+                    domain_status.available = Some(false);
+                    domain_status.info = extract_domain_info(&json);
+                    print_domain_taken(domain, false, args, &domain_status.info, &red, &blue, &gray);
+                }
+                Ok((false, None)) => {
+                    domain_status.available = Some(false);
+                    print_domain_taken(domain, false, args, &None, &red, &blue, &gray);
+                }
+                Err(e) => {
+                    if args.debug {
+                        println!("⚠️ Bootstrap RDAP lookup failed for {}: {}", domain, e);
+                    }
+                }
+            },
+            Err(e) => {
+                if args.debug {
+                    println!("⚠️ Failed to find RDAP endpoint for .{}: {}", tld, e);
+                }
+            }
+        }
     }
     
     // --- WHOIS Fallback ---
-    if domain_status.available.is_none() && !args.no_whois {
+    // Use WHOIS if RDAP failed and WHOIS is not disabled
+    if domain_status.available.is_none() && (!args.no_whois || args.whois_fallback) {
         if args.debug {
             println!("🔍 Trying WHOIS fallback for {}...", domain);
         }
@@ -774,7 +788,7 @@ async fn check_single_domain(
     domain_status
 }
 
-// Print domain available message
+/// Prints a message indicating a domain is available
 fn print_domain_available(
     domain: &str,
     via_whois: bool,
@@ -782,32 +796,22 @@ fn print_domain_available(
     green: &Style,
     gray: &Style,
 ) {
-    if !via_whois {
-        if args.info {
-            println!(
-                "{} {} is AVAILABLE {}",
-                green.apply_to("🟢"),
-                domain,
-                gray.apply_to("(No info available for unregistered domains)")
-            );
-        } else {
-            println!("{} {} is AVAILABLE", green.apply_to("🟢"), domain);
-        }
+    let suffix = if via_whois && args.debug { " (via WHOIS)" } else { "" };
+    
+    if args.info {
+        println!(
+            "{} {}{} is AVAILABLE {}",
+            green.apply_to("🟢"),
+            domain,
+            suffix,
+            gray.apply_to("(No info available for unregistered domains)")
+        );
     } else {
-        if args.info {
-            println!(
-                "{} {} is AVAILABLE {}",
-                green.apply_to("🟢"),
-                domain,
-                gray.apply_to("(No info available for unregistered domains)")
-            );
-        } else {
-            println!("{} {} is AVAILABLE", green.apply_to("🟢"), domain);
-        }
+        println!("{} {}{} is AVAILABLE", green.apply_to("🟢"), domain, suffix);
     }
 }
 
-// Print domain taken message
+/// Prints a message indicating a domain is taken
 fn print_domain_taken(
     domain: &str,
     via_whois: bool,
@@ -817,40 +821,40 @@ fn print_domain_taken(
     blue: &Style,
     gray: &Style,
 ) {
-    if !via_whois {
-        if args.info {
-            if let Some(domain_info) = info {
-                println!(
-                    "{} {} is TAKEN {}",
-                    red.apply_to("🔴"),
-                    domain,
-                    blue.apply_to(format_domain_info(domain_info))
-                );
-            } else {
-                println!(
-                    "{} {} is TAKEN {}",
-                    red.apply_to("🔴"),
-                    domain,
-                    gray.apply_to("(No info available)")
-                );
-            }
-        } else {
-            println!("{} {} is TAKEN", red.apply_to("🔴"), domain);
-        }
-    } else {
-        if args.info {
+    let suffix = if via_whois && args.debug { " (via WHOIS)" } else { "" };
+    
+    if args.info {
+        if via_whois {
             println!(
-                "{} {} is TAKEN {}",
+                "{} {}{} is TAKEN {}",
                 red.apply_to("🔴"),
                 domain,
+                suffix,
                 gray.apply_to("(Detailed info not available via WHOIS fallback)")
             );
+        } else if let Some(domain_info) = info {
+            println!(
+                "{} {}{} is TAKEN {}",
+                red.apply_to("🔴"),
+                domain,
+                suffix,
+                blue.apply_to(format_domain_info(domain_info))
+            );
         } else {
-            println!("{} {} is TAKEN", red.apply_to("🔴"), domain);
+            println!(
+                "{} {}{} is TAKEN {}",
+                red.apply_to("🔴"),
+                domain,
+                suffix,
+                gray.apply_to("(No info available)")
+            );
         }
+    } else {
+        println!("{} {}{} is TAKEN", red.apply_to("🔴"), domain, suffix);
     }
 }
 
+/// Main function to run the domain-check tool
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -873,7 +877,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Use our new concurrency-controlled domain checker
+    // Use concurrency-controlled domain checker
     let results = check_domains_with_control(domains, args.clone(), registry_map).await;
 
     if args.ui && !results.is_empty() {
