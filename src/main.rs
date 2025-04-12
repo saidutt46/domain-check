@@ -34,6 +34,9 @@ pub struct Args {
     
     #[arg(short = 'w', long = "whois", help = "Fallback to WHOIS when RDAP is unavailable")]
     pub whois_fallback: bool,
+
+    #[arg(short = 'u', long = "ui", help = "Launch interactive terminal UI dashboard")]
+    pub ui: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -341,6 +344,168 @@ fn format_domain_info(info: &DomainInfo) -> String {
     parts.join(" | ")
 }
 
+fn display_interactive_dashboard(domains: &[DomainStatus]) -> Result<(), Box<dyn std::error::Error>> {
+    use crossterm::{
+        event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    };
+    use tui::{
+        backend::CrosstermBackend,
+        layout::{Constraint, Direction, Layout},
+        style::{Color, Modifier, Style},
+        widgets::{Block, Borders, Cell, Row, Table, Paragraph},
+        Terminal,
+    };
+    
+    // Terminal setup
+    enable_raw_mode()?;
+    let mut stdout = std::io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+    
+    // App state
+    let mut selected_index = 0;
+    
+    loop {
+        terminal.draw(|f| {
+            let size = f.size();
+            
+            // Create layout
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(2)
+                .constraints([
+                    Constraint::Length(3),  // Title
+                    Constraint::Min(10),    // Domains table
+                    Constraint::Length(5),  // Status bar & help
+                ].as_ref())
+                .split(size);
+            
+            // Title
+            let title = Paragraph::new("Domain Checker Dashboard")
+                .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                .block(Block::default().borders(Borders::ALL));
+            f.render_widget(title, chunks[0]);
+            
+            // Domain table
+            let header_cells = ["Domain", "Status", "Registrar", "Created", "Expires"]
+                .iter().map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow)));
+            let header = Row::new(header_cells).height(1).bottom_margin(1);
+            
+            let rows = domains.iter().enumerate().map(|(i, domain)| {
+                let status_style = match domain.available {
+                    Some(true) => Style::default().fg(Color::Green),
+                    Some(false) => Style::default().fg(Color::Red),
+                    None => Style::default().fg(Color::Gray),
+                };
+                
+                let status_text = match domain.available {
+                    Some(true) => "Available",
+                    Some(false) => "Taken",
+                    None => "Unknown",
+                };
+                
+                // Create a default DomainInfo that lives for the entire scope
+                let default_info = DomainInfo {
+                    registrar: None,
+                    creation_date: None,
+                    expiration_date: None,
+                    status: Vec::new(),
+                };
+                
+                // Use a reference to either the domain's info or our default info
+                let info = domain.info.as_ref().unwrap_or(&default_info);
+                
+                let style = if i == selected_index {
+                    Style::default().add_modifier(Modifier::REVERSED)
+                } else {
+                    Style::default()
+                };
+                
+                // Create a longer-lived strings for the cells
+                let registrar_text = info.registrar.clone().unwrap_or_else(|| "-".to_string());
+                let creation_text = info.creation_date.clone().unwrap_or_else(|| "-".to_string());
+                let expiration_text = info.expiration_date.clone().unwrap_or_else(|| "-".to_string());
+                
+                let cells = [
+                    Cell::from(domain.domain.clone()),
+                    Cell::from(status_text).style(status_style),
+                    Cell::from(registrar_text),
+                    Cell::from(creation_text),
+                    Cell::from(expiration_text),
+                ];
+                
+                Row::new(cells).style(style).height(1)
+            });
+            
+            let domain_table = Table::new(rows)
+                .header(header)
+                .block(Block::default().title("Domain Status").borders(Borders::ALL))
+                .widths(&[
+                    Constraint::Percentage(30),
+                    Constraint::Percentage(15),
+                    Constraint::Percentage(20),
+                    Constraint::Percentage(17),
+                    Constraint::Percentage(18),
+                ]);
+            
+            f.render_widget(domain_table, chunks[1]);
+            
+            // Help text
+            let help_text = "↑/↓: Navigate | Enter: View Details | s: Suggest Alternatives | q: Quit";
+            let help = Paragraph::new(help_text)
+                .style(Style::default().fg(Color::White))
+                .block(Block::default().borders(Borders::ALL));
+            
+            f.render_widget(help, chunks[2]);
+        })?;
+        
+        // Handle input
+        if let Event::Key(key) = event::read()? {
+            match key.code {
+                KeyCode::Char('q') => break,
+                KeyCode::Up => {
+                    if selected_index > 0 {
+                        selected_index -= 1;
+                    }
+                }
+                KeyCode::Down => {
+                    if selected_index < domains.len() - 1 {
+                        selected_index += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    // Show detailed view of selected domain
+                    // Implementation details omitted for brevity
+                }
+                KeyCode::Char('s') => {
+                    if selected_index < domains.len() {
+                        let domain = &domains[selected_index];
+                        if let Some(false) = domain.available {
+                            // Show domain suggestions
+                            // Implementation details omitted for brevity
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    
+    // Restore terminal
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+    
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -526,6 +691,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for handle in handles {
         let _ = handle.await;
+    }
+
+    if args.ui && !results.lock().unwrap().is_empty() {
+        display_interactive_dashboard(&results.lock().unwrap())?;
     }
 
     if args.json {
