@@ -1,6 +1,6 @@
 [package]
 name = "domain-check"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Sai Dutt G.V gvs46@protonmail.com"]
 description = "A fast CLI to check domain availability via RDAP/WHOIS"
