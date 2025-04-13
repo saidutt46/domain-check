@@ -1,13 +1,16 @@
 use clap::Parser;
 use console::Style;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tokio::time::sleep;
-
 /// CLI arguments for domain-check
 #[derive(Parser, Debug, Clone)]
 #[command(name = "domain-check")]
@@ -16,46 +19,43 @@ use tokio::time::sleep;
 #[command(
     help_template = "{before-help}{name} {version}\n{author}\n{about}\n\n{usage-heading}\n  {usage}\n\n{all-args}{after-help}"
 )]
-pub struct Args {
-    /// Domain name to check (without TLD for multiple TLD checking)
-    #[arg(value_parser = validate_domain)]
-    pub domain: String,
 
-    /// Check availability with these TLDs
+pub struct Args {
+    #[arg(value_parser = validate_domain, required_unless_present = "file")]
+    pub domain: Option<String>,
+
     #[arg(short = 't', long = "tld", num_args = 1.., value_delimiter = ' ')]
     pub tld: Option<Vec<String>>,
 
-    /// Output results in JSON format
     #[arg(short, long)]
     pub json: bool,
 
-    /// Enable colorful, formatted output
     #[arg(short = 'p', long = "pretty")]
     pub pretty: bool,
 
-    /// Show detailed domain information when available (for taken domains)
     #[arg(short = 'i', long = "info")]
     pub info: bool,
 
-    /// Use IANA bootstrap to find RDAP endpoints for unknown TLDs
     #[arg(short = 'b', long = "bootstrap")]
     pub bootstrap: bool,
 
-    /// Fallback to WHOIS when RDAP is unavailable (deprecated, enabled by default)
     #[arg(short = 'w', long = "whois")]
     pub whois_fallback: bool,
 
-    /// Launch interactive terminal UI dashboard
     #[arg(short = 'u', long = "ui")]
     pub ui: bool,
 
-    /// Show detailed debug information and error messages
     #[arg(short = 'd', long = "debug")]
     pub debug: bool,
-    
-    /// Disable automatic WHOIS fallback
+
     #[arg(long = "no-whois")]
     pub no_whois: bool,
+
+    #[arg(short = 'f', long = "file")]
+    pub file: Option<PathBuf>,
+
+    #[arg(long = "concurrency", default_value_t = 10)]
+    pub concurrency: usize,
 }
 
 /// Represents the status of a domain check
@@ -399,6 +399,40 @@ fn format_domain_info(info: &DomainInfo) -> String {
     parts.join(" | ")
 }
 
+// Load domains from file with validation and TLD logic
+fn load_domains_from_file(file: PathBuf, tlds: &Option<Vec<String>>) -> Vec<String> {
+    let file = File::open(file).expect("❌ Failed to open domain file");
+    let reader = BufReader::new(file);
+    let mut all_domains = Vec::new();
+
+    for (index, line) in reader.lines().enumerate() {
+        let line = line.unwrap_or_default().trim().to_string();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        match validate_domain(&line) {
+            Ok(valid) => {
+                let (base, tld) = extract_parts(&valid);
+                if let Some(t) = tld {
+                    all_domains.push(format!("{}.{}", base, t));
+                } else if let Some(tlds_vec) = tlds {
+                    for t in tlds_vec {
+                        all_domains.push(format!("{}.{}", base, t));
+                    }
+                } else {
+                    all_domains.push(format!("{}.com", base));
+                }
+            }
+            Err(e) => {
+                eprintln!("⚠️  Skipping line {}: {}", index + 1, e);
+            }
+        }
+    }
+
+    all_domains
+}
+
 /// Displays an interactive terminal UI dashboard for domain status information
 fn display_interactive_dashboard(
     domains: &[DomainStatus],
@@ -580,62 +614,65 @@ fn display_interactive_dashboard(
 }
 
 /// Controls the concurrency of domain checks with rate limiting
-async fn check_domains_with_control(
+async fn check_domains_with_spinners(
     domains: Vec<String>,
     args: Args,
     registry_map: HashMap<&'static str, &'static str>,
 ) -> Vec<DomainStatus> {
-    let max_concurrent = 5; // Limit concurrent requests
-    let semaphore = Arc::new(Semaphore::new(max_concurrent));
+    let semaphore = Arc::new(Semaphore::new(args.concurrency));
     let results = Arc::new(Mutex::new(Vec::new()));
     let endpoint_last_used = Arc::new(Mutex::new(HashMap::<String, Instant>::new()));
-    
+    let m = Arc::new(MultiProgress::new());
+    let spinner_style = ProgressStyle::with_template("{spinner:.green} {msg}")
+        .unwrap()
+        .tick_strings(&["⠁", "⠂", "⠄", "⠂"]);
+
     let mut handles = Vec::new();
-    
+
     for domain in domains {
         let permit = semaphore.clone().acquire_owned().await.unwrap();
+        let pb = m.add(ProgressBar::new_spinner());
+        pb.set_style(spinner_style.clone());
+        pb.set_message(format!("⏳ Checking {}...", domain));
+        pb.enable_steady_tick(Duration::from_millis(80));
+
         let registry_map = registry_map.clone();
         let results = Arc::clone(&results);
         let endpoint_last_used = Arc::clone(&endpoint_last_used);
         let args = args.clone();
-        
+
         let handle = tokio::spawn(async move {
-            // Check domain with timeout
             let status = tokio::time::timeout(
-                Duration::from_secs(30), // Overall timeout for this domain check
-                check_single_domain(&domain, &args, &registry_map, endpoint_last_used)
-            ).await.unwrap_or_else(|_| {
-                // Timeout occurred
-                let status = DomainStatus {
-                    domain: domain.clone(),
-                    available: None,
-                    info: None,
-                };
-                
-                if args.debug {
-                    println!("⚠️ Timeout occurred while checking {}", domain);
-                }
-                
-                status
+                Duration::from_secs(30),
+                check_single_domain(&domain, &args, &registry_map, endpoint_last_used),
+            )
+            .await
+            .unwrap_or_else(|_| DomainStatus {
+                domain: domain.clone(),
+                available: None,
+                info: None,
             });
-            
-            // Store result
+
             let mut results_lock = results.lock().unwrap();
-            results_lock.push(status);
-            
-            // Release the semaphore permit implicitly by dropping
+            results_lock.push(status.clone());
+
+            let msg = match status.available {
+                Some(true) => format!("🟢 {} is AVAILABLE", domain),
+                Some(false) => format!("🔴 {} is TAKEN", domain),
+                None => format!("⚠️  {} could not be checked", domain),
+            };
+
+            pb.finish_with_message(msg);
             drop(permit);
         });
-        
+
         handles.push(handle);
     }
-    
-    // Wait for all tasks to complete
+
     for handle in handles {
         let _ = handle.await;
     }
-    
-    // Return the collected results
+
     let results_lock = results.lock().unwrap();
     results_lock.clone()
 }
@@ -858,27 +895,23 @@ fn print_domain_taken(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    let (base_name, tld_from_domain) = extract_parts(&args.domain);
-    let domains = normalize_domains(&base_name, &args.tld, tld_from_domain);
     let registry_map = rdap_registry_map();
 
-    if args.pretty {
-        println!("🔍 Checking domain availability for: {}", base_name);
-        println!(
-            "🔍 With TLDs: {}\n",
-            domains
-                .iter()
-                .map(|d| d.split('.').last().unwrap_or(""))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        if args.info {
-            println!("ℹ️ Detailed info will be shown for taken domains\n");
+    let domains = if let Some(file_path) = args.file.clone() {
+        if args.pretty {
+            println!("📄 Loading domains from file: {:?}\n", file_path);
         }
+        load_domains_from_file(file_path, &args.tld)
+    } else {
+        let (base_name, tld_from_domain) = extract_parts(&args.domain.clone().unwrap());
+        normalize_domains(&base_name, &args.tld, tld_from_domain)
+    };
+
+    if args.pretty && args.file.is_some() {
+        println!("🔍 Checking {} domains...\n", domains.len());
     }
 
-    // Use concurrency-controlled domain checker
-    let results = check_domains_with_control(domains, args.clone(), registry_map).await;
+    let results = check_domains_with_spinners(domains, args.clone(), registry_map).await;
 
     if args.ui && !results.is_empty() {
         display_interactive_dashboard(&results)?;
