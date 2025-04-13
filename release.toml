@@ -1,0 +1,8 @@
+sign-commit = false
+sign-tag = false
+push = true
+consolidate-commits = false
+
+tag-prefix = "v"
+pre-release-commit-message = "chore: release {{version}}"
+tag-message = "release: {{version}}"

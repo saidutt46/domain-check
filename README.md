@@ -13,6 +13,7 @@ A fast, robust CLI tool for checking domain availability using RDAP protocol wit
 - 🌐 **Automatic WHOIS Fallback** - Gracefully falls back to WHOIS when RDAP isn't available
 - 🔍 **Detailed Information** - Shows registrar, creation dates, expiration, and status
 - 🎯 **Multiple TLD Support** - Check domains across various TLDs in one command
+- 📋 **Bulk Domain Checking** - Process hundreds of domains from a text file
 - 💻 **Interactive Terminal UI** - Navigate and explore domains in a beautiful terminal interface
 - 🚀 **Optimized Concurrency** - Fast parallel processing with rate limiting and error handling
 - 📋 **JSON Output** - Machine-readable output for integration with other tools
@@ -56,17 +57,26 @@ Get detailed information about a domain:
 domain-check example.com -i
 ```
 
+Check multiple domains from a file:
+
+```bash
+domain-check --file domains.txt
+```
+
 ## Usage
 
 ```
 USAGE:
-  domain-check [OPTIONS] <DOMAIN>
+  domain-check [OPTIONS] [DOMAIN]
 
 ARGS:
-  <DOMAIN>  Domain name to check (without TLD for multiple TLD checking)
+  [DOMAIN]  Domain name to check (without TLD for multiple TLD checking)
 
 OPTIONS:
   -t, --tld <TLD>...       Check availability with these TLDs
+  -f, --file <FILE>        Input file with domains to check (one per line)
+  -c, --concurrency <N>    Max concurrent domain checks (default: 10, max: 100)
+      --force              Override the 500 domain limit for bulk operations
   -i, --info               Show detailed domain information when available
   -b, --bootstrap          Use IANA bootstrap to find RDAP endpoints for unknown TLDs
   -w, --whois              Fallback to WHOIS when RDAP is unavailable (deprecated, enabled by default)
@@ -121,6 +131,46 @@ Output:
 🔴 google.com is TAKEN Registrar: MarkMonitor Inc. | Created: 1997-09-15T04:00:00Z | Expires: 2028-09-14T04:00:00Z | Status: serverDeleteProhibited, serverTransferProhibited, serverUpdateProhibited
 ```
 
+### Bulk domain checking from file
+
+```bash
+domain-check --file domains.txt
+```
+
+Where domains.txt contains:
+```
+example.com
+mydomain
+startup.io
+# This is a comment
+test-site.org
+```
+
+Output:
+```
+Checking 4 domains from file...
+Using concurrency: 10 - Please wait...
+
+🔴 example.com is TAKEN
+🟢 mydomain.com is AVAILABLE
+🔴 startup.io is TAKEN
+🟢 test-site.org is AVAILABLE
+
+✅ 4 domains processed: 🟢 2 available, 🔴 2 taken, ⚠️ 0 unknown
+```
+
+### Bulk checking with high concurrency
+
+```bash
+domain-check --file many-domains.txt --concurrency 50
+```
+
+### Bulk checking with TLD specification
+
+```bash
+domain-check --file base-domains.txt --tld com org io
+```
+
 ### Interactive UI mode
 
 ```bash
@@ -160,6 +210,28 @@ domain-check example -j
 
 ## Advanced Usage
 
+### Bulk checking with domain files
+
+Create a text file with one domain per line:
+```
+mydomain.com
+product-name
+startup.io
+brand-new-idea
+# Comment lines are ignored
+my-app.dev
+```
+
+Then check all domains in a single command:
+```bash
+domain-check --file domains.txt --concurrency 20
+```
+
+For base domains without TLDs, you can specify which TLDs to check:
+```bash
+domain-check --file base-domains.txt --tld com net org io app
+```
+
 ### Checking available TLDs for a base name
 
 ```bash
@@ -187,6 +259,11 @@ The JSON output can be easily integrated with other tools:
 ```bash
 # Find all available domains and save to a file
 domain-check business -t com net org io xyz -j | jq '.[] | select(.available==true) | .domain' -r > available_domains.txt
+```
+
+```bash
+# Find all available domains and save to a file
+domain-check --file domains.txt -j | jq '.[] | select(.available==true) | .domain' -r > available_domains.txt
 ```
 
 ## How It Works
@@ -221,6 +298,8 @@ Additional TLDs can be checked using the bootstrap (`-b`) option.
 | Auto WHOIS Fallback | ✅ | ✅ | ❌ |
 | Detailed Info | ✅ | ❌ | ❌ |
 | Multiple TLDs | ✅ | ❌ | ✅ |
+| Bulk File Checking | ✅ | ❌ | ❌ |
+| Configurable Concurrency | ✅ | ❌ | ❌ |
 | Interactive UI | ✅ | ❌ | ❌ |
 | JSON Output | ✅ | ❌ | ✅ |
 | Concurrency Control | ✅ | ❌ | ❌ |
