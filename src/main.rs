@@ -3,6 +3,9 @@ use console::Style;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
@@ -19,7 +22,19 @@ use tokio::time::sleep;
 pub struct Args {
     /// Domain name to check (without TLD for multiple TLD checking)
     #[arg(value_parser = validate_domain)]
-    pub domain: String,
+    pub domain: Option<String>,
+
+    /// Input file with domains to check (one per line)
+    #[arg(short = 'f', long = "file")]
+    pub file: Option<String>,
+
+    /// Max concurrent domain checks (default: 10, max: 100)
+    #[arg(short = 'c', long = "concurrency", default_value = "10")]
+    pub concurrency: usize,
+
+    /// Override the 500 domain limit for bulk operations
+    #[arg(long = "force")]
+    pub force: bool,
 
     /// Check availability with these TLDs
     #[arg(short = 't', long = "tld", num_args = 1.., value_delimiter = ' ')]
@@ -602,8 +617,8 @@ async fn check_domains_with_control(
         let handle = tokio::spawn(async move {
             // Check domain with timeout
             let status = tokio::time::timeout(
-                Duration::from_secs(30), // Overall timeout for this domain check
-                check_single_domain(&domain, &args, &registry_map, endpoint_last_used)
+                Duration::from_secs(30),
+                check_single_domain(&domain, &args, &registry_map, endpoint_last_used, false) // Use false for regular mode
             ).await.unwrap_or_else(|_| {
                 // Timeout occurred
                 let status = DomainStatus {
@@ -646,6 +661,7 @@ async fn check_single_domain(
     args: &Args,
     registry_map: &HashMap<&'static str, &'static str>,
     endpoint_last_used: Arc<Mutex<HashMap<String, Instant>>>,
+    is_bulk_mode: bool, // New parameter to indicate if we're in bulk mode
 ) -> DomainStatus {
     let parts: Vec<&str> = domain.split('.').collect();
     let tld = parts.last().unwrap_or(&"").to_string();
@@ -696,18 +712,24 @@ async fn check_single_domain(
             Ok((true, _)) => {
                 // Domain is available
                 domain_status.available = Some(true);
-                print_domain_available(domain, false, args, &green, &gray);
+                if !is_bulk_mode { // Only print if NOT in bulk mode
+                    print_domain_available(domain, false, args, &green, &gray);
+                }
             }
             Ok((false, Some(json))) => {
                 // Domain is taken with info
                 domain_status.available = Some(false);
                 domain_status.info = extract_domain_info(&json);
-                print_domain_taken(domain, false, args, &domain_status.info, &red, &blue, &gray);
+                if !is_bulk_mode { // Only print if NOT in bulk mode
+                    print_domain_taken(domain, false, args, &domain_status.info, &red, &blue, &gray);
+                }
             }
             Ok((false, None)) => {
                 // Domain is taken without info
                 domain_status.available = Some(false);
-                print_domain_taken(domain, false, args, &None, &red, &blue, &gray);
+                if !is_bulk_mode { // Only print if NOT in bulk mode
+                    print_domain_taken(domain, false, args, &None, &red, &blue, &gray);
+                }
             }
             Err(e) => {
                 // RDAP check failed
@@ -728,16 +750,22 @@ async fn check_single_domain(
             Ok(endpoint_base) => match check_rdap(domain, &endpoint_base).await {
                 Ok((true, _)) => {
                     domain_status.available = Some(true);
-                    print_domain_available(domain, false, args, &green, &gray);
+                    if !is_bulk_mode { // Only print if NOT in bulk mode
+                        print_domain_available(domain, false, args, &green, &gray);
+                    }
                 }
                 Ok((false, Some(json))) => {
                     domain_status.available = Some(false);
                     domain_status.info = extract_domain_info(&json);
-                    print_domain_taken(domain, false, args, &domain_status.info, &red, &blue, &gray);
+                    if !is_bulk_mode { // Only print if NOT in bulk mode
+                        print_domain_taken(domain, false, args, &domain_status.info, &red, &blue, &gray);
+                    }
                 }
                 Ok((false, None)) => {
                     domain_status.available = Some(false);
-                    print_domain_taken(domain, false, args, &None, &red, &blue, &gray);
+                    if !is_bulk_mode { // Only print if NOT in bulk mode
+                        print_domain_taken(domain, false, args, &None, &red, &blue, &gray);
+                    }
                 }
                 Err(e) => {
                     if args.debug {
@@ -766,10 +794,12 @@ async fn check_single_domain(
         match check_whois(domain).await {
             Ok(available) => {
                 domain_status.available = Some(available);
-                if available {
-                    print_domain_available(domain, true, args, &green, &gray);
-                } else {
-                    print_domain_taken(domain, true, args, &None, &red, &blue, &gray);
+                if !is_bulk_mode { // Only print if NOT in bulk mode
+                    if available {
+                        print_domain_available(domain, true, args, &green, &gray);
+                    } else {
+                        print_domain_taken(domain, true, args, &None, &red, &blue, &gray);
+                    }
                 }
             }
             Err(e) => {
@@ -854,39 +884,306 @@ fn print_domain_taken(
     }
 }
 
-/// Main function to run the domain-check tool
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
-    let (base_name, tld_from_domain) = extract_parts(&args.domain);
-    let domains = normalize_domains(&base_name, &args.tld, tld_from_domain);
-    let registry_map = rdap_registry_map();
+/// Validates a domain from a file line
+fn validate_domain_line(line: &str, line_num: usize) -> Result<String, String> {
+    let line = line.trim();
+    
+    // Skip empty lines or comment lines
+    if line.is_empty() || line.starts_with('#') {
+        return Err(format!("Line {} is empty or a comment - skipping", line_num));
+    }
 
-    if args.pretty {
-        println!("🔍 Checking domain availability for: {}", base_name);
-        println!(
-            "🔍 With TLDs: {}\n",
-            domains
-                .iter()
-                .map(|d| d.split('.').last().unwrap_or(""))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        if args.info {
-            println!("ℹ️ Detailed info will be shown for taken domains\n");
+    // Use existing validation logic
+    validate_domain(line)
+}
+
+/// Reads domains from a text file
+fn read_domains_from_file(
+    file_path: &str, 
+    tlds: &Option<Vec<String>>, 
+    max_domains: usize, 
+    force: bool
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    // Check if file exists
+    let path = Path::new(file_path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path).into());
+    }
+
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let mut domains = Vec::new();
+    let mut invalid_lines = Vec::new();
+    let mut line_num = 0;
+
+    for line in reader.lines() {
+        line_num += 1;
+        match line {
+            Ok(line) => {
+                // Skip empty or comment lines
+                if line.trim().is_empty() || line.trim().starts_with('#') {
+                    continue;
+                }
+                
+                match validate_domain_line(&line, line_num) {
+                    Ok(domain) => {
+                        let (base_name, tld_from_domain) = extract_parts(&domain);
+                        
+                        // If domain already has a TLD, just use it
+                        if tld_from_domain.is_some() {
+                            domains.push(domain);
+                        } else if let Some(tld_list) = tlds {
+                            // No TLD in the domain, use the TLDs from command line
+                            for tld in tld_list {
+                                domains.push(format!("{}.{}", base_name, tld));
+                            }
+                        } else {
+                            // No TLD in domain and no TLDs specified, default to .com
+                            domains.push(format!("{}.com", base_name));
+                        }
+                    },
+                    Err(e) => {
+                        invalid_lines.push(format!("Line {}: {} - {}", line_num, line, e));
+                    }
+                }
+            },
+            Err(e) => {
+                invalid_lines.push(format!("Line {}: Error reading line - {}", line_num, e));
+            }
         }
     }
 
-    // Use concurrency-controlled domain checker
-    let results = check_domains_with_control(domains, args.clone(), registry_map).await;
-
-    if args.ui && !results.is_empty() {
-        display_interactive_dashboard(&results)?;
+    // Check domain count limit
+    if domains.len() > max_domains && !force {
+        return Err(format!(
+            "File contains {} domains, which exceeds the limit of {}. Use --force to override.", 
+            domains.len(), max_domains
+        ).into());
     }
 
-    if args.json {
+    // Log invalid lines
+    if !invalid_lines.is_empty() {
+        println!("⚠️ Found {} invalid entries in the file:", invalid_lines.len());
+        for invalid in &invalid_lines {
+            println!("  {}", invalid);
+        }
+        println!();
+    }
+
+    // Check if we have any valid domains
+    if domains.is_empty() {
+        return Err("No valid domains found in the file.".into());
+    }
+
+    Ok(domains)
+}
+
+/// Controls the concurrency of domain checks with rate limiting and simple text output
+async fn check_domains_in_bulk(
+    domains: Vec<String>,
+    args: Args,
+    registry_map: HashMap<&'static str, &'static str>,
+) -> Vec<DomainStatus> {
+    let max_concurrent = args.concurrency.min(100); // Cap at 100 concurrent requests
+    let semaphore = Arc::new(Semaphore::new(max_concurrent));
+    let results = Arc::new(Mutex::new(Vec::new()));
+    let endpoint_last_used = Arc::new(Mutex::new(HashMap::<String, Instant>::new()));
+    
+    // Print initial message for bulk check
+    if args.pretty && !args.json && !args.ui {
+        println!("Starting bulk domain check with concurrency: {}", max_concurrent);
+        println!("Results will stream as they complete:\n");
+    }
+    
+    let mut handles = Vec::new();
+    
+    for domain in domains {
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
+        let registry_map = registry_map.clone();
+        let results = Arc::clone(&results);
+        let endpoint_last_used = Arc::clone(&endpoint_last_used);
+        let args = args.clone();
+        
+        let handle = tokio::spawn(async move {
+            // Check domain with timeout
+            let status = tokio::time::timeout(
+                Duration::from_secs(30),
+                check_single_domain(&domain, &args, &registry_map, endpoint_last_used, true) // Use true for bulk mode
+            ).await.unwrap_or_else(|_| {
+                // Timeout occurred
+                let status = DomainStatus {
+                    domain: domain.clone(),
+                    available: None,
+                    info: None,
+                };
+                
+                if args.debug {
+                    println!("⚠️ Timeout occurred while checking {}", domain);
+                }
+                
+                status
+            });
+            
+            // Print result directly using local style instances
+            if !args.json && !args.ui {
+                // Create local style instances within the task
+                let green_local = Style::new().green().bold();
+                let red_local = Style::new().red().bold();
+                let blue_local = Style::new().blue();
+                let gray_local = Style::new().dim();
+                
+                match status.available {
+                    Some(true) => {
+                        if args.info {
+                            println!(
+                                "{} {}{} is AVAILABLE {}",
+                                green_local.apply_to("🟢"),
+                                domain,
+                                "",
+                                gray_local.apply_to("(No info available for unregistered domains)")
+                            );
+                        } else {
+                            println!("{} {} is AVAILABLE", green_local.apply_to("🟢"), domain);
+                        }
+                    },
+                    Some(false) => {
+                        if args.info {
+                            if let Some(domain_info) = &status.info {
+                                println!(
+                                    "{} {} is TAKEN {}",
+                                    red_local.apply_to("🔴"),
+                                    domain,
+                                    blue_local.apply_to(format_domain_info(domain_info))
+                                );
+                            } else {
+                                println!(
+                                    "{} {} is TAKEN {}",
+                                    red_local.apply_to("🔴"),
+                                    domain,
+                                    gray_local.apply_to("(No info available)")
+                                );
+                            }
+                        } else {
+                            println!("{} {} is TAKEN", red_local.apply_to("🔴"), domain);
+                        }
+                    },
+                    None => println!("⚠️ {} status unknown", domain),
+                }
+            }
+            
+            // Store result
+            let mut results_lock = results.lock().unwrap();
+            results_lock.push(status);
+            
+            // Release the semaphore permit implicitly by dropping
+            drop(permit);
+        });
+        
+        handles.push(handle);
+    }
+    
+    // Wait for all tasks to complete
+    for handle in handles {
+        let _ = handle.await;
+    }
+    
+    // Return the collected results
+    let results_lock = results.lock().unwrap();
+    results_lock.clone()
+}
+
+// main func
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = Args::parse();
+    let registry_map = rdap_registry_map();
+    
+    // Determine if we're in bulk mode or single domain mode
+    let domains = if let Some(file_path) = &args.file {
+        // Bulk mode from file
+        read_domains_from_file(file_path, &args.tld, 500, args.force)?
+    } else if let Some(domain_name) = &args.domain {
+        // Single domain mode (original behavior)
+        let (base_name, tld_from_domain) = extract_parts(domain_name);
+        normalize_domains(&base_name, &args.tld, tld_from_domain)
+    } else {
+        // No domain or file specified
+        return Err("You must specify either a domain to check or a file with domains (--file)".into());
+    };
+
+    // Display appropriate messages based on mode and flags
+    if args.file.is_some() {
+        // Bulk mode messages
+        if args.pretty {
+            println!("🔍 Checking {} domains from file", domains.len());
+        } else {
+            println!("Checking {} domains from file...", domains.len());
+        }
+
+        // Add mode-specific info
+        if args.ui {
+            println!("Interactive UI will be shown after processing completes.");
+        } else if args.json {
+            println!("JSON results will be shown after processing completes.");
+        }
+
+        // Add concurrency info
+        let concurrency = args.concurrency.min(100);
+        println!("Using concurrency: {} - Please wait...\n", concurrency);
+        
+        if args.info && args.pretty {
+            println!("ℹ️ Detailed info will be shown for taken domains\n");
+        }
+    } else {
+        // Single domain mode messages
+        if args.pretty {
+            println!("🔍 Checking domain availability for: {}", 
+                    domains.first().unwrap().split('.').next().unwrap_or(""));
+            println!(
+                "🔍 With TLDs: {}\n",
+                domains
+                    .iter()
+                    .map(|d| d.split('.').last().unwrap_or(""))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            
+            if args.info {
+                println!("ℹ️ Detailed info will be shown for taken domains\n");
+            }
+        } else {
+            // Basic acknowledgment for single domain mode
+            println!("Checking domain(s): {}\n", domains.join(", "));
+            
+            if args.ui {
+                println!("Interactive UI will be shown after processing completes.");
+            } else if args.json {
+                println!("JSON results will be shown after processing completes.");
+            }
+        }
+    }
+
+    // Use the appropriate checker based on mode
+    let results = if args.file.is_some() {
+        check_domains_in_bulk(domains, args.clone(), registry_map).await
+    } else {
+        check_domains_with_control(domains, args.clone(), registry_map).await
+    };
+
+    // Generate output based on flags
+    if args.ui && !results.is_empty() {
+        display_interactive_dashboard(&results)?;
+    } else if args.json {
         let json = serde_json::to_string_pretty(&results).unwrap();
         println!("\n{}", json);
+    } else if args.file.is_some() {
+        // Print summary for bulk mode
+        let available = results.iter().filter(|r| r.available == Some(true)).count();
+        let taken = results.iter().filter(|r| r.available == Some(false)).count();
+        let unknown = results.iter().filter(|r| r.available.is_none()).count();
+        
+        println!("\n✅ {} domains processed: 🟢 {} available, 🔴 {} taken, ⚠️ {} unknown", 
+                results.len(), available, taken, unknown);
     }
 
     Ok(())
