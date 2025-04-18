@@ -245,7 +245,7 @@ async fn find_endpoint_for_tld(
                                 if let Some(t_str) = t.as_str() {
                                     if t_str.to_lowercase() == tld.to_lowercase() {
                                         if let Some(urls) = service_array[1].as_array() {
-                                            if let Some(url) = urls.get(0).and_then(|u| u.as_str())
+                                            if let Some(url) = urls.first().and_then(|u| u.as_str())
                                             {
                                                 let endpoint = format!(
                                                     "{}/domain/",
@@ -391,7 +391,7 @@ fn extract_domain_info(json: &serde_json::Value) -> Option<DomainInfo> {
             if let Some(roles) = entity.get("roles").and_then(|r| r.as_array()) {
                 let is_registrar = roles
                     .iter()
-                    .any(|role| role.as_str().map_or(false, |s| s == "registrar"));
+                    .any(|role| role.as_str() == Some("registrar"));
 
                 if is_registrar {
                     // First try to get registrar name from vcardArray
@@ -405,7 +405,7 @@ fn extract_domain_info(json: &serde_json::Value) -> Option<DomainInfo> {
                                 if let Some(item_array) = item.as_array() {
                                     if item_array.len() >= 4 {
                                         if let Some(first) =
-                                            item_array.get(0).and_then(|f| f.as_str())
+                                            item_array.first().and_then(|f| f.as_str())
                                         {
                                             if first == "fn" {
                                                 return item_array
@@ -660,9 +660,7 @@ fn display_interactive_dashboard(
                     // Handle Ctrl+C
                     KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => break,
                     KeyCode::Up => {
-                        if selected_index > 0 {
-                            selected_index -= 1;
-                        }
+                        selected_index = selected_index.saturating_sub(1);
                     }
                     KeyCode::Down => {
                         if selected_index < domains.len() - 1 {
@@ -759,17 +757,15 @@ async fn check_domains_in_parallel(
                         } else {
                             println!("{} {} is AVAILABLE", green.apply_to("🟢"), domain);
                         }
+                    } else if args.info {
+                        println!(
+                            "{} {} is TAKEN {}",
+                            red.apply_to("🔴"),
+                            domain,
+                            gray.apply_to("(No info available via WHOIS fallback)")
+                        );
                     } else {
-                        if args.info {
-                            println!(
-                                "{} {} is TAKEN {}",
-                                red.apply_to("🔴"),
-                                domain,
-                                gray.apply_to("(No info available via WHOIS fallback)")
-                            );
-                        } else {
-                            println!("{} {} is TAKEN", red.apply_to("🔴"), domain);
-                        }
+                        println!("{} {} is TAKEN", red.apply_to("🔴"), domain);
                     }
                 }
                 
@@ -1097,11 +1093,9 @@ async fn check_domains_in_bulk(
     let unknown_count = Arc::new(AtomicUsize::new(0));
     
     // Print initial message for bulk check
-    if !args.json && !args.ui {
-        if args.pretty {
-            println!("Starting bulk domain check with concurrency: {}", max_concurrent);
-            println!("Results will stream as they complete:\n");
-        }
+    if !args.json && !args.ui && args.pretty {
+        println!("Starting bulk domain check with concurrency: {}", max_concurrent);
+        println!("Results will stream as they complete:\n");
     }
     
     // Group domains by TLD to optimize rate limiting
