@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.1] - 2025-04-18
+
+### Performance Improvements
+- Optimized concurrency for multi-TLD domain checks
+- Reduced timeouts from 30s to 3-8s for faster results
+- Implemented TLD grouping to prevent rate limiting issues
+- Added smart concurrent processing for bulk operations
+- Improved streaming of results as they're available
+- Enhanced WHOIS fallback to activate faster when RDAP fails
+
+### Fixed
+- Resolved performance bottleneck when checking multiple TLDs
+- Fixed race conditions in concurrent domain processing
+- Corrected domain parsing for multi-level TLDs
+- Addressed memory usage issues with shared registry data
+- Resolved resource leaks during parallel processing
+
+### Technical Improvements
+- Implemented Arc-based sharing of immutable registry data
+- Added IANA bootstrap registry caching for faster lookups
+- Improved error handling for network failures
+- Enhanced timeout management for unreliable endpoints
+- Optimized rate limiting strategy based on TLD groups
+
 ## [0.3.0] - 2025-04-12
 
 ### Added

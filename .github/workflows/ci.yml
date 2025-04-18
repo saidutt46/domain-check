@@ -1,33 +1,40 @@
 name: Continuous Integration
-
 on:
   push:
     branches: [ main, features/** ]
   pull_request:
     branches: [ main ]
-
 jobs:
   test:
     name: Build, Format, Clippy, and Test
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up Rust
-        uses: actions/setup-rust@11c383f81fa6e316da17fb3b677b5b0a765d2e35
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          rust-version: stable
-
+          components: rustfmt, clippy
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      
       - name: Build
         run: cargo build --verbose
-
+      
       - name: Lint
         run: cargo clippy --all-targets -- -D warnings
-
+      
       - name: Format Check
         run: cargo fmt -- --check
-
+      
       - name: Test
         run: cargo test --verbose

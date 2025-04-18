@@ -1,6 +1,6 @@
 [package]
 name = "domain-check"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 authors = ["Sai Dutt G.V gvs46@protonmail.com"]
 description = "A fast CLI to check domain availability via RDAP/WHOIS"
@@ -23,3 +23,5 @@ futures = "0.3"
 console = "0.15"
 crossterm = "0.27"
 tui = { version = "0.19", default-features = false, features = ['crossterm'] }
+lazy_static = "1.4.0"
+ctrlc = "3.4"

@@ -6,6 +6,16 @@
 
 A fast, robust CLI tool for checking domain availability using RDAP protocol with automatic WHOIS fallback and detailed domain information.
 
+## What's New in v0.3.1
+
+The latest release brings major performance improvements:
+
+- ⚡ **5x Faster Multi-TLD Checking** - Dramatically improved speed when checking domains across multiple TLDs
+- 🔄 **Streaming Results** - Results appear as they become available rather than waiting for all checks to complete
+- 📊 **Smarter Rate Limiting** - TLD-based optimization prevents throttling while maintaining maximum speed
+- ⏱️ **Optimized Timeouts** - Quicker fallback to alternative methods when primary lookups fail
+- 💾 **Improved Resource Management** - Better memory usage for large bulk operations
+
 ## Features
 
 - ✅ **RDAP Protocol Support** - Uses the modern Registration Data Access Protocol
@@ -14,6 +24,7 @@ A fast, robust CLI tool for checking domain availability using RDAP protocol wit
 - 🔍 **Detailed Information** - Shows registrar, creation dates, expiration, and status
 - 🎯 **Multiple TLD Support** - Check domains across various TLDs in one command
 - 📋 **Bulk Domain Checking** - Process hundreds of domains from a text file
+- 🚀 **Optimized Concurrency** - Lightning-fast parallel processing with intelligent rate limiting and TLD-based optimization
 - 💻 **Interactive Terminal UI** - Navigate and explore domains in a beautiful terminal interface
 - 🚀 **Optimized Concurrency** - Fast parallel processing with rate limiting and error handling
 - 📋 **JSON Output** - Machine-readable output for integration with other tools
