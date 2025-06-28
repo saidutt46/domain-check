@@ -158,30 +158,48 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          echo "Publishing domain-check-lib..."
-          cargo publish -p domain-check-lib
+          echo "Checking if domain-check-lib is already published..."
+          VERSION="${{ needs.validate.outputs.version }}"
+          
+          # Check if this exact version exists on crates.io
+          if cargo search domain-check-lib | grep -q "domain-check-lib = \"$VERSION\""; then
+            echo "✅ domain-check-lib $VERSION already published, skipping..."
+          else
+            echo "Publishing domain-check-lib..."
+            cargo publish -p domain-check-lib
+          fi
 
       - name: Wait for crates.io indexing
         run: |
-          echo "Waiting for crates.io to index domain-check-lib..."
-          sleep 60
+          VERSION="${{ needs.validate.outputs.version }}"
           
-          # Verify the library is available
-          for i in {1..10}; do
-            if cargo search domain-check-lib | grep -q "domain-check-lib"; then
-              echo "Library successfully indexed!"
-              break
-            fi
-            echo "Attempt $i: Library not indexed yet, waiting..."
-            sleep 30
-          done
+          # Only wait if we just published
+          if ! cargo search domain-check-lib | grep -q "domain-check-lib = \"$VERSION\""; then
+            echo "Waiting for crates.io to index domain-check-lib..."
+            sleep 60
+            
+            # Verify the library is available
+            for i in {1..10}; do
+              if cargo search domain-check-lib | grep -q "domain-check-lib = \"$VERSION\""; then
+                echo "Library successfully indexed!"
+                break
+              fi
+              echo "Attempt $i: Library not indexed yet, waiting..."
+              sleep 30
+            done
+          else
+            echo "Library already indexed, skipping wait..."
+          fi
 
       - name: Update CLI dependency version
         run: |
-          # Update the CLI's dependency to use the published version
-          sed -i 's/domain-check-lib = { path = "..\/domain-check-lib", version = "=0.4.0" }/domain-check-lib = "0.4.0"/' domain-check/Cargo.toml
+          VERSION="${{ needs.validate.outputs.version }}"
+          
+          # Dynamic version matching
+          sed -i "s/domain-check-lib = { path = \"..\/domain-check-lib\", version = \"[^\"]*\" }/domain-check-lib = \"$VERSION\"/" domain-check/Cargo.toml
           
           # Verify the change
+          echo "Updated domain-check/Cargo.toml:"
           grep "domain-check-lib" domain-check/Cargo.toml
 
       - name: Build CLI with published library
@@ -193,8 +211,17 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          echo "Publishing domain-check..."
-          cargo publish -p domain-check
+          echo "Checking if domain-check is already published..."
+          VERSION="${{ needs.validate.outputs.version }}"
+          
+          # Check if this exact version exists on crates.io
+          if cargo search domain-check | grep -q "^domain-check = \"$VERSION\""; then
+            echo "✅ domain-check $VERSION already published, skipping..."
+          else
+            echo "Publishing domain-check..."
+            cd domain-check
+            cargo publish
+          fi
 
   # Create GitHub release
   create-release:
