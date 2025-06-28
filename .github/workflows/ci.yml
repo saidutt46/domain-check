@@ -249,11 +249,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
 
-      - name: Install cargo-minimal-versions
-        run: cargo install cargo-minimal-versions
+      - name: Install cargo-hack
+        run: cargo install cargo-hack
 
       - name: Check minimal versions
-        run: cargo minimal-versions check --workspace
+        run: cargo hack check --workspace
 
   # Coverage (optional - can be heavy)
   coverage:
