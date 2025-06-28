@@ -185,28 +185,34 @@ jobs:
           # Test info flag
           ./target/release/domain-check google.com --info
 
-      - name: Test library integration
-        run: |
-          # Create a simple integration test
-          cat > /tmp/integration_test.rs << 'EOF'
-          use domain_check_lib::DomainChecker;
-          
-          #[tokio::main]
-          async fn main() -> Result<(), Box<dyn std::error::Error>> {
-              let checker = DomainChecker::new();
-              let result = checker.check_domain("example.com").await?;
-              println!("Domain check result: {:?}", result.available);
-              Ok(())
-          }
-          EOF
-          
-          # Test that library can be used externally
-          cd /tmp
-          cargo init --name integration_test
-          echo 'domain-check-lib = { path = "'${{ github.workspace }}/domain-check-lib" }' >> Cargo.toml
-          echo 'tokio = { version = "1", features = ["full"] }' >> Cargo.toml
-          cp integration_test.rs src/main.rs
-          cargo run
+          - name: Test library integration
+          run: |
+            # Create a simple integration test
+            cat > /tmp/integration_test.rs << 'EOF'
+            use domain_check_lib::DomainChecker;
+            
+            #[tokio::main]
+            async fn main() -> Result<(), Box<dyn std::error::Error>> {
+                let checker = DomainChecker::new();
+                let result = checker.check_domain("example.com").await?;
+                println!("Domain check result: {:?}", result.available);
+                Ok(())
+            }
+            EOF
+            
+            # Test that library can be used externally
+            cd /tmp
+            cargo init --name integration_test
+            
+            # Add dependencies with proper quoting
+            cat >> Cargo.toml << EOF
+            domain-check-lib = { path = "${{ github.workspace }}/domain-check-lib" }
+            tokio = { version = "1", features = ["full"] }
+            EOF
+            
+            # Copy test file and run
+            cp integration_test.rs src/main.rs
+            cargo run
 
   # Check documentation
   docs:
