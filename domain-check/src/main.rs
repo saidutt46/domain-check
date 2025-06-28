@@ -438,10 +438,19 @@ fn display_single_result(result: &domain_check_lib::DomainResult, args: &Args) -
             }
         }
         None => {
-            if args.pretty {
-                println!("⚠️ {} status UNKNOWN", result.domain);
+            // Handle unknown status with error message
+            if let Some(error_msg) = &result.error_message {
+                if args.pretty {
+                    println!("⚠️ {} status UNKNOWN ({})", result.domain, error_msg);
+                } else {
+                    println!("{} UNKNOWN ({})", result.domain, error_msg);
+                }
             } else {
-                println!("{} UNKNOWN", result.domain);
+                if args.pretty {
+                    println!("⚠️ {} status UNKNOWN", result.domain);
+                } else {
+                    println!("{} UNKNOWN", result.domain);
+                }
             }
         }
     }
@@ -458,6 +467,7 @@ fn display_single_result(result: &domain_check_lib::DomainResult, args: &Args) -
     
     Ok(())
 }
+
 fn display_results(results: &[domain_check_lib::DomainResult], args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     if args.json {
         display_json_results(results)?;

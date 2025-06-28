@@ -192,49 +192,71 @@ impl fmt::Display for DomainCheckError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidDomain { domain, reason } => {
-                write!(f, "Invalid domain '{}': {}", domain, reason)
+                write!(f, "❌ '{}' is not a valid domain name: {}\n   💡 Try something like 'example.com' or use a different domain", domain, reason)
             }
             Self::NetworkError { message, source } => {
-                if let Some(source) = source {
-                    write!(f, "Network error: {} (source: {})", message, source)
+                if message.to_lowercase().contains("connection") || message.to_lowercase().contains("connect") {
+                    write!(f, "🌐 Cannot connect to the internet\n   💡 Please check your network connection and try again")
+                } else if message.to_lowercase().contains("timeout") {
+                    write!(f, "⏱️ Request timed out\n   💡 Your internet connection may be slow. Try again or check fewer domains at once")
                 } else {
-                    write!(f, "Network error: {}", message)
+                    match source {
+                        Some(source) => write!(f, "🌐 Network error: {}\n   💡 Please check your internet connection", message),
+                        None => write!(f, "🌐 Network error: {}\n   💡 Please check your internet connection", message),
+                    }
                 }
             }
             Self::RdapError { domain, message, status_code } => {
-                if let Some(code) = status_code {
-                    write!(f, "RDAP error for '{}' (HTTP {}): {}", domain, code, message)
-                } else {
-                    write!(f, "RDAP error for '{}': {}", domain, message)
+                match status_code {
+                    Some(404) => write!(f, "✅ {}: Domain appears to be available", domain),
+                    Some(429) => write!(f, "⏳ {}: Registry is rate limiting requests\n   💡 Please wait a moment and try again", domain),
+                    Some(500..=599) => write!(f, "⚠️ {}: Registry server is temporarily unavailable\n   💡 Trying backup method...", domain),
+                    Some(code) => write!(f, "⚠️ {}: Registry returned error (HTTP {})\n   💡 This domain registry may be temporarily unavailable", domain, code),
+                    None => write!(f, "⚠️ {}: {}\n   💡 Trying alternative checking method...", domain, message),
                 }
             }
             Self::WhoisError { domain, message } => {
-                write!(f, "WHOIS error for '{}': {}", domain, message)
+                if message.to_lowercase().contains("not found") || message.to_lowercase().contains("no match") {
+                    write!(f, "✅ {}: Domain appears to be available", domain)
+                } else if message.to_lowercase().contains("rate limit") || message.to_lowercase().contains("too many") {
+                    write!(f, "⏳ {}: WHOIS server is rate limiting requests\n   💡 Please wait a moment and try again", domain)
+                } else if message.to_lowercase().contains("whois") && message.to_lowercase().contains("not found") {
+                    write!(f, "⚠️ {}: WHOIS command not found on this system\n   💡 Please install whois or use online domain checkers", domain)
+                } else {
+                    write!(f, "⚠️ {}: WHOIS lookup failed\n   💡 This may indicate the domain is available or the server is busy", domain)
+                }
             }
             Self::BootstrapError { tld, message } => {
-                write!(f, "Bootstrap error for TLD '{}': {}", tld, message)
+                write!(f, "❓ Unknown domain extension '.{}'\n   💡 This TLD may not support automated checking. Try manually checking with a registrar", tld)
             }
             Self::ParseError { message, content: _ } => {
-                write!(f, "Parse error: {}", message)
+                write!(f, "⚠️ Unable to understand server response\n   💡 The domain registry may be experiencing issues. Please try again later")
             }
             Self::ConfigError { message } => {
-                write!(f, "Configuration error: {}", message)
+                write!(f, "⚙️ Configuration error: {}\n   💡 Please check your command line arguments", message)
             }
             Self::FileError { path, message } => {
-                write!(f, "File error at '{}': {}", path, message)
+                if message.to_lowercase().contains("not found") || message.to_lowercase().contains("no such file") {
+                    write!(f, "📁 File not found: {}\n   💡 Please check the file path and make sure the file exists", path)
+                } else if message.to_lowercase().contains("permission") {
+                    write!(f, "🔒 Permission denied: {}\n   💡 Please check file permissions or try running with appropriate access", path)
+                } else if message.to_lowercase().contains("no valid domains") {
+                    write!(f, "📄 No valid domains found in: {}\n   💡 Make sure the file contains domain names (one per line) and check the format", path)
+                } else {
+                    write!(f, "📁 File error ({}): {}\n   💡 Please check the file and try again", path, message)
+                }
             }
             Self::Timeout { operation, duration } => {
-                write!(f, "Timeout after {:?} during: {}", duration, operation)
+                write!(f, "⏱️ Operation timed out after {:?}: {}\n   💡 Try reducing the number of domains or check your internet connection", duration, operation)
             }
             Self::RateLimited { service, message, retry_after } => {
-                if let Some(retry) = retry_after {
-                    write!(f, "Rate limited by {} (retry after {:?}): {}", service, retry, message)
-                } else {
-                    write!(f, "Rate limited by {}: {}", service, message)
+                match retry_after {
+                    Some(retry) => write!(f, "⏳ Rate limited by {}: {}\n   💡 Please wait {:?} and try again", service, message, retry),
+                    None => write!(f, "⏳ Rate limited by {}: {}\n   💡 Please wait a moment and try again", service, message),
                 }
             }
             Self::Internal { message } => {
-                write!(f, "Internal error: {}", message)
+                write!(f, "🔧 Internal error: {}\n   💡 This is unexpected. Please try again or report this issue", message)
             }
         }
     }

@@ -126,6 +126,29 @@ impl WhoisClient {
     /// whether a domain is available or taken. WHOIS responses vary significantly
     /// between registries, so this uses a comprehensive set of patterns.
     fn parse_whois_availability(&self, whois_output: &str) -> Result<bool, DomainCheckError> {
+        let output_lower = whois_output.to_lowercase();
+        
+        // First check for invalid TLD or server errors
+        let invalid_tld_patterns = [
+            "no whois server is known",
+            "no whois server",
+            "invalid tld",
+            "unknown tld",
+            "tld not found",
+            "no such tld",
+            "bad tld",
+            "invalid domain extension",
+        ];
+
+        for pattern in &invalid_tld_patterns {
+            if output_lower.contains(pattern) {
+                return Err(DomainCheckError::bootstrap(
+                    "unknown", 
+                    "Invalid or unsupported TLD for WHOIS lookup"
+                ));
+            }
+        }
+
         // Patterns that typically indicate domain availability
         let available_patterns = [
             "no match",
@@ -168,14 +191,14 @@ impl WhoisClient {
 
         // Check for availability patterns first (more specific)
         for pattern in &available_patterns {
-            if whois_output.contains(pattern) {
+            if output_lower.contains(pattern) {
                 return Ok(true);
             }
         }
 
         // Check for taken patterns
         let taken_pattern_count = taken_patterns.iter()
-            .filter(|pattern| whois_output.contains(*pattern))
+            .filter(|pattern| output_lower.contains(*pattern))
             .count();
 
         // If we found multiple "taken" indicators, the domain is likely taken
@@ -184,13 +207,16 @@ impl WhoisClient {
         }
 
         // If the output is very short, it might indicate availability
-        if whois_output.trim().len() < 50 {
+        if output_lower.trim().len() < 50 {
             return Ok(true);
         }
 
-        // Default to taken if we can't determine (conservative approach)
-        // This is safer than incorrectly reporting an available domain
-        Ok(false)
+        // For truly ambiguous cases, return an error instead of guessing
+        // This prevents false positives for invalid domains
+        Err(DomainCheckError::whois(
+            "unknown", 
+            "Unable to determine domain status from WHOIS response"
+        ))
     }
 
     /// Check if the WHOIS output indicates rate limiting.

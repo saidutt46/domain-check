@@ -46,10 +46,11 @@ async fn check_single_domain_concurrent(
                         }
                         Ok(filtered_result)
                     }
-                    Err(_whois_error) => {
-                        // Both RDAP and WHOIS failed, return the most informative error
-                        if rdap_error.indicates_available() {
-                            // RDAP error suggests domain is available
+                    Err(whois_error) => {
+                        // Both RDAP and WHOIS failed, determine best response
+                        
+                        // Check if either error indicates the domain is available
+                        if rdap_error.indicates_available() || whois_error.indicates_available() {
                             Ok(DomainResult {
                                 domain: domain.to_string(),
                                 available: Some(true),
@@ -58,7 +59,22 @@ async fn check_single_domain_concurrent(
                                 method_used: CheckMethod::Rdap,
                                 error_message: None,
                             })
-                        } else {
+                        }
+                        // Check if it's an unknown TLD or truly ambiguous case
+                        else if matches!(rdap_error, DomainCheckError::BootstrapError { .. }) ||
+                                matches!(whois_error, DomainCheckError::BootstrapError { .. }) ||
+                                whois_error.to_string().contains("Unable to determine domain status") {
+                            // Return unknown status for invalid TLDs or ambiguous cases
+                            Ok(DomainResult {
+                                domain: domain.to_string(),
+                                available: None, // Unknown status
+                                info: None,
+                                check_duration: None,
+                                method_used: CheckMethod::Unknown,
+                                error_message: Some("Unknown TLD or unable to determine status".to_string()),
+                            })
+                        }
+                        else {
                             // Return the RDAP error as it's usually more informative
                             Err(rdap_error)
                         }
@@ -176,6 +192,7 @@ impl DomainChecker {
     /// - The domain name is invalid
     /// - Network errors occur
     /// - All checking methods fail
+    /// Check availability of a single domain.
     pub async fn check_domain(&self, domain: &str) -> Result<DomainResult, DomainCheckError> {
         // Validate domain format first
         validate_domain(domain)?;
@@ -193,10 +210,11 @@ impl DomainChecker {
                         Ok(whois_result) => {
                             Ok(self.filter_result_info(whois_result))
                         }
-                        Err(_whois_error) => {
-                            // Both RDAP and WHOIS failed, return the most informative error
-                            if rdap_error.indicates_available() {
-                                // RDAP error suggests domain is available
+                        Err(whois_error) => {
+                            // Both RDAP and WHOIS failed, determine best response
+                            
+                            // Check if either error indicates the domain is available
+                            if rdap_error.indicates_available() || whois_error.indicates_available() {
                                 Ok(DomainResult {
                                     domain: domain.to_string(),
                                     available: Some(true),
@@ -205,8 +223,23 @@ impl DomainChecker {
                                     method_used: CheckMethod::Rdap,
                                     error_message: None,
                                 })
-                            } else {
-                                // Return the RDAP error as it's usually more informative
+                            }
+                            // Check if it's an unknown TLD or truly ambiguous case
+                            else if matches!(rdap_error, DomainCheckError::BootstrapError { .. }) ||
+                                    matches!(whois_error, DomainCheckError::BootstrapError { .. }) ||
+                                    whois_error.to_string().contains("Unable to determine domain status") {
+                                // Return unknown status for invalid TLDs or ambiguous cases
+                                Ok(DomainResult {
+                                    domain: domain.to_string(),
+                                    available: None, // Unknown status
+                                    info: None,
+                                    check_duration: None,
+                                    method_used: CheckMethod::Unknown,
+                                    error_message: Some("Unknown TLD or unable to determine status".to_string()),
+                                })
+                            }
+                            else {
+                                // Return the most informative error
                                 Err(rdap_error)
                             }
                         }
