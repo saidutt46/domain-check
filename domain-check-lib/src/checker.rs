@@ -3,9 +3,9 @@
 //! This module provides the primary `DomainChecker` struct that orchestrates
 //! domain availability checking using RDAP, WHOIS, and bootstrap protocols.
 
-use crate::types::{CheckConfig, DomainResult, CheckMethod};
 use crate::error::DomainCheckError;
 use crate::protocols::{RdapClient, WhoisClient};
+use crate::types::{CheckConfig, CheckMethod, DomainResult};
 use crate::utils::validate_domain;
 use futures::stream::{Stream, StreamExt};
 use std::pin::Pin;
@@ -24,7 +24,7 @@ async fn check_single_domain_concurrent(
 ) -> Result<DomainResult, DomainCheckError> {
     // Validate domain format first
     validate_domain(domain)?;
-    
+
     // Try RDAP first
     match rdap_client.check_domain(domain).await {
         Ok(result) => {
@@ -48,7 +48,7 @@ async fn check_single_domain_concurrent(
                     }
                     Err(whois_error) => {
                         // Both RDAP and WHOIS failed, determine best response
-                        
+
                         // Check if either error indicates the domain is available
                         if rdap_error.indicates_available() || whois_error.indicates_available() {
                             Ok(DomainResult {
@@ -61,9 +61,12 @@ async fn check_single_domain_concurrent(
                             })
                         }
                         // Check if it's an unknown TLD or truly ambiguous case
-                        else if matches!(rdap_error, DomainCheckError::BootstrapError { .. }) ||
-                                matches!(whois_error, DomainCheckError::BootstrapError { .. }) ||
-                                whois_error.to_string().contains("Unable to determine domain status") {
+                        else if matches!(rdap_error, DomainCheckError::BootstrapError { .. })
+                            || matches!(whois_error, DomainCheckError::BootstrapError { .. })
+                            || whois_error
+                                .to_string()
+                                .contains("Unable to determine domain status")
+                        {
                             // Return unknown status for invalid TLDs or ambiguous cases
                             Ok(DomainResult {
                                 domain: domain.to_string(),
@@ -71,10 +74,11 @@ async fn check_single_domain_concurrent(
                                 info: None,
                                 check_duration: None,
                                 method_used: CheckMethod::Unknown,
-                                error_message: Some("Unknown TLD or unable to determine status".to_string()),
+                                error_message: Some(
+                                    "Unknown TLD or unable to determine status".to_string(),
+                                ),
                             })
-                        }
-                        else {
+                        } else {
                             // Return the RDAP error as it's usually more informative
                             Err(rdap_error)
                         }
@@ -132,14 +136,14 @@ impl DomainChecker {
         let rdap_client = RdapClient::with_config(config.rdap_timeout, config.enable_bootstrap)
             .expect("Failed to create RDAP client");
         let whois_client = WhoisClient::with_timeout(config.whois_timeout);
-        
+
         Self {
             config,
             rdap_client,
             whois_client,
         }
     }
-    
+
     /// Create a new domain checker with custom configuration.
     ///
     /// # Example
@@ -159,14 +163,14 @@ impl DomainChecker {
         let rdap_client = RdapClient::with_config(config.rdap_timeout, config.enable_bootstrap)
             .expect("Failed to create RDAP client");
         let whois_client = WhoisClient::with_timeout(config.whois_timeout);
-        
-        Self { 
+
+        Self {
             config,
             rdap_client,
             whois_client,
         }
     }
-    
+
     /// Check availability of a single domain.
     ///
     /// This is the most basic operation - check one domain and return the result.
@@ -192,11 +196,10 @@ impl DomainChecker {
     /// - The domain name is invalid
     /// - Network errors occur
     /// - All checking methods fail
-    /// Check availability of a single domain.
     pub async fn check_domain(&self, domain: &str) -> Result<DomainResult, DomainCheckError> {
         // Validate domain format first
         validate_domain(domain)?;
-        
+
         // Try RDAP first
         match self.rdap_client.check_domain(domain).await {
             Ok(result) => {
@@ -207,14 +210,13 @@ impl DomainChecker {
                 // RDAP failed, try WHOIS fallback if enabled
                 if self.config.enable_whois_fallback {
                     match self.whois_client.check_domain(domain).await {
-                        Ok(whois_result) => {
-                            Ok(self.filter_result_info(whois_result))
-                        }
+                        Ok(whois_result) => Ok(self.filter_result_info(whois_result)),
                         Err(whois_error) => {
                             // Both RDAP and WHOIS failed, determine best response
-                            
+
                             // Check if either error indicates the domain is available
-                            if rdap_error.indicates_available() || whois_error.indicates_available() {
+                            if rdap_error.indicates_available() || whois_error.indicates_available()
+                            {
                                 Ok(DomainResult {
                                     domain: domain.to_string(),
                                     available: Some(true),
@@ -225,9 +227,12 @@ impl DomainChecker {
                                 })
                             }
                             // Check if it's an unknown TLD or truly ambiguous case
-                            else if matches!(rdap_error, DomainCheckError::BootstrapError { .. }) ||
-                                    matches!(whois_error, DomainCheckError::BootstrapError { .. }) ||
-                                    whois_error.to_string().contains("Unable to determine domain status") {
+                            else if matches!(rdap_error, DomainCheckError::BootstrapError { .. })
+                                || matches!(whois_error, DomainCheckError::BootstrapError { .. })
+                                || whois_error
+                                    .to_string()
+                                    .contains("Unable to determine domain status")
+                            {
                                 // Return unknown status for invalid TLDs or ambiguous cases
                                 Ok(DomainResult {
                                     domain: domain.to_string(),
@@ -235,10 +240,11 @@ impl DomainChecker {
                                     info: None,
                                     check_duration: None,
                                     method_used: CheckMethod::Unknown,
-                                    error_message: Some("Unknown TLD or unable to determine status".to_string()),
+                                    error_message: Some(
+                                        "Unknown TLD or unable to determine status".to_string(),
+                                    ),
                                 })
-                            }
-                            else {
+                            } else {
                                 // Return the most informative error
                                 Err(rdap_error)
                             }
@@ -251,7 +257,7 @@ impl DomainChecker {
             }
         }
     }
-    
+
     /// Filter domain result info based on configuration.
     ///
     /// If detailed_info is disabled, removes the info field to keep results clean.
@@ -261,7 +267,7 @@ impl DomainChecker {
         }
         result
     }
-    
+
     /// Check availability of multiple domains concurrently.
     ///
     /// This method processes all domains in parallel according to the
@@ -283,7 +289,7 @@ impl DomainChecker {
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///     let checker = DomainChecker::new();
-    ///     let domains = vec!["example.com", "google.com", "test.org"];
+    ///     let domains = vec!["example.com".to_string(), "google.com".to_string(), "test.org".to_string()];
     ///     let results = checker.check_domains(&domains).await?;
     ///     
     ///     for result in results {
@@ -292,7 +298,10 @@ impl DomainChecker {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn check_domains(&self, domains: &[String]) -> Result<Vec<DomainResult>, DomainCheckError> {
+    pub async fn check_domains(
+        &self,
+        domains: &[String],
+    ) -> Result<Vec<DomainResult>, DomainCheckError> {
         if domains.is_empty() {
             return Ok(Vec::new());
         }
@@ -305,7 +314,7 @@ impl DomainChecker {
         for (index, domain) in domains.iter().enumerate() {
             let domain = domain.clone();
             let semaphore = Arc::clone(&semaphore);
-            
+
             // Clone the checker components we need
             let rdap_client = self.rdap_client.clone();
             let whois_client = self.whois_client.clone();
@@ -314,15 +323,12 @@ impl DomainChecker {
             let handle = tokio::spawn(async move {
                 // Acquire semaphore permit
                 let _permit = semaphore.acquire().await.unwrap();
-                
+
                 // Check this domain
-                let result = check_single_domain_concurrent(
-                    &domain,
-                    &rdap_client,
-                    &whois_client, 
-                    &config
-                ).await;
-                
+                let result =
+                    check_single_domain_concurrent(&domain, &rdap_client, &whois_client, &config)
+                        .await;
+
                 // Return with original index to maintain order
                 (index, result)
             });
@@ -336,16 +342,17 @@ impl DomainChecker {
             match handle.await {
                 Ok((index, result)) => indexed_results.push((index, result)),
                 Err(e) => {
-                    return Err(DomainCheckError::internal(
-                        format!("Concurrent task failed: {}", e)
-                    ));
+                    return Err(DomainCheckError::internal(format!(
+                        "Concurrent task failed: {}",
+                        e
+                    )));
                 }
             }
         }
 
         // Sort by original index to maintain input order
         indexed_results.sort_by_key(|(index, _)| *index);
-        
+
         // Extract results, converting errors to DomainResult with error info
         let results = indexed_results
             .into_iter()
@@ -358,13 +365,13 @@ impl DomainChecker {
                     check_duration: None,
                     method_used: CheckMethod::Unknown,
                     error_message: Some(e.to_string()),
-                }
+                },
             })
             .collect();
 
         Ok(results)
     }
-    
+
     /// Check domains and return results as a stream.
     ///
     /// This method yields results as they become available, which is useful
@@ -400,10 +407,13 @@ impl DomainChecker {
     ///     Ok(())
     /// }
     /// ```
-    pub fn check_domains_stream(&self, domains: &[String]) -> Pin<Box<dyn Stream<Item = Result<DomainResult, DomainCheckError>> + Send + '_>> {
+    pub fn check_domains_stream(
+        &self,
+        domains: &[String],
+    ) -> Pin<Box<dyn Stream<Item = Result<DomainResult, DomainCheckError>> + Send + '_>> {
         let domains = domains.to_vec();
         let semaphore = Arc::new(Semaphore::new(self.config.concurrency));
-        
+
         // Create stream of futures
         let stream = futures::stream::iter(domains)
             .map(move |domain| {
@@ -411,21 +421,22 @@ impl DomainChecker {
                 let rdap_client = self.rdap_client.clone();
                 let whois_client = self.whois_client.clone();
                 let config = self.config.clone();
-                
+
                 async move {
                     // Acquire semaphore permit
                     let _permit = semaphore.acquire().await.unwrap();
-                    
+
                     // Check domain
-                    check_single_domain_concurrent(&domain, &rdap_client, &whois_client, &config).await
+                    check_single_domain_concurrent(&domain, &rdap_client, &whois_client, &config)
+                        .await
                 }
             })
             // Buffer unordered allows concurrent execution while maintaining the stream interface
             .buffer_unordered(self.config.concurrency);
-            
+
         Box::pin(stream)
     }
-    
+
     /// Read domain names from a file and check their availability.
     ///
     /// The file should contain one domain name per line. Empty lines and
@@ -445,7 +456,10 @@ impl DomainChecker {
     /// - The file cannot be read
     /// - The file contains too many domains (over limit)
     /// - No valid domains are found in the file
-    pub async fn check_domains_from_file(&self, file_path: &str) -> Result<Vec<DomainResult>, DomainCheckError> {
+    pub async fn check_domains_from_file(
+        &self,
+        file_path: &str,
+    ) -> Result<Vec<DomainResult>, DomainCheckError> {
         use std::fs::File;
         use std::io::{BufRead, BufReader};
         use std::path::Path;
@@ -453,18 +467,12 @@ impl DomainChecker {
         // Check if file exists
         let path = Path::new(file_path);
         if !path.exists() {
-            return Err(DomainCheckError::file_error(
-                file_path,
-                "File not found"
-            ));
+            return Err(DomainCheckError::file_error(file_path, "File not found"));
         }
 
         // Read domains from file
         let file = File::open(path).map_err(|e| {
-            DomainCheckError::file_error(
-                file_path,
-                format!("Cannot open file: {}", e)
-            )
+            DomainCheckError::file_error(file_path, format!("Cannot open file: {}", e))
         })?;
 
         let reader = BufReader::new(file);
@@ -476,7 +484,7 @@ impl DomainChecker {
             match line {
                 Ok(line) => {
                     let trimmed = line.trim();
-                    
+
                     // Skip empty lines and comments
                     if trimmed.is_empty() || trimmed.starts_with('#') {
                         continue;
@@ -491,7 +499,7 @@ impl DomainChecker {
                 Err(e) => {
                     return Err(DomainCheckError::file_error(
                         file_path,
-                        format!("Error reading line {}: {}", line_num, e)
+                        format!("Error reading line {}: {}", line_num, e),
                     ));
                 }
             }
@@ -500,19 +508,19 @@ impl DomainChecker {
         if domains.is_empty() {
             return Err(DomainCheckError::file_error(
                 file_path,
-                "No valid domains found in file"
+                "No valid domains found in file",
             ));
         }
 
         // Check domains using existing concurrent logic
         self.check_domains(&domains).await
     }
-    
+
     /// Get the current configuration for this checker.
     pub fn config(&self) -> &CheckConfig {
         &self.config
     }
-    
+
     /// Update the configuration for this checker.
     ///
     /// This allows modifying settings like concurrency or timeout

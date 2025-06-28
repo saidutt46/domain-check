@@ -55,15 +55,16 @@ pub fn get_rdap_registry_map() -> HashMap<&'static str, &'static str> {
         // Popular gTLDs (Generic Top-Level Domains)
         ("com", "https://rdap.verisign.com/com/v1/domain/"),
         ("net", "https://rdap.verisign.com/net/v1/domain/"),
-        ("org", "https://rdap.publicinterestregistry.org/rdap/domain/"),
+        (
+            "org",
+            "https://rdap.publicinterestregistry.org/rdap/domain/",
+        ),
         ("info", "https://rdap.identitydigital.services/rdap/domain/"),
         ("biz", "https://rdap.nic.biz/domain/"),
-        
         // Google TLDs
         ("app", "https://rdap.nic.google/domain/"),
         ("dev", "https://rdap.nic.google/domain/"),
         ("page", "https://rdap.nic.google/domain/"),
-        
         // Other popular gTLDs
         ("blog", "https://rdap.nic.blog/domain/"),
         ("shop", "https://rdap.nic.shop/domain/"),
@@ -72,31 +73,28 @@ pub fn get_rdap_registry_map() -> HashMap<&'static str, &'static str> {
         ("online", "https://rdap.nic.online/domain/"),
         ("site", "https://rdap.nic.site/domain/"),
         ("website", "https://rdap.nic.website/domain/"),
-        
         // Country Code TLDs (ccTLDs)
         ("io", "https://rdap.identitydigital.services/rdap/domain/"), // British Indian Ocean Territory
-        ("ai", "https://rdap.nic.ai/domain/"),      // Anguilla
-        ("co", "https://rdap.nic.co/domain/"),      // Colombia
-        ("me", "https://rdap.nic.me/domain/"),      // Montenegro
-        ("us", "https://rdap.nic.us/domain/"),      // United States
-        ("uk", "https://rdap.nominet.uk/domain/"),  // United Kingdom
-        ("eu", "https://rdap.eu.org/domain/"),      // European Union
-        ("de", "https://rdap.denic.de/domain/"),    // Germany
-        ("ca", "https://rdap.cira.ca/domain/"),     // Canada
-        ("au", "https://rdap.auda.org.au/domain/"), // Australia
-        ("fr", "https://rdap.nic.fr/domain/"),      // France
-        ("es", "https://rdap.nic.es/domain/"),      // Spain
-        ("it", "https://rdap.nic.it/domain/"),      // Italy
-        ("nl", "https://rdap.domain-registry.nl/domain/"), // Netherlands
-        ("jp", "https://rdap.jprs.jp/domain/"),     // Japan
-        ("br", "https://rdap.registro.br/domain/"), // Brazil
-        ("in", "https://rdap.registry.in/domain/"), // India
-        ("cn", "https://rdap.cnnic.cn/domain/"),    // China
-        
+        ("ai", "https://rdap.nic.ai/domain/"),                        // Anguilla
+        ("co", "https://rdap.nic.co/domain/"),                        // Colombia
+        ("me", "https://rdap.nic.me/domain/"),                        // Montenegro
+        ("us", "https://rdap.nic.us/domain/"),                        // United States
+        ("uk", "https://rdap.nominet.uk/domain/"),                    // United Kingdom
+        ("eu", "https://rdap.eu.org/domain/"),                        // European Union
+        ("de", "https://rdap.denic.de/domain/"),                      // Germany
+        ("ca", "https://rdap.cira.ca/domain/"),                       // Canada
+        ("au", "https://rdap.auda.org.au/domain/"),                   // Australia
+        ("fr", "https://rdap.nic.fr/domain/"),                        // France
+        ("es", "https://rdap.nic.es/domain/"),                        // Spain
+        ("it", "https://rdap.nic.it/domain/"),                        // Italy
+        ("nl", "https://rdap.domain-registry.nl/domain/"),            // Netherlands
+        ("jp", "https://rdap.jprs.jp/domain/"),                       // Japan
+        ("br", "https://rdap.registro.br/domain/"),                   // Brazil
+        ("in", "https://rdap.registry.in/domain/"),                   // India
+        ("cn", "https://rdap.cnnic.cn/domain/"),                      // China
         // Verisign managed ccTLDs
-        ("tv", "https://rdap.verisign.com/tv/v1/domain/"),  // Tuvalu
-        ("cc", "https://rdap.verisign.com/cc/v1/domain/"),  // Cocos Islands
-        
+        ("tv", "https://rdap.verisign.com/tv/v1/domain/"), // Tuvalu
+        ("cc", "https://rdap.verisign.com/cc/v1/domain/"), // Cocos Islands
         // Specialty TLDs
         ("zone", "https://rdap.nic.zone/domain/"),
         ("cloud", "https://rdap.nic.cloud/domain/"),
@@ -119,33 +117,33 @@ pub fn get_rdap_registry_map() -> HashMap<&'static str, &'static str> {
 /// The RDAP endpoint URL if found, or an error if not available.
 pub async fn get_rdap_endpoint(tld: &str, use_bootstrap: bool) -> Result<String, DomainCheckError> {
     let tld_lower = tld.to_lowercase();
-    
+
     // First, check built-in registry
     let registry = get_rdap_registry_map();
     if let Some(endpoint) = registry.get(tld_lower.as_str()) {
         return Ok(endpoint.to_string());
     }
-    
+
     // Check bootstrap cache
     {
-        let cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
-            DomainCheckError::internal("Failed to acquire bootstrap cache lock")
-        })?;
-        
+        let cache = BOOTSTRAP_CACHE
+            .lock()
+            .map_err(|_| DomainCheckError::internal("Failed to acquire bootstrap cache lock"))?;
+
         if !cache.is_stale() {
             if let Some(endpoint) = cache.get(&tld_lower) {
                 return Ok(endpoint);
             }
         }
     }
-    
+
     // If bootstrap is enabled, try to discover the endpoint
     if use_bootstrap {
         discover_rdap_endpoint(&tld_lower).await
     } else {
         Err(DomainCheckError::bootstrap(
             &tld_lower,
-            "No known RDAP endpoint and bootstrap disabled"
+            "No known RDAP endpoint and bootstrap disabled",
         ))
     }
 }
@@ -164,40 +162,30 @@ pub async fn get_rdap_endpoint(tld: &str, use_bootstrap: bool) -> Result<String,
 /// The discovered RDAP endpoint URL, or an error if discovery fails.
 async fn discover_rdap_endpoint(tld: &str) -> Result<String, DomainCheckError> {
     const BOOTSTRAP_URL: &str = "https://data.iana.org/rdap/dns.json";
-    
+
     // Create HTTP client with timeout
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
-        .map_err(|e| DomainCheckError::network_with_source(
-            "Failed to create HTTP client", 
-            &e.to_string()
-        ))?;
+        .map_err(|e| {
+            DomainCheckError::network_with_source("Failed to create HTTP client", e.to_string())
+        })?;
 
     // Fetch bootstrap registry
-    let response = client
-        .get(BOOTSTRAP_URL)
-        .send()
-        .await
-        .map_err(|e| DomainCheckError::bootstrap(
-            tld,
-            format!("Failed to fetch bootstrap registry: {}", e)
-        ))?;
+    let response = client.get(BOOTSTRAP_URL).send().await.map_err(|e| {
+        DomainCheckError::bootstrap(tld, format!("Failed to fetch bootstrap registry: {}", e))
+    })?;
 
     if !response.status().is_success() {
         return Err(DomainCheckError::bootstrap(
             tld,
-            format!("Bootstrap registry returned HTTP {}", response.status())
+            format!("Bootstrap registry returned HTTP {}", response.status()),
         ));
     }
 
-    let json: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| DomainCheckError::bootstrap(
-            tld,
-            format!("Failed to parse bootstrap JSON: {}", e)
-        ))?;
+    let json: serde_json::Value = response.json().await.map_err(|e| {
+        DomainCheckError::bootstrap(tld, format!("Failed to parse bootstrap JSON: {}", e))
+    })?;
 
     // Parse the bootstrap registry format
     if let Some(services) = json.get("services").and_then(|s| s.as_array()) {
@@ -212,10 +200,8 @@ async fn discover_rdap_endpoint(tld: &str) -> Result<String, DomainCheckError> {
                                     // Found our TLD, get the endpoint
                                     if let Some(urls) = service_array[1].as_array() {
                                         if let Some(url) = urls.first().and_then(|u| u.as_str()) {
-                                            let endpoint = format!(
-                                                "{}/domain/",
-                                                url.trim_end_matches('/')
-                                            );
+                                            let endpoint =
+                                                format!("{}/domain/", url.trim_end_matches('/'));
 
                                             // Cache the discovered endpoint
                                             cache_discovered_endpoint(tld, &endpoint)?;
@@ -234,7 +220,7 @@ async fn discover_rdap_endpoint(tld: &str) -> Result<String, DomainCheckError> {
 
     Err(DomainCheckError::bootstrap(
         tld,
-        "TLD not found in IANA bootstrap registry"
+        "TLD not found in IANA bootstrap registry",
     ))
 }
 
@@ -243,7 +229,7 @@ fn cache_discovered_endpoint(tld: &str, endpoint: &str) -> Result<(), DomainChec
     let mut cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
         DomainCheckError::internal("Failed to acquire bootstrap cache lock for writing")
     })?;
-    
+
     cache.insert(tld.to_string(), endpoint.to_string());
     Ok(())
 }
@@ -262,14 +248,14 @@ fn cache_discovered_endpoint(tld: &str, endpoint: &str) -> Result<(), DomainChec
 /// The TLD string, or an error if the domain format is invalid.
 pub fn extract_tld(domain: &str) -> Result<String, DomainCheckError> {
     let parts: Vec<&str> = domain.split('.').collect();
-    
+
     if parts.len() < 2 {
         return Err(DomainCheckError::invalid_domain(
             domain,
-            "Domain must contain at least one dot"
+            "Domain must contain at least one dot",
         ));
     }
-    
+
     // Return the last part as TLD
     // Note: This is simplified and doesn't handle multi-level TLDs like .co.uk
     // For production use, consider using a library like publicsuffix
@@ -282,7 +268,7 @@ pub fn clear_bootstrap_cache() -> Result<(), DomainCheckError> {
     let mut cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
         DomainCheckError::internal("Failed to acquire bootstrap cache lock for clearing")
     })?;
-    
+
     cache.endpoints.clear();
     cache.last_update = Instant::now();
     Ok(())
@@ -294,7 +280,7 @@ pub fn get_bootstrap_cache_stats() -> Result<(usize, bool), DomainCheckError> {
     let cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
         DomainCheckError::internal("Failed to acquire bootstrap cache lock for stats")
     })?;
-    
+
     Ok((cache.endpoints.len(), cache.is_stale()))
 }
 

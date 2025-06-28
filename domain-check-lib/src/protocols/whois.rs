@@ -5,7 +5,7 @@
 //! unstructured text responses that require parsing.
 
 use crate::error::DomainCheckError;
-use crate::types::{DomainResult, CheckMethod};
+use crate::types::{CheckMethod, DomainResult};
 use std::time::{Duration, Instant};
 use tokio::process::Command;
 
@@ -56,10 +56,7 @@ impl WhoisClient {
         let start_time = Instant::now();
 
         // Execute WHOIS command with timeout
-        let result = tokio::time::timeout(
-            self.timeout,
-            self.execute_whois_command(domain)
-        ).await;
+        let result = tokio::time::timeout(self.timeout, self.execute_whois_command(domain)).await;
 
         let check_duration = start_time.elapsed();
 
@@ -75,9 +72,7 @@ impl WhoisClient {
                 })
             }
             Ok(Err(e)) => Err(e),
-            Err(_) => {
-                Err(DomainCheckError::timeout("WHOIS query", self.timeout))
-            }
+            Err(_) => Err(DomainCheckError::timeout("WHOIS query", self.timeout)),
         }
     }
 
@@ -91,26 +86,26 @@ impl WhoisClient {
             .map_err(|e| {
                 DomainCheckError::whois(
                     domain,
-                    format!("Failed to execute whois command: {}. Make sure 'whois' is installed.", e)
+                    format!(
+                        "Failed to execute whois command: {}. Make sure 'whois' is installed.",
+                        e
+                    ),
                 )
             })?;
 
         let output_text = String::from_utf8_lossy(&output.stdout).to_lowercase();
-        
+
         // Check for rate limiting first
         if self.is_rate_limited(&output_text) {
             // Wait and retry once
             tokio::time::sleep(Duration::from_millis(1000)).await;
-            
+
             let retry_output = Command::new("whois")
                 .arg(domain)
                 .output()
                 .await
                 .map_err(|e| {
-                    DomainCheckError::whois(
-                        domain,
-                        format!("Failed to execute whois retry: {}", e)
-                    )
+                    DomainCheckError::whois(domain, format!("Failed to execute whois retry: {}", e))
                 })?;
 
             let retry_text = String::from_utf8_lossy(&retry_output.stdout).to_lowercase();
@@ -127,7 +122,7 @@ impl WhoisClient {
     /// between registries, so this uses a comprehensive set of patterns.
     fn parse_whois_availability(&self, whois_output: &str) -> Result<bool, DomainCheckError> {
         let output_lower = whois_output.to_lowercase();
-        
+
         // First check for invalid TLD or server errors
         let invalid_tld_patterns = [
             "no whois server is known",
@@ -143,8 +138,8 @@ impl WhoisClient {
         for pattern in &invalid_tld_patterns {
             if output_lower.contains(pattern) {
                 return Err(DomainCheckError::bootstrap(
-                    "unknown", 
-                    "Invalid or unsupported TLD for WHOIS lookup"
+                    "unknown",
+                    "Invalid or unsupported TLD for WHOIS lookup",
                 ));
             }
         }
@@ -197,7 +192,8 @@ impl WhoisClient {
         }
 
         // Check for taken patterns
-        let taken_pattern_count = taken_patterns.iter()
+        let taken_pattern_count = taken_patterns
+            .iter()
             .filter(|pattern| output_lower.contains(*pattern))
             .count();
 
@@ -214,13 +210,14 @@ impl WhoisClient {
         // For truly ambiguous cases, return an error instead of guessing
         // This prevents false positives for invalid domains
         Err(DomainCheckError::whois(
-            "unknown", 
-            "Unable to determine domain status from WHOIS response"
+            "unknown",
+            "Unable to determine domain status from WHOIS response",
         ))
     }
 
     /// Check if the WHOIS output indicates rate limiting.
     fn is_rate_limited(&self, output: &str) -> bool {
+        let output_lower = output.to_lowercase();
         let rate_limit_patterns = [
             "rate limit exceeded",
             "too many requests",
@@ -230,9 +227,12 @@ impl WhoisClient {
             "throttled",
             "blocked",
             "rate-limited",
+            "too many requests from your ip", // Add this pattern
         ];
 
-        rate_limit_patterns.iter().any(|pattern| output.contains(pattern))
+        rate_limit_patterns
+            .iter()
+            .any(|pattern| output_lower.contains(pattern))
     }
 }
 
@@ -252,22 +252,11 @@ impl Default for WhoisClient {
 /// `true` if the whois command is available and working, `false` otherwise.
 #[allow(dead_code)]
 pub async fn is_whois_available() -> bool {
-    match Command::new("whois")
-        .arg("--version")
-        .output()
-        .await
-    {
+    match Command::new("whois").arg("--version").output().await {
         Ok(output) => output.status.success(),
         Err(_) => {
             // Try with a different flag that's more universal
-            match Command::new("whois")
-                .arg("example.com")
-                .output()
-                .await
-            {
-                Ok(_) => true,
-                Err(_) => false,
-            }
+            (Command::new("whois").arg("example.com").output().await).is_ok()
         }
     }
 }
@@ -302,23 +291,23 @@ mod tests {
 
         // Test available patterns
         let available_text = "No matching record found for example-not-registered.com";
-        assert_eq!(client.parse_whois_availability(available_text).unwrap(), true);
+        assert!(client.parse_whois_availability(available_text).unwrap());
 
         let available_text2 = "Domain not found";
-        assert_eq!(client.parse_whois_availability(available_text2).unwrap(), true);
+        assert!(client.parse_whois_availability(available_text2).unwrap());
 
         // Test taken patterns
         let taken_text = "Domain Status: clientTransferProhibited\nRegistrar: Example Registrar\nCreation Date: 2020-01-01";
-        assert_eq!(client.parse_whois_availability(taken_text).unwrap(), false);
+        assert!(!client.parse_whois_availability(taken_text).unwrap());
     }
 
     #[test]
     fn test_rate_limit_detection() {
         let client = WhoisClient::new();
 
-        assert_eq!(client.is_rate_limited("Rate limit exceeded. Try again later."), true);
-        assert_eq!(client.is_rate_limited("Too many requests from your IP."), true);
-        assert_eq!(client.is_rate_limited("Normal whois response"), false);
+        assert!(client.is_rate_limited("Rate limit exceeded. Try again later."));
+        assert!(client.is_rate_limited("Too many requests from your IP."));
+        assert!(!client.is_rate_limited("Normal whois response"));
     }
 
     #[test]
@@ -337,7 +326,7 @@ mod tests {
             let client = WhoisClient::new();
             // Test with a domain that should exist
             let result = client.check_domain("google.com").await;
-            
+
             // We don't assert the specific result since it depends on the system,
             // but we verify that the function completes without error
             assert!(result.is_ok());

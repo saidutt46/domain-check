@@ -4,7 +4,7 @@
 //! This CLI application provides a user-friendly interface to the domain-check-lib library.
 
 use clap::Parser;
-use domain_check_lib::{DomainChecker, CheckConfig};
+use domain_check_lib::{CheckConfig, DomainChecker};
 use std::process;
 
 /// CLI arguments for domain-check
@@ -13,9 +13,11 @@ use std::process;
 #[command(version = "0.4.0")]
 #[command(author = "Sai Dutt G.V <gvs46@protonmail.com>")]
 #[command(about = "Check domain availability using RDAP with WHOIS fallback")]
-#[command(long_about = "A fast, robust CLI tool for checking domain availability using RDAP protocol with automatic WHOIS fallback. 
+#[command(
+    long_about = "A fast, robust CLI tool for checking domain availability using RDAP protocol with automatic WHOIS fallback. 
 
-Features real-time progress updates and concurrent processing for multiple domains.")]
+Features real-time progress updates and concurrent processing for multiple domains."
+)]
 pub struct Args {
     /// Domain names to check (supports both base names and FQDNs)
     #[arg(value_name = "DOMAINS")]
@@ -62,11 +64,17 @@ pub struct Args {
     pub pretty: bool,
 
     /// Force batch mode (collect all results first)
-    #[arg(long = "batch", help = "Force batch mode - collect all results before displaying")]
+    #[arg(
+        long = "batch",
+        help = "Force batch mode - collect all results before displaying"
+    )]
     pub batch: bool,
 
     /// Force streaming mode (show results as ready)
-    #[arg(long = "streaming", help = "Force streaming mode - show results as they complete")]
+    #[arg(
+        long = "streaming",
+        help = "Force streaming mode - show results as they complete"
+    )]
     pub streaming: bool,
 
     /// Show detailed debug information and error messages
@@ -139,7 +147,7 @@ async fn run_domain_check(args: Args) -> Result<(), Box<dyn std::error::Error>> 
 
     // Decide on processing mode based on domain count and user preferences
     let use_streaming = should_use_streaming(&args, domains.len());
-    
+
     if use_streaming {
         // Streaming mode for multiple domains - show progress and real-time results
         run_streaming_check(&checker, &domains, &args).await?;
@@ -157,40 +165,41 @@ fn should_use_streaming(args: &Args, domain_count: usize) -> bool {
     if args.batch {
         return false;
     }
-    
+
     // Force streaming mode if explicitly requested
     if args.streaming {
         return true;
     }
-    
+
     // Use streaming for multiple domains unless in JSON/CSV mode
     if domain_count > 1 && !args.json && !args.csv {
         return true;
     }
-    
+
     // Default to batch mode for single domains or structured output
     false
 }
 
 /// Run domain check in streaming mode with real-time progress
 async fn run_streaming_check(
-    checker: &DomainChecker, 
-    domains: &[String], 
-    args: &Args
+    checker: &DomainChecker,
+    domains: &[String],
+    args: &Args,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use futures::StreamExt;
-    
+
     // Show initial progress message
     if args.verbose || args.pretty {
-        println!("🔍 Checking {} domains with concurrency: {}", 
-            domains.len(), 
+        println!(
+            "🔍 Checking {} domains with concurrency: {}",
+            domains.len(),
             checker.config().concurrency
         );
-        
+
         if args.debug {
             println!("🔧 Domains: {}", domains.join(", "));
         }
-        
+
         println!(); // Empty line for readability
     }
 
@@ -199,9 +208,9 @@ async fn run_streaming_check(
     let mut taken_count = 0;
     let mut unknown_count = 0;
     let mut results = Vec::new();
-    
+
     let start_time = std::time::Instant::now();
-    
+
     // Stream results as they complete
     let mut stream = checker.check_domains_stream(domains);
     while let Some(result) = stream.next().await {
@@ -213,7 +222,7 @@ async fn run_streaming_check(
                     Some(false) => taken_count += 1,
                     None => unknown_count += 1,
                 }
-                
+
                 // Show result immediately
                 display_single_result(&domain_result, args)?;
                 results.push(domain_result);
@@ -229,24 +238,30 @@ async fn run_streaming_check(
             }
         }
     }
-    
+
     let duration = start_time.elapsed();
-    
+
     // Show final summary for multiple domains
     if domains.len() > 1 {
         println!(); // Empty line before summary
-        
+
         if args.pretty {
-            println!("✅ {} domains processed in {:.1}s: 🟢 {} available, 🔴 {} taken, ⚠️ {} unknown", 
-                results.len(), 
+            println!(
+                "✅ {} domains processed in {:.1}s: 🟢 {} available, 🔴 {} taken, ⚠️ {} unknown",
+                results.len(),
                 duration.as_secs_f64(),
-                available_count, 
-                taken_count, 
+                available_count,
+                taken_count,
                 unknown_count
             );
         } else {
-            println!("Summary: {} available, {} taken, {} unknown (processed in {:.1}s)", 
-                available_count, taken_count, unknown_count, duration.as_secs_f64());
+            println!(
+                "Summary: {} available, {} taken, {} unknown (processed in {:.1}s)",
+                available_count,
+                taken_count,
+                unknown_count,
+                duration.as_secs_f64()
+            );
         }
     }
 
@@ -255,9 +270,9 @@ async fn run_streaming_check(
 
 /// Run domain check in batch mode (collect all results first)
 async fn run_batch_check(
-    checker: &DomainChecker, 
-    domains: &[String], 
-    args: &Args
+    checker: &DomainChecker,
+    domains: &[String],
+    args: &Args,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Show processing message for longer operations
     if domains.len() > 1 && (args.verbose || args.pretty) {
@@ -301,7 +316,7 @@ async fn get_domains_to_check(args: &Args) -> Result<Vec<String>, Box<dyn std::e
     // Add domains from file if specified
     if let Some(file_path) = &args.file {
         let mut file_domains = read_domains_from_file(file_path).await?;
-        
+
         // Apply force flag for domain limit
         if file_domains.len() > 500 && !args.force {
             return Err(format!(
@@ -309,7 +324,7 @@ async fn get_domains_to_check(args: &Args) -> Result<Vec<String>, Box<dyn std::e
                 file_domains.len()
             ).into());
         }
-        
+
         domains.append(&mut file_domains);
     }
 
@@ -332,7 +347,9 @@ async fn get_domains_to_check(args: &Args) -> Result<Vec<String>, Box<dyn std::e
 }
 
 /// Read domains from a file
-async fn read_domains_from_file(file_path: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+async fn read_domains_from_file(
+    file_path: &str,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     use std::fs::File;
     use std::io::{BufRead, BufReader};
     use std::path::Path;
@@ -354,7 +371,7 @@ async fn read_domains_from_file(file_path: &str) -> Result<Vec<String>, Box<dyn 
         match line {
             Ok(line) => {
                 let trimmed = line.trim();
-                
+
                 // Skip empty lines and comments
                 if trimmed.is_empty() || trimmed.starts_with('#') {
                     continue;
@@ -368,7 +385,10 @@ async fn read_domains_from_file(file_path: &str) -> Result<Vec<String>, Box<dyn 
 
                 // Basic domain validation
                 if domain_part.len() < 2 {
-                    invalid_lines.push(format!("Line {}: '{}' - domain too short", line_num, domain_part));
+                    invalid_lines.push(format!(
+                        "Line {}: '{}' - domain too short",
+                        line_num, domain_part
+                    ));
                     continue;
                 }
 
@@ -383,7 +403,10 @@ async fn read_domains_from_file(file_path: &str) -> Result<Vec<String>, Box<dyn 
 
     // Report invalid lines if any
     if !invalid_lines.is_empty() {
-        eprintln!("⚠️ Found {} invalid entries in the file:", invalid_lines.len());
+        eprintln!(
+            "⚠️ Found {} invalid entries in the file:",
+            invalid_lines.len()
+        );
         for invalid in &invalid_lines[..invalid_lines.len().min(5)] {
             eprintln!("  {}", invalid);
         }
@@ -403,14 +426,18 @@ async fn read_domains_from_file(file_path: &str) -> Result<Vec<String>, Box<dyn 
         return Err(format!(
             "File contains {} domains, which exceeds the limit of 500. Use --force to override.",
             domains.len()
-        ).into());
+        )
+        .into());
     }
 
     Ok(domains)
 }
 
 /// Display a single domain result (for streaming mode)
-fn display_single_result(result: &domain_check_lib::DomainResult, args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+fn display_single_result(
+    result: &domain_check_lib::DomainResult,
+    args: &Args,
+) -> Result<(), Box<dyn std::error::Error>> {
     match result.available {
         Some(true) => {
             if args.pretty {
@@ -423,18 +450,18 @@ fn display_single_result(result: &domain_check_lib::DomainResult, args: &Args) -
             if args.info && result.info.is_some() {
                 let info = result.info.as_ref().unwrap();
                 if args.pretty {
-                    println!("🔴 {} is TAKEN ({})", result.domain, 
-                        format_domain_info(info));
+                    println!(
+                        "🔴 {} is TAKEN ({})",
+                        result.domain,
+                        format_domain_info(info)
+                    );
                 } else {
-                    println!("{} TAKEN ({})", result.domain, 
-                        format_domain_info(info));
+                    println!("{} TAKEN ({})", result.domain, format_domain_info(info));
                 }
+            } else if args.pretty {
+                println!("🔴 {} is TAKEN", result.domain);
             } else {
-                if args.pretty {
-                    println!("🔴 {} is TAKEN", result.domain);
-                } else {
-                    println!("{} TAKEN", result.domain);
-                }
+                println!("{} TAKEN", result.domain);
             }
         }
         None => {
@@ -445,30 +472,32 @@ fn display_single_result(result: &domain_check_lib::DomainResult, args: &Args) -
                 } else {
                     println!("{} UNKNOWN ({})", result.domain, error_msg);
                 }
+            } else if args.pretty {
+                println!("⚠️ {} status UNKNOWN", result.domain);
             } else {
-                if args.pretty {
-                    println!("⚠️ {} status UNKNOWN", result.domain);
-                } else {
-                    println!("{} UNKNOWN", result.domain);
-                }
+                println!("{} UNKNOWN", result.domain);
             }
         }
     }
-    
+
     // Show timing in debug mode
     if args.debug {
         if let Some(duration) = result.check_duration {
-            println!("    └─ Checked in {}ms via {}", 
-                duration.as_millis(), 
+            println!(
+                "    └─ Checked in {}ms via {}",
+                duration.as_millis(),
                 result.method_used
             );
         }
     }
-    
+
     Ok(())
 }
 
-fn display_results(results: &[domain_check_lib::DomainResult], args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+fn display_results(
+    results: &[domain_check_lib::DomainResult],
+    args: &Args,
+) -> Result<(), Box<dyn std::error::Error>> {
     if args.json {
         display_json_results(results)?;
     } else if args.csv {
@@ -481,44 +510,59 @@ fn display_results(results: &[domain_check_lib::DomainResult], args: &Args) -> R
 }
 
 /// Display results in JSON format
-fn display_json_results(results: &[domain_check_lib::DomainResult]) -> Result<(), Box<dyn std::error::Error>> {
+fn display_json_results(
+    results: &[domain_check_lib::DomainResult],
+) -> Result<(), Box<dyn std::error::Error>> {
     let json = serde_json::to_string_pretty(results)?;
     println!("{}", json);
     Ok(())
 }
 
 /// Display results in CSV format
-fn display_csv_results(results: &[domain_check_lib::DomainResult]) -> Result<(), Box<dyn std::error::Error>> {
+fn display_csv_results(
+    results: &[domain_check_lib::DomainResult],
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("domain,available,registrar,created,expires,method");
-    
+
     for result in results {
         let available = match result.available {
             Some(true) => "true",
-            Some(false) => "false", 
+            Some(false) => "false",
             None => "unknown",
         };
-        
-        let registrar = result.info.as_ref()
+
+        let registrar = result
+            .info
+            .as_ref()
             .and_then(|i| i.registrar.as_deref())
             .unwrap_or("-");
-            
-        let created = result.info.as_ref()
+
+        let created = result
+            .info
+            .as_ref()
             .and_then(|i| i.creation_date.as_deref())
             .unwrap_or("-");
-            
-        let expires = result.info.as_ref()
+
+        let expires = result
+            .info
+            .as_ref()
             .and_then(|i| i.expiration_date.as_deref())
             .unwrap_or("-");
 
-        println!("{},{},{},{},{},{}", 
-            result.domain, available, registrar, created, expires, result.method_used);
+        println!(
+            "{},{},{},{},{},{}",
+            result.domain, available, registrar, created, expires, result.method_used
+        );
     }
-    
+
     Ok(())
 }
 
 /// Display results in human-readable text format
-fn display_text_results(results: &[domain_check_lib::DomainResult], args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+fn display_text_results(
+    results: &[domain_check_lib::DomainResult],
+    args: &Args,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut available_count = 0;
     let mut taken_count = 0;
     let mut unknown_count = 0;
@@ -538,18 +582,18 @@ fn display_text_results(results: &[domain_check_lib::DomainResult], args: &Args)
                 if args.info && result.info.is_some() {
                     let info = result.info.as_ref().unwrap();
                     if args.pretty {
-                        println!("🔴 {} is TAKEN ({})", result.domain, 
-                            format_domain_info(info));
+                        println!(
+                            "🔴 {} is TAKEN ({})",
+                            result.domain,
+                            format_domain_info(info)
+                        );
                     } else {
-                        println!("{} TAKEN ({})", result.domain, 
-                            format_domain_info(info));
+                        println!("{} TAKEN ({})", result.domain, format_domain_info(info));
                     }
+                } else if args.pretty {
+                    println!("🔴 {} is TAKEN", result.domain);
                 } else {
-                    if args.pretty {
-                        println!("🔴 {} is TAKEN", result.domain);
-                    } else {
-                        println!("{} TAKEN", result.domain);
-                    }
+                    println!("{} TAKEN", result.domain);
                 }
             }
             None => {
@@ -567,11 +611,18 @@ fn display_text_results(results: &[domain_check_lib::DomainResult], args: &Args)
     if results.len() > 1 {
         println!();
         if args.pretty {
-            println!("✅ {} domains processed: 🟢 {} available, 🔴 {} taken, ⚠️ {} unknown", 
-                results.len(), available_count, taken_count, unknown_count);
+            println!(
+                "✅ {} domains processed: 🟢 {} available, 🔴 {} taken, ⚠️ {} unknown",
+                results.len(),
+                available_count,
+                taken_count,
+                unknown_count
+            );
         } else {
-            println!("Summary: {} available, {} taken, {} unknown", 
-                available_count, taken_count, unknown_count);
+            println!(
+                "Summary: {} available, {} taken, {} unknown",
+                available_count, taken_count, unknown_count
+            );
         }
     }
 

@@ -31,16 +31,16 @@
 // Re-export main public API types and functions
 // This makes them available as domain_check_lib::TypeName
 pub use checker::DomainChecker;
-pub use types::{DomainResult, DomainInfo, CheckConfig, CheckMethod, OutputMode};
 pub use error::DomainCheckError;
+pub use types::{CheckConfig, CheckMethod, DomainInfo, DomainResult, OutputMode};
 pub use utils::expand_domain_inputs;
 
 // Internal modules - these are not part of the public API
 mod checker;
-mod types;
+mod concurrent;
 mod error;
 mod protocols;
-mod concurrent;
+mod types;
 mod utils;
 
 // Type alias for convenience
@@ -51,7 +51,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const AUTHOR: &str = env!("CARGO_PKG_AUTHORS");
 
 /// Initialize the library with default settings.
-/// 
+///
 /// This function can be called to set up global state like logging,
 /// registry caches, etc. It's optional - the library will work without it.
 pub fn init() {
@@ -78,19 +78,19 @@ pub struct LibraryInfo {
 
 /// Get list of enabled features at compile time
 fn get_enabled_features() -> Vec<&'static str> {
-    let mut features = vec![];
-    
+    let mut features = Vec::with_capacity(4); // Pre-allocate for max possible features
+
     #[cfg(feature = "rdap")]
     features.push("rdap");
-    
+
     #[cfg(feature = "whois")]
     features.push("whois");
-    
+
     #[cfg(feature = "bootstrap")]
     features.push("bootstrap");
-    
+
     #[cfg(feature = "debug")]
     features.push("debug");
-    
+
     features
 }

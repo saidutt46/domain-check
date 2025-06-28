@@ -19,17 +19,23 @@ use crate::error::DomainCheckError;
 /// `Ok(())` if valid, `Err(DomainCheckError)` if invalid.
 pub fn validate_domain(domain: &str) -> Result<(), DomainCheckError> {
     let domain = domain.trim();
-    
+
     if domain.is_empty() {
-        return Err(DomainCheckError::invalid_domain(domain, "Domain name cannot be empty"));
+        return Err(DomainCheckError::invalid_domain(
+            domain,
+            "Domain name cannot be empty",
+        ));
     }
-    
+
     // TODO: Implement proper domain validation
     // For now, just check basic format
     if !domain.contains('.') && domain.len() < 2 {
-        return Err(DomainCheckError::invalid_domain(domain, "Domain name too short"));
+        return Err(DomainCheckError::invalid_domain(
+            domain,
+            "Domain name too short",
+        ));
     }
-    
+
     Ok(())
 }
 
@@ -47,7 +53,7 @@ pub fn validate_domain(domain: &str) -> Result<(), DomainCheckError> {
 #[allow(dead_code)]
 pub fn extract_domain_parts(domain: &str) -> (String, Option<String>) {
     let parts: Vec<&str> = domain.split('.').collect();
-    
+
     if parts.len() >= 2 {
         let base_name = parts[0].to_string();
         let tld = parts[1..].join(".");
@@ -74,15 +80,15 @@ pub fn extract_domain_parts(domain: &str) -> (String, Option<String>) {
 /// Vector of fully qualified domain names ready for checking.
 pub fn expand_domain_inputs(domains: &[String], tlds: &Option<Vec<String>>) -> Vec<String> {
     let mut results = Vec::new();
-    
+
     for domain in domains {
         let trimmed = domain.trim();
-        
+
         // Skip empty or invalid domains
         if trimmed.is_empty() {
             continue;
         }
-        
+
         if trimmed.contains('.') {
             // Has dot = treat as FQDN (Fully Qualified Domain Name)
             // Validate basic FQDN structure
@@ -110,7 +116,7 @@ pub fn expand_domain_inputs(domains: &[String], tlds: &Option<Vec<String>>) -> V
             }
         }
     }
-    
+
     results
 }
 
@@ -120,13 +126,13 @@ fn is_valid_base_name(domain: &str) -> bool {
     if domain.len() < 2 {
         return false;
     }
-    
+
     // Basic character validation (alphanumeric and hyphens)
     // Cannot start or end with hyphen
     if domain.starts_with('-') || domain.ends_with('-') {
         return false;
     }
-    
+
     // Only allow alphanumeric and hyphens
     domain.chars().all(|c| c.is_alphanumeric() || c == '-')
 }
@@ -137,41 +143,44 @@ fn is_valid_fqdn(domain: &str) -> bool {
     if domain.len() < 4 || domain.len() > 253 {
         return false;
     }
-    
+
     // Must contain at least one dot
     if !domain.contains('.') {
         return false;
     }
-    
+
     // Cannot start or end with dot or hyphen
-    if domain.starts_with('.') || domain.ends_with('.') || 
-       domain.starts_with('-') || domain.ends_with('-') {
+    if domain.starts_with('.')
+        || domain.ends_with('.')
+        || domain.starts_with('-')
+        || domain.ends_with('-')
+    {
         return false;
     }
-    
+
     // Check each part
     let parts: Vec<&str> = domain.split('.').collect();
     if parts.len() < 2 {
         return false;
     }
-    
+
     // Each part must be valid
     for part in parts {
         if part.is_empty() || part.len() > 63 {
             return false;
         }
-        
+
         // Cannot start or end with hyphen
         if part.starts_with('-') || part.ends_with('-') {
             return false;
         }
-        
+
         // Only alphanumeric and hyphens
         if !part.chars().all(|c| c.is_alphanumeric() || c == '-') {
             return false;
         }
     }
-    
+
     true
 }
 
@@ -189,36 +198,49 @@ mod tests {
 
     #[test]
     fn test_extract_domain_parts() {
-        assert_eq!(extract_domain_parts("example.com"), ("example".to_string(), Some("com".to_string())));
-        assert_eq!(extract_domain_parts("test.co.uk"), ("test".to_string(), Some("co.uk".to_string())));
-        assert_eq!(extract_domain_parts("example"), ("example".to_string(), None));
+        assert_eq!(
+            extract_domain_parts("example.com"),
+            ("example".to_string(), Some("com".to_string()))
+        );
+        assert_eq!(
+            extract_domain_parts("test.co.uk"),
+            ("test".to_string(), Some("co.uk".to_string()))
+        );
+        assert_eq!(
+            extract_domain_parts("example"),
+            ("example".to_string(), None)
+        );
     }
 
     #[test]
     fn test_expand_domain_inputs() {
         let domains = vec!["example".to_string(), "test.com".to_string()];
         let tlds = Some(vec!["com".to_string(), "org".to_string()]);
-        
+
         let result = expand_domain_inputs(&domains, &tlds);
-        assert_eq!(result, vec![
-            "example.com",
-            "example.org", 
-            "test.com"  // FQDN, no expansion
-        ]);
+        assert_eq!(
+            result,
+            vec![
+                "example.com",
+                "example.org",
+                "test.com" // FQDN, no expansion
+            ]
+        );
     }
 
     #[test]
     fn test_expand_domain_inputs_with_invalid() {
-        let domains = vec!["".to_string(), "a".to_string(), "valid".to_string(), "test.com".to_string()];
+        let domains = vec![
+            "".to_string(),
+            "a".to_string(),
+            "valid".to_string(),
+            "test.com".to_string(),
+        ];
         let tlds = Some(vec!["com".to_string(), "org".to_string()]);
-        
+
         let result = expand_domain_inputs(&domains, &tlds);
         // Should skip empty and single-char domains
-        assert_eq!(result, vec![
-            "valid.com",
-            "valid.org",
-            "test.com"
-        ]);
+        assert_eq!(result, vec!["valid.com", "valid.org", "test.com"]);
     }
 
     #[test]
@@ -226,7 +248,7 @@ mod tests {
         assert!(is_valid_base_name("example"));
         assert!(is_valid_base_name("test-domain"));
         assert!(is_valid_base_name("abc123"));
-        
+
         assert!(!is_valid_base_name(""));
         assert!(!is_valid_base_name("a"));
         assert!(!is_valid_base_name("-example"));
@@ -239,7 +261,7 @@ mod tests {
         assert!(is_valid_fqdn("example.com"));
         assert!(is_valid_fqdn("test.co.uk"));
         assert!(is_valid_fqdn("sub.example.com"));
-        
+
         assert!(!is_valid_fqdn("example"));
         assert!(!is_valid_fqdn(".com"));
         assert!(!is_valid_fqdn("example."));
