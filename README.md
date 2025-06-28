@@ -1,8 +1,9 @@
-# Domain Check
+# domain-check
 
-**A fast, library-first Rust toolkit for domain availability checking using RDAP and WHOIS protocols**
+**A fast, powerful Rust library and CLI tool for checking domain availability using RDAP and WHOIS protocols.**
 
-[![Crates.io](https://img.shields.io/crates/v/domain-check.svg)](https://crates.io/crates/domain-check)
+[![Crates.io - CLI](https://img.shields.io/crates/v/domain-check.svg)](https://crates.io/crates/domain-check)
+[![Crates.io - Library](https://img.shields.io/crates/v/domain-check-lib.svg)](https://crates.io/crates/domain-check-lib)
 [![Documentation](https://docs.rs/domain-check-lib/badge.svg)](https://docs.rs/domain-check-lib)
 [![Downloads](https://img.shields.io/crates/d/domain-check.svg)](https://crates.io/crates/domain-check)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -16,14 +17,31 @@
 
 ---
 
-## 🎯 **Why Domain Check?**
+## 🚀 Overview
 
-🦀 **Library + CLI in One** - Use as a Rust library or standalone command-line tool  
-⚡ **Lightning Fast** - Concurrent processing with smart rate limiting (5x faster in v0.4)  
-🌐 **Protocol Smart** - RDAP-first with automatic WHOIS fallback  
-🎯 **Production Ready** - Battle-tested with comprehensive error handling  
-📦 **Zero Config** - Works out of the box, no setup needed  
-🔍 **Bulk Operations** - Process hundreds of domains from files efficiently  
+**domain-check** is a high-performance Rust toolkit for accurate domain availability checks.  
+It combines a robust asynchronous library with a flexible CLI, optimized for RDAP with seamless WHOIS fallback. Ideal for developers, DevOps workflows, domain investors, and automation scripts. 
+
+## ✨ Features
+
+- ✅ **Rust-native async library** (`domain-check-lib`) built on tokio for high concurrency
+- 🌐 **Dual protocol support**: RDAP-first with smart WHOIS fallback for maximum TLD coverage
+- 🚀 **Bulk domain checking** with powerful concurrency, connection pooling, and rate limiting
+- 📁 **Advanced file input support**: check hundreds or thousands of domains from a file, with comments and inline TLD expansion
+- 🔄 **Streaming results mode**: see each domain result as it completes — ideal for large lists
+- 📊 **Flexible output formats**: JSON for integrations, CSV for spreadsheets, or colorful human-readable output
+- 🎯 **Smart TLD expansion**: specify TLDs with `-t` to auto-expand base names like `startup` into `startup.com`, `startup.io`, etc.
+- 🔍 **Detailed info mode**: includes registrar, creation & expiry dates, status, nameservers
+- ⚙️ **Highly configurable**: set concurrency up to 100, customize timeouts, enable or disable WHOIS fallback, or use IANA bootstrap for unknown TLDs
+- 🐛 **Debug & verbose modes**: get detailed protocol-level logs and error diagnostics with `--debug` and `--verbose`
+- 📝 **Perfect for CI/CD & shell scripts**: pipe JSON or CSV directly to tools like `jq` or `grep`
+- 💻 **Robust CLI options**:
+  - `--file <domains.txt>` to load domains
+  - `--streaming` for real-time feedback
+  - `--batch` to collect all results before printing
+  - `--force` to override safety limits for massive checks
+  - `--no-whois` to disable fallback
+  - `--bootstrap` for dynamic RDAP discovery
 
 ---
 
@@ -408,19 +426,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
-## ✨ Features
-
-### Core Features
-
-- ✅ **RDAP Protocol Support** - Modern registration data access protocol
-- 🔄 **Automatic WHOIS Fallback** - Seamless fallback for maximum compatibility  
-- 🌐 **IANA Bootstrap Registry** - Dynamic RDAP endpoint discovery
-- 🚀 **High-Performance Concurrent Processing** - Smart rate limiting and connection pooling
-- 📁 **Bulk Domain Checking** - Process hundreds of domains efficiently
-- 🎯 **Smart TLD Expansion** - Automatic expansion for base domain names
-- 📊 **Multiple Output Formats** - JSON, CSV, and human-readable text
-- 🔄 **Streaming Results** - Real-time progress for large operations
-
 ### Supported TLDs
 
 40+ built-in TLD mappings including:
@@ -441,16 +446,6 @@ Domain Check v0.4.0 delivers exceptional performance through:
 - **Connection Pooling**: Reuses HTTP connections for faster subsequent requests
 - **Optimized Timeouts**: Registry-specific timeout tuning
 - **Streaming Architecture**: Results available immediately as they complete
-
-### Benchmarks
-
-| Domains | Time | Domains/sec |
-|---------|------|-------------|
-| 10      | 0.8s | 12.5        |
-| 100     | 3.2s | 31.25       |
-| 1000    | 24s  | 41.67       |
-
-*Benchmarked on macOS M1 with 50 Mbps connection*
 
 ---
 
@@ -504,4 +499,4 @@ Licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-*Built with ❤️ in Rust*
+*Built with ❤️ in Rust :: GVS*

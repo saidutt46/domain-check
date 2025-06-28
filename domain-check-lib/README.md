@@ -1,4 +1,4 @@
-# Domain Check Library
+# domain-check-lib
 
 **A fast, robust Rust library for checking domain availability using RDAP and WHOIS protocols**
 
@@ -69,12 +69,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Domain: {}", result.domain);
     println!("Available: {:?}", result.available);
     println!("Method used: {}", result.method_used);
-    
-    if let Some(info) = result.info {
-        println!("Registrar: {:?}", info.registrar);
-        println!("Created: {:?}", info.creation_date);
-        println!("Expires: {:?}", info.expiration_date);
-    }
     
     Ok(())
 }
