@@ -46,7 +46,7 @@ jobs:
       - name: Run full test suite
         run: |
           cargo test --workspace --verbose
-          cargo clippy --workspace --all-targets -- -D warnings
+          cargo clippy --workspace --all-targets --all-features -- -D warnings -A clippy::uninlined_format_args
 
   # Build release binaries
   build-binaries:

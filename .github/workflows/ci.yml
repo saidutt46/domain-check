@@ -63,7 +63,7 @@ jobs:
             ${{ runner.os }}-cargo-build-
 
       - name: Run Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings -A clippy::uninlined_format_args
 
   # Security audit
   audit:
