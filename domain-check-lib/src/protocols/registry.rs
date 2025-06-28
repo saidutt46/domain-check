@@ -55,8 +55,8 @@ pub fn get_rdap_registry_map() -> HashMap<&'static str, &'static str> {
         // Popular gTLDs (Generic Top-Level Domains)
         ("com", "https://rdap.verisign.com/com/v1/domain/"),
         ("net", "https://rdap.verisign.com/net/v1/domain/"),
-        ("org", "https://rdap.pir.org/domain/"),
-        ("info", "https://rdap.afilias.info/rdap/info/domain/"),
+        ("org", "https://rdap.publicinterestregistry.org/rdap/domain/"),
+        ("info", "https://rdap.identitydigital.services/rdap/domain/"),
         ("biz", "https://rdap.nic.biz/domain/"),
         
         // Google TLDs
@@ -74,7 +74,7 @@ pub fn get_rdap_registry_map() -> HashMap<&'static str, &'static str> {
         ("website", "https://rdap.nic.website/domain/"),
         
         // Country Code TLDs (ccTLDs)
-        ("io", "https://rdap.nic.io/domain/"),      // British Indian Ocean Territory
+        ("io", "https://rdap.identitydigital.services/rdap/domain/"), // British Indian Ocean Territory
         ("ai", "https://rdap.nic.ai/domain/"),      // Anguilla
         ("co", "https://rdap.nic.co/domain/"),      // Colombia
         ("me", "https://rdap.nic.me/domain/"),      // Montenegro

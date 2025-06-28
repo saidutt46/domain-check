@@ -76,6 +76,7 @@ impl RdapClient {
     /// - No RDAP endpoint is available for the TLD
     /// - Network errors occur
     /// - The RDAP response cannot be parsed
+    /// Check domain availability using RDAP.
     pub async fn check_domain(&self, domain: &str) -> Result<DomainResult, DomainCheckError> {
         let start_time = Instant::now();
         
@@ -85,6 +86,11 @@ impl RdapClient {
         
         // Build RDAP URL
         let rdap_url = format!("{}{}", endpoint, domain);
+        
+        // 🔍 DEBUG: Log the URL being requested
+        if std::env::var("DOMAIN_CHECK_DEBUG_RDAP").is_ok() {
+            println!("🔍 Attempting RDAP request to: {}", rdap_url);
+        }
         
         // Make RDAP request with timeout
         let result = tokio::time::timeout(
@@ -110,6 +116,11 @@ impl RdapClient {
                 })
             }
             Ok(Err(e)) => {
+                // 🔍 DEBUG: Log RDAP errors
+                if std::env::var("DOMAIN_CHECK_DEBUG_RDAP").is_ok() {
+                    println!("🔍 RDAP Error for {}: {}", domain, e);
+                }
+                
                 // Check if the error indicates the domain is available
                 if e.indicates_available() {
                     Ok(DomainResult {
@@ -125,11 +136,17 @@ impl RdapClient {
                 }
             }
             Err(_) => {
+                // 🔍 DEBUG: Log timeout
+                if std::env::var("DOMAIN_CHECK_DEBUG_RDAP").is_ok() {
+                    println!("🔍 RDAP Timeout for {} after {:?}", domain, self.timeout);
+                }
+                
                 Err(DomainCheckError::timeout("RDAP request", self.timeout))
             }
         }
     }
 
+    /// Make an RDAP request to the specified URL.
     /// Make an RDAP request to the specified URL.
     async fn make_rdap_request(
         &self,
@@ -141,7 +158,25 @@ impl RdapClient {
             .get(rdap_url)
             .send()
             .await
-            .map_err(|e| DomainCheckError::rdap(domain, format!("Request failed: {}", e)))?;
+            .map_err(|e| {
+                // 🔍 DEBUG: Log request errors
+                if std::env::var("DOMAIN_CHECK_DEBUG_RDAP").is_ok() {
+                    println!("🔍 HTTP Request failed for {}: {}", rdap_url, e);
+                    if e.is_timeout() {
+                        println!("   └─ Timeout error");
+                    } else if e.is_connect() {
+                        println!("   └─ Connection error");
+                    } else if e.is_request() {
+                        println!("   └─ Request error");
+                    }
+                }
+                DomainCheckError::rdap(domain, format!("Request failed: {}", e))
+            })?;
+
+        // 🔍 DEBUG: Log response status
+        if std::env::var("DOMAIN_CHECK_DEBUG_RDAP").is_ok() {
+            println!("🔍 HTTP Response for {}: {}", domain, response.status());
+        }
 
         match response.status() {
             StatusCode::OK => {
@@ -172,10 +207,17 @@ impl RdapClient {
             }
             StatusCode::NOT_FOUND => {
                 // Domain is available
+                if std::env::var("DOMAIN_CHECK_DEBUG_RDAP").is_ok() {
+                    println!("🔍 Domain {} is available (404)", domain);
+                }
                 Ok((true, None))
             }
             StatusCode::TOO_MANY_REQUESTS => {
                 // Rate limited, try once more after a short delay
+                if std::env::var("DOMAIN_CHECK_DEBUG_RDAP").is_ok() {
+                    println!("🔍 Rate limited for {}, retrying after 500ms...", domain);
+                }
+                
                 tokio::time::sleep(Duration::from_millis(500)).await;
                 
                 let retry_response = self.http_client
@@ -193,14 +235,22 @@ impl RdapClient {
                         Ok((false, Some(domain_info)))
                     }
                     StatusCode::NOT_FOUND => Ok((true, None)),
-                    code => Err(DomainCheckError::rdap_with_status(
-                        domain,
-                        format!("RDAP server error after retry: {}", code),
-                        code.as_u16()
-                    ))
+                    code => {
+                        if std::env::var("DOMAIN_CHECK_DEBUG_RDAP").is_ok() {
+                            println!("🔍 Retry failed for {} with status: {}", domain, code);
+                        }
+                        Err(DomainCheckError::rdap_with_status(
+                            domain,
+                            format!("RDAP server error after retry: {}", code),
+                            code.as_u16()
+                        ))
+                    }
                 }
             }
             code => {
+                if std::env::var("DOMAIN_CHECK_DEBUG_RDAP").is_ok() {
+                    println!("🔍 RDAP server error for {} with status: {}", domain, code);
+                }
                 Err(DomainCheckError::rdap_with_status(
                     domain,
                     format!("RDAP server returned error: {}", code),
