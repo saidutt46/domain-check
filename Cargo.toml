@@ -1,0 +1,59 @@
+# Workspace Root Cargo.toml
+# 
+# This file defines the domain-check workspace structure.
+# The workspace contains two main crates:
+# - domain-check-lib: Core library for domain availability checking
+# - domain-check: CLI application that uses the library
+#
+# Benefits of workspace structure:
+# - Shared dependencies and build cache
+# - Unified version management
+# - Easy cross-crate development
+# - Supports both library and CLI use cases
+
+[workspace]
+# Define all crates that are part of this workspace
+members = [
+    "domain-check-lib",  # Core library crate
+    "domain-check",      # CLI application crate
+]
+# Use edition 2021 resolver for better dependency resolution
+resolver = "2"
+
+# Workspace-wide metadata
+[workspace.package]
+version = "0.4.0"
+authors = ["Sai Dutt G.V <gvs46@protonmail.com>"]
+license = "MIT"
+repository = "https://github.com/saidutt46/domain-check"
+keywords = ["cli", "domain", "whois", "rdap", "availability"]
+categories = ["command-line-utilities", "network-programming"]
+readme = "README.md"
+edition = "2021"
+
+# Shared dependencies across all crates in the workspace
+# This ensures version consistency and reduces build times
+[workspace.dependencies]
+# Core async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client for RDAP requests
+reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+
+# Serialization for JSON output and internal data structures
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling and utilities
+regex = "1.10"
+futures = "0.3"
+
+# CLI-specific dependencies (only used by domain-check crate)
+clap = { version = "4.5", features = ["derive"] }
+console = "0.15"
+
+# Optional dependencies for advanced features
+lazy_static = "1.4.0"
+
+# Testing dependencies (available to all crates)
+tokio-test = "0.4"

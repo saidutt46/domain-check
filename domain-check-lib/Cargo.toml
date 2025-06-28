@@ -1,0 +1,73 @@
+# Domain Check Library Crate
+#
+# This is the core library that provides domain availability checking functionality.
+# It can be used by other Rust projects as a dependency, or by our CLI application.
+#
+# Design principles:
+# - Zero CLI dependencies (no clap, console, etc.)
+# - Pure async APIs
+# - Comprehensive error handling  
+# - Configurable and extensible
+# - Well-documented public interface
+
+[package]
+name = "domain-check-lib"
+description = "A fast, robust library for checking domain availability using RDAP and WHOIS protocols"
+
+# Inherit common fields from workspace
+version = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+readme = { workspace = true }
+edition = { workspace = true }
+
+# Library-specific metadata
+documentation = "https://docs.rs/domain-check-lib"
+homepage = "https://github.com/saidutt46/domain-check"
+
+# This is a library crate (generates .rlib for other Rust code to use)
+[lib]
+name = "domain_check_lib"  # Snake case for library name
+path = "src/lib.rs"
+
+# Core dependencies for domain checking functionality
+[dependencies]
+# Async runtime and utilities
+tokio = { workspace = true }
+futures = { workspace = true }
+
+# HTTP client for RDAP protocol
+reqwest = { workspace = true }
+
+# JSON parsing and serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Text processing and validation
+regex = { workspace = true }
+
+# Global state management for registry cache
+lazy_static = { workspace = true }
+
+# Development dependencies (for testing)
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+# Optional features for advanced functionality
+[features]
+default = ["rdap", "whois", "bootstrap"]
+
+# Enable RDAP protocol support
+rdap = []
+
+# Enable WHOIS fallback support  
+whois = []
+
+# Enable IANA bootstrap registry discovery
+bootstrap = []
+
+# Enable detailed debugging and metrics
+debug = []

@@ -1,27 +1,62 @@
+# Domain Check CLI Application
+#
+# This is the command-line interface that provides user-friendly access 
+# to the domain-check-lib functionality. It handles argument parsing,
+# output formatting, and user interaction.
+#
+# This crate depends on domain-check-lib and adds CLI-specific features
+# like colored output, file processing, and interactive modes.
+
 [package]
 name = "domain-check"
-version = "0.3.1"
-edition = "2024"
-authors = ["Sai Dutt G.V gvs46@protonmail.com"]
-description = "A fast CLI to check domain availability via RDAP/WHOIS"
-license = "MIT"
-repository = "https://github.com/saidutt46/domain-check"
-keywords = ["cli", "domain", "whois", "rdap", "availability"]
-categories = ["command-line-utilities", "network-programming"]
-readme = "README.md"
+description = "A fast CLI tool for checking domain availability using RDAP with WHOIS fallback"
 
-exclude = [".DS_Store", "target/**/.DS_Store"]
+# Inherit common fields from workspace
+version = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+readme = { workspace = true }
+edition = { workspace = true }
+
+# CLI-specific metadata
+documentation = "https://docs.rs/domain-check"
+homepage = "https://github.com/saidutt46/domain-check"
+
+# This generates a binary executable
+[[bin]]
+name = "domain-check"
+path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.5", features = ["derive"] }
-regex = "1.10"
-tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-futures = "0.3"
-console = "0.15"
-crossterm = "0.27"
-tui = { version = "0.19", default-features = false, features = ['crossterm'] }
-lazy_static = "1.4.0"
-ctrlc = "3.4"
+# Our core library (local dependency)
+domain-check-lib = { path = "../domain-check-lib" }
+
+# CLI argument parsing
+clap = { workspace = true }
+
+# Terminal output and colors
+console = { workspace = true }
+
+# Async runtime for CLI
+tokio = { workspace = true }
+
+# JSON output formatting
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# File I/O and text processing
+regex = { workspace = true }
+
+# Development dependencies
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+# CLI-specific features
+[features]
+default = []
+
+# Enable terminal UI dashboard (will be re-added later)
+# ui = ["crossterm", "tui"]
