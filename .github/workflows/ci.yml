@@ -187,8 +187,12 @@ jobs:
 
       - name: Test library integration
         run: |
-          # Create a simple integration test
-          cat > /tmp/integration_test.rs << 'EOF'
+          # Test that library can be used externally
+          cd /tmp
+          cargo init --name integration_test
+          
+          # Write the test directly to src/main.rs
+          cat > src/main.rs << 'EOF'
           use domain_check_lib::DomainChecker;
           
           #[tokio::main]
@@ -200,18 +204,13 @@ jobs:
           }
           EOF
           
-          # Test that library can be used externally
-          cd /tmp
-          cargo init --name integration_test
-          
-          # Add dependencies with proper quoting
+          # Add dependencies
           cat >> Cargo.toml << EOF
           domain-check-lib = { path = "${{ github.workspace }}/domain-check-lib" }
           tokio = { version = "1", features = ["full"] }
           EOF
           
-          # Copy test file and run
-          cp integration_test.rs src/main.rs
+          # Run the test
           cargo run
 
   # Check documentation
