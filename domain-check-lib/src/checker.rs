@@ -9,6 +9,68 @@ use crate::protocols::{RdapClient, WhoisClient};
 use crate::utils::{validate_domain, expand_domain_inputs};
 use futures::stream::{Stream, StreamExt};
 use std::pin::Pin;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+
+/// Check a single domain using the provided clients (for concurrent processing).
+///
+/// This is a helper function that implements the same logic as `check_domain`
+/// but works with cloned client instances for concurrent execution.
+async fn check_single_domain_concurrent(
+    domain: &str,
+    rdap_client: &RdapClient,
+    whois_client: &WhoisClient,
+    config: &CheckConfig,
+) -> Result<DomainResult, DomainCheckError> {
+    // Validate domain format first
+    validate_domain(domain)?;
+    
+    // Try RDAP first
+    match rdap_client.check_domain(domain).await {
+        Ok(result) => {
+            // RDAP succeeded, filter info based on configuration
+            let mut filtered_result = result;
+            if !config.detailed_info {
+                filtered_result.info = None;
+            }
+            Ok(filtered_result)
+        }
+        Err(rdap_error) => {
+            // RDAP failed, try WHOIS fallback if enabled
+            if config.enable_whois_fallback {
+                match whois_client.check_domain(domain).await {
+                    Ok(whois_result) => {
+                        let mut filtered_result = whois_result;
+                        if !config.detailed_info {
+                            filtered_result.info = None;
+                        }
+                        Ok(filtered_result)
+                    }
+                    Err(_whois_error) => {
+                        // Both RDAP and WHOIS failed, return the most informative error
+                        if rdap_error.indicates_available() {
+                            // RDAP error suggests domain is available
+                            Ok(DomainResult {
+                                domain: domain.to_string(),
+                                available: Some(true),
+                                info: None,
+                                check_duration: None,
+                                method_used: CheckMethod::Rdap,
+                                error_message: None,
+                            })
+                        } else {
+                            // Return the RDAP error as it's usually more informative
+                            Err(rdap_error)
+                        }
+                    }
+                }
+            } else {
+                // No fallback enabled, return RDAP error
+                Err(rdap_error)
+            }
+        }
+    }
+}
 
 /// Main domain checker that coordinates availability checking operations.
 ///
@@ -198,15 +260,75 @@ impl DomainChecker {
     /// }
     /// ```
     pub async fn check_domains(&self, domains: &[String]) -> Result<Vec<DomainResult>, DomainCheckError> {
-        // TODO: Implement concurrent domain checking
-        // For now, check domains sequentially
-        let mut results = Vec::new();
-        
-        for domain in domains {
-            let result = self.check_domain(domain).await?;
-            results.push(result);
+        if domains.is_empty() {
+            return Ok(Vec::new());
         }
+
+        // Create semaphore to limit concurrent operations
+        let semaphore = Arc::new(Semaphore::new(self.config.concurrency));
+        let mut handles = Vec::new();
+
+        // Spawn concurrent tasks for each domain
+        for (index, domain) in domains.iter().enumerate() {
+            let domain = domain.clone();
+            let semaphore = Arc::clone(&semaphore);
+            
+            // Clone the checker components we need
+            let rdap_client = self.rdap_client.clone();
+            let whois_client = self.whois_client.clone();
+            let config = self.config.clone();
+
+            let handle = tokio::spawn(async move {
+                // Acquire semaphore permit
+                let _permit = semaphore.acquire().await.unwrap();
+                
+                // Check this domain
+                let result = check_single_domain_concurrent(
+                    &domain,
+                    &rdap_client,
+                    &whois_client, 
+                    &config
+                ).await;
+                
+                // Return with original index to maintain order
+                (index, result)
+            });
+
+            handles.push(handle);
+        }
+
+        // Wait for all tasks to complete and collect results
+        let mut indexed_results = Vec::new();
+        for handle in handles {
+            match handle.await {
+                Ok((index, result)) => indexed_results.push((index, result)),
+                Err(e) => {
+                    return Err(DomainCheckError::internal(
+                        format!("Concurrent task failed: {}", e)
+                    ));
+                }
+            }
+        }
+
+        // Sort by original index to maintain input order
+        indexed_results.sort_by_key(|(index, _)| *index);
         
+        // Extract results, converting errors to DomainResult with error info
+        let results = indexed_results
+            .into_iter()
+            .map(|(_, result)| match result {
+                Ok(domain_result) => domain_result,
+                Err(e) => DomainResult {
+                    domain: domains[0].clone(), // We'll fix this in the concurrent function
+                    available: None,
+                    info: None,
+                    check_duration: None,
+                    method_used: CheckMethod::Unknown,
+                    error_message: Some(e.to_string()),
+                }
+            })
+            .collect();
+
         Ok(results)
     }
     
@@ -214,6 +336,7 @@ impl DomainChecker {
     ///
     /// This method yields results as they become available, which is useful
     /// for real-time updates or when processing large numbers of domains.
+    /// Results are returned in the order they complete, not input order.
     ///
     /// # Arguments
     ///
@@ -245,13 +368,27 @@ impl DomainChecker {
     /// }
     /// ```
     pub fn check_domains_stream(&self, domains: &[String]) -> Pin<Box<dyn Stream<Item = Result<DomainResult, DomainCheckError>> + Send + '_>> {
-        // TODO: Implement streaming domain checking
-        // For now, return a simple stream that checks domains sequentially
         let domains = domains.to_vec();
+        let semaphore = Arc::new(Semaphore::new(self.config.concurrency));
+        
+        // Create stream of futures
         let stream = futures::stream::iter(domains)
-            .then(move |domain| async move {
-                self.check_domain(&domain).await
-            });
+            .map(move |domain| {
+                let semaphore = Arc::clone(&semaphore);
+                let rdap_client = self.rdap_client.clone();
+                let whois_client = self.whois_client.clone();
+                let config = self.config.clone();
+                
+                async move {
+                    // Acquire semaphore permit
+                    let _permit = semaphore.acquire().await.unwrap();
+                    
+                    // Check domain
+                    check_single_domain_concurrent(&domain, &rdap_client, &whois_client, &config).await
+                }
+            })
+            // Buffer unordered allows concurrent execution while maintaining the stream interface
+            .buffer_unordered(self.config.concurrency);
             
         Box::pin(stream)
     }

@@ -257,6 +257,7 @@ dependencies = [
  "clap",
  "console",
  "domain-check-lib",
+ "futures",
  "regex",
  "serde",
  "serde_json",

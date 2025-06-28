@@ -17,8 +17,6 @@ members = [
     "domain-check-lib",  # Core library crate
     "domain-check",      # CLI application crate
 ]
-# Use edition 2021 resolver for better dependency resolution
-resolver = "2"
 
 # Workspace-wide metadata
 [workspace.package]

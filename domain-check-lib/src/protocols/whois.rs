@@ -13,6 +13,7 @@ use tokio::process::Command;
 ///
 /// This client uses the system's `whois` command-line tool to query domain information.
 /// It's designed as a fallback when RDAP is not available or fails.
+#[derive(Clone)]
 pub struct WhoisClient {
     /// Timeout for WHOIS requests
     timeout: Duration,

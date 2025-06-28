@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 ///
 /// This client handles RDAP protocol communication, including endpoint discovery,
 /// request formatting, response parsing, and error handling.
+#[derive(Clone)]
 pub struct RdapClient {
     /// HTTP client for making RDAP requests
     http_client: reqwest::Client,

@@ -5,6 +5,7 @@
 
 use clap::Parser;
 use domain_check_lib::{DomainChecker, CheckConfig};
+use futures::StreamExt;
 use std::process;
 
 /// CLI arguments for domain-check
@@ -13,7 +14,9 @@ use std::process;
 #[command(version = "0.4.0")]
 #[command(author = "Sai Dutt G.V <gvs46@protonmail.com>")]
 #[command(about = "Check domain availability using RDAP with WHOIS fallback")]
-#[command(long_about = "A fast, robust CLI tool for checking domain availability using RDAP protocol with automatic WHOIS fallback and detailed domain information.")]
+#[command(long_about = "A fast, robust CLI tool for checking domain availability using RDAP protocol with automatic WHOIS fallback. 
+
+Features real-time progress updates and concurrent processing for multiple domains.")]
 pub struct Args {
     /// Domain names to check (supports both base names and FQDNs)
     #[arg(value_name = "DOMAINS")]
@@ -60,11 +63,11 @@ pub struct Args {
     pub pretty: bool,
 
     /// Force batch mode (collect all results first)
-    #[arg(long = "batch")]
+    #[arg(long = "batch", help = "Force batch mode - collect all results before displaying")]
     pub batch: bool,
 
     /// Force streaming mode (show results as ready)
-    #[arg(long = "streaming")]
+    #[arg(long = "streaming", help = "Force streaming mode - show results as they complete")]
     pub streaming: bool,
 
     /// Show detailed debug information and error messages
@@ -135,15 +138,138 @@ async fn run_domain_check(args: Args) -> Result<(), Box<dyn std::error::Error>> 
     // Determine domains to check
     let domains = get_domains_to_check(&args).await?;
 
-    if args.verbose {
-        println!("🔍 Checking {} domains with concurrency: {}", domains.len(), args.concurrency);
+    // Decide on processing mode based on domain count and user preferences
+    let use_streaming = should_use_streaming(&args, domains.len());
+    
+    if use_streaming {
+        // Streaming mode for multiple domains - show progress and real-time results
+        run_streaming_check(&checker, &domains, &args).await?;
+    } else {
+        // Batch mode for single domains or when explicitly requested
+        run_batch_check(&checker, &domains, &args).await?;
     }
 
-    // Check domains based on output mode
-    let results = checker.check_domains(&domains).await?;
+    Ok(())
+}
 
-    // Display results
-    display_results(&results, &args)?;
+/// Determine whether to use streaming or batch mode
+fn should_use_streaming(args: &Args, domain_count: usize) -> bool {
+    // Force batch mode if explicitly requested
+    if args.batch {
+        return false;
+    }
+    
+    // Force streaming mode if explicitly requested
+    if args.streaming {
+        return true;
+    }
+    
+    // Use streaming for multiple domains unless in JSON/CSV mode
+    if domain_count > 1 && !args.json && !args.csv {
+        return true;
+    }
+    
+    // Default to batch mode for single domains or structured output
+    false
+}
+
+/// Run domain check in streaming mode with real-time progress
+async fn run_streaming_check(
+    checker: &DomainChecker, 
+    domains: &[String], 
+    args: &Args
+) -> Result<(), Box<dyn std::error::Error>> {
+    use futures::StreamExt;
+    
+    // Show initial progress message
+    if args.verbose || args.pretty {
+        println!("🔍 Checking {} domains with concurrency: {}", 
+            domains.len(), 
+            checker.config().concurrency
+        );
+        
+        if args.debug {
+            println!("🔧 Domains: {}", domains.join(", "));
+        }
+        
+        println!(); // Empty line for readability
+    }
+
+    // Track statistics for summary
+    let mut available_count = 0;
+    let mut taken_count = 0;
+    let mut unknown_count = 0;
+    let mut results = Vec::new();
+    
+    let start_time = std::time::Instant::now();
+    
+    // Stream results as they complete
+    let mut stream = checker.check_domains_stream(domains);
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(domain_result) => {
+                // Update statistics
+                match domain_result.available {
+                    Some(true) => available_count += 1,
+                    Some(false) => taken_count += 1,
+                    None => unknown_count += 1,
+                }
+                
+                // Show result immediately
+                display_single_result(&domain_result, args)?;
+                results.push(domain_result);
+            }
+            Err(e) => {
+                // Show error immediately
+                if args.pretty {
+                    eprintln!("❌ Error: {}", e);
+                } else {
+                    eprintln!("Error: {}", e);
+                }
+                unknown_count += 1;
+            }
+        }
+    }
+    
+    let duration = start_time.elapsed();
+    
+    // Show final summary for multiple domains
+    if domains.len() > 1 {
+        println!(); // Empty line before summary
+        
+        if args.pretty {
+            println!("✅ {} domains processed in {:.1}s: 🟢 {} available, 🔴 {} taken, ⚠️ {} unknown", 
+                results.len(), 
+                duration.as_secs_f64(),
+                available_count, 
+                taken_count, 
+                unknown_count
+            );
+        } else {
+            println!("Summary: {} available, {} taken, {} unknown (processed in {:.1}s)", 
+                available_count, taken_count, unknown_count, duration.as_secs_f64());
+        }
+    }
+
+    Ok(())
+}
+
+/// Run domain check in batch mode (collect all results first)
+async fn run_batch_check(
+    checker: &DomainChecker, 
+    domains: &[String], 
+    args: &Args
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Show processing message for longer operations
+    if domains.len() > 1 && (args.verbose || args.pretty) {
+        println!("🔍 Checking {} domains...", domains.len());
+    }
+
+    // Check all domains (concurrent under the hood)
+    let results = checker.check_domains(domains).await?;
+
+    // Display results based on format
+    display_results(&results, args)?;
 
     Ok(())
 }
@@ -196,7 +322,55 @@ async fn read_domains_from_file(file_path: &str) -> Result<Vec<String>, Box<dyn 
     Err(format!("File reading not implemented yet: {}", file_path).into())
 }
 
-/// Display results based on output format
+/// Display a single domain result (for streaming mode)
+fn display_single_result(result: &domain_check_lib::DomainResult, args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+    match result.available {
+        Some(true) => {
+            if args.pretty {
+                println!("🟢 {} is AVAILABLE", result.domain);
+            } else {
+                println!("{} AVAILABLE", result.domain);
+            }
+        }
+        Some(false) => {
+            if args.info && result.info.is_some() {
+                let info = result.info.as_ref().unwrap();
+                if args.pretty {
+                    println!("🔴 {} is TAKEN ({})", result.domain, 
+                        format_domain_info(info));
+                } else {
+                    println!("{} TAKEN ({})", result.domain, 
+                        format_domain_info(info));
+                }
+            } else {
+                if args.pretty {
+                    println!("🔴 {} is TAKEN", result.domain);
+                } else {
+                    println!("{} TAKEN", result.domain);
+                }
+            }
+        }
+        None => {
+            if args.pretty {
+                println!("⚠️ {} status UNKNOWN", result.domain);
+            } else {
+                println!("{} UNKNOWN", result.domain);
+            }
+        }
+    }
+    
+    // Show timing in debug mode
+    if args.debug {
+        if let Some(duration) = result.check_duration {
+            println!("    └─ Checked in {}ms via {}", 
+                duration.as_millis(), 
+                result.method_used
+            );
+        }
+    }
+    
+    Ok(())
+}
 fn display_results(results: &[domain_check_lib::DomainResult], args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     if args.json {
         display_json_results(results)?;

@@ -50,6 +50,9 @@ serde_json = { workspace = true }
 # File I/O and text processing
 regex = { workspace = true }
 
+# Async utilities for streaming
+futures = { workspace = true }
+
 # Development dependencies
 [dev-dependencies]
 tokio-test = { workspace = true }
