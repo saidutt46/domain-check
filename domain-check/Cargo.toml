@@ -1,0 +1,62 @@
+# Domain Check CLI Application
+#
+# This is the command-line interface that provides user-friendly access 
+# to the domain-check-lib functionality. It handles argument parsing,
+# output formatting, and user interaction.
+
+[package]
+name = "domain-check"
+description = "A fast CLI tool for checking domain availability using RDAP with WHOIS fallback"
+
+# Inherit common fields from workspace
+version = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+edition = { workspace = true }
+
+# CLI-specific metadata
+documentation = "https://docs.rs/domain-check"
+homepage = "https://github.com/saidutt46/domain-check"
+readme = "../README.md"
+
+# This generates a binary executable
+[[bin]]
+name = "domain-check"
+path = "src/main.rs"
+
+[dependencies]
+# Our core library (local dependency)
+domain-check-lib = { path = "../domain-check-lib", version = "=0.4.0" }
+
+# CLI argument parsing
+clap = { workspace = true }
+
+# Terminal output and colors
+console = { workspace = true }
+
+# Async runtime for CLI
+tokio = { workspace = true }
+
+# JSON output formatting
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# File I/O and text processing
+regex = { workspace = true }
+
+# Async utilities for streaming
+futures = { workspace = true }
+
+# Development dependencies
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+# CLI-specific features
+[features]
+default = []
+
+# Enable terminal UI dashboard (future feature)
+# ui = ["crossterm", "tui"]
