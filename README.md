@@ -8,8 +8,19 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://github.com/saidutt46/domain-check/workflows/CI/badge.svg)](https://github.com/saidutt46/domain-check/actions)
 [![Rust Version](https://img.shields.io/badge/rust-1.70+-blue.svg)](https://www.rust-lang.org)
-[![Security audit](https://github.com/saidutt46/domain-check/workflows/Security%20audit/badge.svg)](https://github.com/saidutt46/domain-check/actions)
+[![Security audit](https://github.com/saidutt46/domain-check/workflows/Security%20Audit/badge.svg)](https://github.com/saidutt46/domain-check/actions)
 
+---
+## 🎯 **Why Choose Domain Check?**
+
+🦀 **Library + CLI in One** - Use as a Rust library or standalone command-line tool  
+⚡ **Lightning Fast** - Concurrent processing with smart rate limiting  
+🌐 **Protocol Smart** - RDAP-first with automatic WHOIS fallback  
+🎯 **Production Ready** - Used by developers worldwide with enterprise-grade reliability  
+📦 **Zero Hassle Setup** - Works out of the box, no configuration needed  
+🔒 **Security Focused** - Regular security audits and dependency monitoring  
+
+*Perfect for domain investors, developers, system administrators, and anyone who needs to check domain availability at scale.*
 ---
 
 ## 🚀 Quick Start
