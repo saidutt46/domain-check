@@ -5,6 +5,8 @@
 
 use crate::types::{CheckConfig, DomainResult, CheckMethod};
 use crate::error::DomainCheckError;
+use crate::protocols::{RdapClient, WhoisClient};
+use crate::utils::{validate_domain, expand_domain_inputs};
 use futures::stream::{Stream, StreamExt};
 use std::pin::Pin;
 
@@ -32,6 +34,10 @@ use std::pin::Pin;
 pub struct DomainChecker {
     /// Configuration settings for this checker instance
     config: CheckConfig,
+    /// RDAP client for modern domain checking
+    rdap_client: RdapClient,
+    /// WHOIS client for fallback domain checking
+    whois_client: WhoisClient,
 }
 
 impl DomainChecker {
@@ -44,8 +50,15 @@ impl DomainChecker {
     /// - Bootstrap: disabled
     /// - Detailed info: disabled
     pub fn new() -> Self {
+        let config = CheckConfig::default();
+        let rdap_client = RdapClient::with_config(config.rdap_timeout, config.enable_bootstrap)
+            .expect("Failed to create RDAP client");
+        let whois_client = WhoisClient::with_timeout(config.whois_timeout);
+        
         Self {
-            config: CheckConfig::default(),
+            config,
+            rdap_client,
+            whois_client,
         }
     }
     
@@ -65,13 +78,27 @@ impl DomainChecker {
     /// let checker = DomainChecker::with_config(config);
     /// ```
     pub fn with_config(config: CheckConfig) -> Self {
-        Self { config }
+        let rdap_client = RdapClient::with_config(config.rdap_timeout, config.enable_bootstrap)
+            .expect("Failed to create RDAP client");
+        let whois_client = WhoisClient::with_timeout(config.whois_timeout);
+        
+        Self { 
+            config,
+            rdap_client,
+            whois_client,
+        }
     }
     
     /// Check availability of a single domain.
     ///
     /// This is the most basic operation - check one domain and return the result.
     /// The domain should be a fully qualified domain name (e.g., "example.com").
+    ///
+    /// The checking process:
+    /// 1. Validates the domain format
+    /// 2. Attempts RDAP check first (modern protocol)
+    /// 3. Falls back to WHOIS if RDAP fails and fallback is enabled
+    /// 4. Returns comprehensive result with timing and method information
     ///
     /// # Arguments
     ///
@@ -88,16 +115,56 @@ impl DomainChecker {
     /// - Network errors occur
     /// - All checking methods fail
     pub async fn check_domain(&self, domain: &str) -> Result<DomainResult, DomainCheckError> {
-        // TODO: Implement actual domain checking logic
-        // For now, return a placeholder result
-        Ok(DomainResult {
-            domain: domain.to_string(),
-            available: None,
-            info: None,
-            check_duration: Some(std::time::Duration::from_millis(100)),
-            method_used: CheckMethod::Unknown,
-            error_message: Some("Not implemented yet".to_string()),
-        })
+        // Validate domain format first
+        validate_domain(domain)?;
+        
+        // Try RDAP first
+        match self.rdap_client.check_domain(domain).await {
+            Ok(result) => {
+                // RDAP succeeded, filter info based on configuration
+                Ok(self.filter_result_info(result))
+            }
+            Err(rdap_error) => {
+                // RDAP failed, try WHOIS fallback if enabled
+                if self.config.enable_whois_fallback {
+                    match self.whois_client.check_domain(domain).await {
+                        Ok(whois_result) => {
+                            Ok(self.filter_result_info(whois_result))
+                        }
+                        Err(whois_error) => {
+                            // Both RDAP and WHOIS failed, return the most informative error
+                            if rdap_error.indicates_available() {
+                                // RDAP error suggests domain is available
+                                Ok(DomainResult {
+                                    domain: domain.to_string(),
+                                    available: Some(true),
+                                    info: None,
+                                    check_duration: None,
+                                    method_used: CheckMethod::Rdap,
+                                    error_message: None,
+                                })
+                            } else {
+                                // Return the RDAP error as it's usually more informative
+                                Err(rdap_error)
+                            }
+                        }
+                    }
+                } else {
+                    // No fallback enabled, return RDAP error
+                    Err(rdap_error)
+                }
+            }
+        }
+    }
+    
+    /// Filter domain result info based on configuration.
+    ///
+    /// If detailed_info is disabled, removes the info field to keep results clean.
+    fn filter_result_info(&self, mut result: DomainResult) -> DomainResult {
+        if !self.config.detailed_info {
+            result.info = None;
+        }
+        result
     }
     
     /// Check availability of multiple domains concurrently.
@@ -224,8 +291,13 @@ impl DomainChecker {
     /// Update the configuration for this checker.
     ///
     /// This allows modifying settings like concurrency or timeout
-    /// after the checker has been created.
+    /// after the checker has been created. Note that this will recreate
+    /// the internal protocol clients with the new settings.
     pub fn set_config(&mut self, config: CheckConfig) {
+        // Recreate clients with new configuration
+        self.rdap_client = RdapClient::with_config(config.rdap_timeout, config.enable_bootstrap)
+            .expect("Failed to recreate RDAP client");
+        self.whois_client = WhoisClient::with_timeout(config.whois_timeout);
         self.config = config;
     }
 }

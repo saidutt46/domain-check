@@ -80,7 +80,7 @@ pub enum DomainCheckError {
 
 impl DomainCheckError {
     /// Create a new invalid domain error.
-    pub fn invalid_domain<S: Into<String>>(domain: S, reason: S) -> Self {
+    pub fn invalid_domain<D: Into<String>, R: Into<String>>(domain: D, reason: R) -> Self {
         Self::InvalidDomain {
             domain: domain.into(),
             reason: reason.into(),
@@ -88,7 +88,7 @@ impl DomainCheckError {
     }
     
     /// Create a new network error.
-    pub fn network<S: Into<String>>(message: S) -> Self {
+    pub fn network<M: Into<String>>(message: M) -> Self {
         Self::NetworkError {
             message: message.into(),
             source: None,
@@ -96,7 +96,7 @@ impl DomainCheckError {
     }
     
     /// Create a new network error with source information.
-    pub fn network_with_source<S: Into<String>>(message: S, source: S) -> Self {
+    pub fn network_with_source<M: Into<String>, S: Into<String>>(message: M, source: S) -> Self {
         Self::NetworkError {
             message: message.into(),
             source: Some(source.into()),
@@ -104,7 +104,7 @@ impl DomainCheckError {
     }
     
     /// Create a new RDAP error.
-    pub fn rdap<S: Into<String>>(domain: S, message: S) -> Self {
+    pub fn rdap<D: Into<String>, M: Into<String>>(domain: D, message: M) -> Self {
         Self::RdapError {
             domain: domain.into(),
             message: message.into(),
@@ -113,7 +113,7 @@ impl DomainCheckError {
     }
     
     /// Create a new RDAP error with HTTP status code.
-    pub fn rdap_with_status<S: Into<String>>(domain: S, message: S, status_code: u16) -> Self {
+    pub fn rdap_with_status<D: Into<String>, M: Into<String>>(domain: D, message: M, status_code: u16) -> Self {
         Self::RdapError {
             domain: domain.into(),
             message: message.into(),
@@ -122,7 +122,7 @@ impl DomainCheckError {
     }
     
     /// Create a new WHOIS error.
-    pub fn whois<S: Into<String>>(domain: S, message: S) -> Self {
+    pub fn whois<D: Into<String>, M: Into<String>>(domain: D, message: M) -> Self {
         Self::WhoisError {
             domain: domain.into(),
             message: message.into(),
@@ -130,7 +130,7 @@ impl DomainCheckError {
     }
     
     /// Create a new bootstrap error.
-    pub fn bootstrap<S: Into<String>>(tld: S, message: S) -> Self {
+    pub fn bootstrap<T: Into<String>, M: Into<String>>(tld: T, message: M) -> Self {
         Self::BootstrapError {
             tld: tld.into(),
             message: message.into(),
@@ -138,7 +138,7 @@ impl DomainCheckError {
     }
     
     /// Create a new timeout error.
-    pub fn timeout<S: Into<String>>(operation: S, duration: std::time::Duration) -> Self {
+    pub fn timeout<O: Into<String>>(operation: O, duration: std::time::Duration) -> Self {
         Self::Timeout {
             operation: operation.into(),
             duration,
@@ -146,7 +146,7 @@ impl DomainCheckError {
     }
     
     /// Create a new internal error.
-    pub fn internal<S: Into<String>>(message: S) -> Self {
+    pub fn internal<M: Into<String>>(message: M) -> Self {
         Self::Internal {
             message: message.into(),
         }
@@ -240,9 +240,9 @@ impl From<reqwest::Error> for DomainCheckError {
         if err.is_timeout() {
             Self::timeout("HTTP request", std::time::Duration::from_secs(30))
         } else if err.is_connect() {
-            Self::network_with_source("Connection failed", &err.to_string())
+            Self::network_with_source("Connection failed", err.to_string())
         } else {
-            Self::network_with_source("HTTP request failed", &err.to_string())
+            Self::network_with_source("HTTP request failed", err.to_string())
         }
     }
 }

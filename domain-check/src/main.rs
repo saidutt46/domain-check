@@ -19,8 +19,8 @@ pub struct Args {
     #[arg(value_name = "DOMAINS")]
     pub domains: Vec<String>,
 
-    /// TLDs to check for base domain names
-    #[arg(short = 't', long = "tld", value_name = "TLD")]
+    /// TLDs to check for base domain names (comma-separated or multiple -t flags)
+    #[arg(short = 't', long = "tld", value_name = "TLD", value_delimiter = ',', action = clap::ArgAction::Append)]
     pub tlds: Option<Vec<String>>,
 
     /// Input file with domains to check (one per line)
