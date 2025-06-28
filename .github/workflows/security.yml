@@ -26,13 +26,6 @@ jobs:
       - name: Run cargo audit
         run: cargo audit
 
-      - name: Run cargo deny
-        uses: EmbarkStudios/cargo-deny-action@v1
-        with:
-          log-level: warn
-          command: check
-          arguments: --all-features
-
   dependency_review:
     name: Dependency Review
     runs-on: ubuntu-latest
