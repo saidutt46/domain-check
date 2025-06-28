@@ -1,0 +1,15 @@
+.
+├── .DS_Store
+├── .github
+│   ├── .DS_Store
+│   └── workflows
+│       ├── ci.yml
+│       └── release.yml
+├── .gitignore
+├── Cargo.toml
+├── CHANGELOG.md
+├── README.md
+├── release.toml
+├── RustAppStructure.txt
+└── src
+    └── main.rs
