@@ -5,7 +5,6 @@
 
 use clap::Parser;
 use domain_check_lib::{DomainChecker, CheckConfig};
-use futures::StreamExt;
 use std::process;
 
 /// CLI arguments for domain-check
@@ -301,8 +300,17 @@ async fn get_domains_to_check(args: &Args) -> Result<Vec<String>, Box<dyn std::e
 
     // Add domains from file if specified
     if let Some(file_path) = &args.file {
-        let file_domains = read_domains_from_file(file_path).await?;
-        domains.extend(file_domains);
+        let mut file_domains = read_domains_from_file(file_path).await?;
+        
+        // Apply force flag for domain limit
+        if file_domains.len() > 500 && !args.force {
+            return Err(format!(
+                "File contains {} domains, which exceeds the limit of 500. Use --force to override.",
+                file_domains.len()
+            ).into());
+        }
+        
+        domains.append(&mut file_domains);
     }
 
     // Apply smart domain expansion
@@ -312,14 +320,93 @@ async fn get_domains_to_check(args: &Args) -> Result<Vec<String>, Box<dyn std::e
         return Err("No valid domains found to check".into());
     }
 
+    // Final domain count check after expansion (more restrictive)
+    if expanded_domains.len() > 1000 && !args.force {
+        return Err(format!(
+            "After TLD expansion, checking {} domains exceeds the limit of 1000. Use --force to override.",
+            expanded_domains.len()
+        ).into());
+    }
+
     Ok(expanded_domains)
 }
 
 /// Read domains from a file
 async fn read_domains_from_file(file_path: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    // TODO: Implement file reading
-    // For now, return an error to indicate it's not implemented
-    Err(format!("File reading not implemented yet: {}", file_path).into())
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    use std::path::Path;
+
+    // Check if file exists
+    let path = Path::new(file_path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path).into());
+    }
+
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let mut domains = Vec::new();
+    let mut invalid_lines = Vec::new();
+    let mut line_num = 0;
+
+    for line in reader.lines() {
+        line_num += 1;
+        match line {
+            Ok(line) => {
+                let trimmed = line.trim();
+                
+                // Skip empty lines and comments
+                if trimmed.is_empty() || trimmed.starts_with('#') {
+                    continue;
+                }
+
+                // Handle inline comments
+                let domain_part = trimmed.split('#').next().unwrap_or("").trim();
+                if domain_part.is_empty() {
+                    continue;
+                }
+
+                // Basic domain validation
+                if domain_part.len() < 2 {
+                    invalid_lines.push(format!("Line {}: '{}' - domain too short", line_num, domain_part));
+                    continue;
+                }
+
+                // Add domain (will be expanded later with TLDs if needed)
+                domains.push(domain_part.to_string());
+            }
+            Err(e) => {
+                invalid_lines.push(format!("Line {}: Error reading line - {}", line_num, e));
+            }
+        }
+    }
+
+    // Report invalid lines if any
+    if !invalid_lines.is_empty() {
+        eprintln!("⚠️ Found {} invalid entries in the file:", invalid_lines.len());
+        for invalid in &invalid_lines[..invalid_lines.len().min(5)] {
+            eprintln!("  {}", invalid);
+        }
+        if invalid_lines.len() > 5 {
+            eprintln!("  ... and {} more invalid entries", invalid_lines.len() - 5);
+        }
+        eprintln!();
+    }
+
+    // Check if we have any valid domains
+    if domains.is_empty() {
+        return Err("No valid domains found in the file.".into());
+    }
+
+    // Check domain limit (500 by default, can be overridden with --force)
+    if domains.len() > 500 {
+        return Err(format!(
+            "File contains {} domains, which exceeds the limit of 500. Use --force to override.",
+            domains.len()
+        ).into());
+    }
+
+    Ok(domains)
 }
 
 /// Display a single domain result (for streaming mode)

@@ -44,6 +44,7 @@ pub fn validate_domain(domain: &str) -> Result<(), DomainCheckError> {
 /// # Returns
 ///
 /// A tuple of (base_name, tld) where TLD is None if no dot is found.
+#[allow(dead_code)]
 pub fn extract_domain_parts(domain: &str) -> (String, Option<String>) {
     let parts: Vec<&str> = domain.split('.').collect();
     

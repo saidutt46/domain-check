@@ -152,6 +152,14 @@ impl DomainCheckError {
         }
     }
     
+    /// Create a new file error.
+    pub fn file_error<P: Into<String>, M: Into<String>>(path: P, message: M) -> Self {
+        Self::FileError {
+            path: path.into(),
+            message: message.into(),
+        }
+    }
+    
     /// Check if this error indicates the domain is definitely available.
     /// 
     /// Some error conditions (like NXDOMAIN) actually indicate availability.

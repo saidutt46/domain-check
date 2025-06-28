@@ -224,6 +224,7 @@ impl Default for WhoisClient {
 /// # Returns
 ///
 /// `true` if the whois command is available and working, `false` otherwise.
+#[allow(dead_code)]
 pub async fn is_whois_available() -> bool {
     match Command::new("whois")
         .arg("--version")
@@ -248,6 +249,7 @@ pub async fn is_whois_available() -> bool {
 /// Get the version of the system's whois command.
 ///
 /// This is useful for debugging and ensuring compatibility.
+#[allow(dead_code)]
 pub async fn get_whois_version() -> Result<String, DomainCheckError> {
     let output = Command::new("whois")
         .arg("--version")

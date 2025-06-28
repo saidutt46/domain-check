@@ -6,7 +6,7 @@
 use crate::types::{CheckConfig, DomainResult, CheckMethod};
 use crate::error::DomainCheckError;
 use crate::protocols::{RdapClient, WhoisClient};
-use crate::utils::{validate_domain, expand_domain_inputs};
+use crate::utils::validate_domain;
 use futures::stream::{Stream, StreamExt};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -193,7 +193,7 @@ impl DomainChecker {
                         Ok(whois_result) => {
                             Ok(self.filter_result_info(whois_result))
                         }
-                        Err(whois_error) => {
+                        Err(_whois_error) => {
                             // Both RDAP and WHOIS failed, return the most informative error
                             if rdap_error.indicates_available() {
                                 // RDAP error suggests domain is available
@@ -413,11 +413,66 @@ impl DomainChecker {
     /// - The file contains too many domains (over limit)
     /// - No valid domains are found in the file
     pub async fn check_domains_from_file(&self, file_path: &str) -> Result<Vec<DomainResult>, DomainCheckError> {
-        // TODO: Implement file reading and domain checking
-        // For now, return an error indicating it's not implemented
-        Err(DomainCheckError::internal(
-            format!("File checking not implemented yet: {}", file_path)
-        ))
+        use std::fs::File;
+        use std::io::{BufRead, BufReader};
+        use std::path::Path;
+
+        // Check if file exists
+        let path = Path::new(file_path);
+        if !path.exists() {
+            return Err(DomainCheckError::file_error(
+                file_path,
+                "File not found"
+            ));
+        }
+
+        // Read domains from file
+        let file = File::open(path).map_err(|e| {
+            DomainCheckError::file_error(
+                file_path,
+                format!("Cannot open file: {}", e)
+            )
+        })?;
+
+        let reader = BufReader::new(file);
+        let mut domains = Vec::new();
+        let mut line_num = 0;
+
+        for line in reader.lines() {
+            line_num += 1;
+            match line {
+                Ok(line) => {
+                    let trimmed = line.trim();
+                    
+                    // Skip empty lines and comments
+                    if trimmed.is_empty() || trimmed.starts_with('#') {
+                        continue;
+                    }
+
+                    // Handle inline comments
+                    let domain_part = trimmed.split('#').next().unwrap_or("").trim();
+                    if !domain_part.is_empty() && domain_part.len() >= 2 {
+                        domains.push(domain_part.to_string());
+                    }
+                }
+                Err(e) => {
+                    return Err(DomainCheckError::file_error(
+                        file_path,
+                        format!("Error reading line {}: {}", line_num, e)
+                    ));
+                }
+            }
+        }
+
+        if domains.is_empty() {
+            return Err(DomainCheckError::file_error(
+                file_path,
+                "No valid domains found in file"
+            ));
+        }
+
+        // Check domains using existing concurrent logic
+        self.check_domains(&domains).await
     }
     
     /// Get the current configuration for this checker.

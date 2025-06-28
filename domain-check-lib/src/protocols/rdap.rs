@@ -267,8 +267,8 @@ pub fn extract_domain_info(json: &serde_json::Value) -> DomainInfo {
     // Extract nameservers
     if let Some(nameservers) = json.get("nameservers").and_then(|ns| ns.as_array()) {
         for nameserver in nameservers {
-            if let Some(ldhName) = nameserver.get("ldhName").and_then(|name| name.as_str()) {
-                info.nameservers.push(ldhName.to_string());
+            if let Some(ldh_name) = nameserver.get("ldhName").and_then(|name| name.as_str()) {
+                info.nameservers.push(ldh_name.to_string());
             }
         }
     }
