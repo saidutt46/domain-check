@@ -77,20 +77,21 @@ pub struct LibraryInfo {
 }
 
 /// Get list of enabled features at compile time
+#[allow(clippy::vec_init_then_push)]  // ← Add this line
 fn get_enabled_features() -> Vec<&'static str> {
-    let mut features = Vec::with_capacity(4); // Pre-allocate for max possible features
-
+    let mut features = Vec::new();
+    
     #[cfg(feature = "rdap")]
     features.push("rdap");
-
+    
     #[cfg(feature = "whois")]
     features.push("whois");
-
+    
     #[cfg(feature = "bootstrap")]
     features.push("bootstrap");
-
+    
     #[cfg(feature = "debug")]
     features.push("debug");
-
+    
     features
 }
