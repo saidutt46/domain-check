@@ -149,7 +149,25 @@ impl RdapClient {
                 let json = response.json::<serde_json::Value>().await
                     .map_err(|e| DomainCheckError::rdap(domain, format!("Failed to parse JSON: {}", e)))?;
                 
+                // 🔍 DEBUG: Print the actual JSON response for analysis
+                if std::env::var("DOMAIN_CHECK_DEBUG_RDAP").is_ok() {
+                    println!("🔍 RDAP Response for {}:", domain);
+                    println!("{}", serde_json::to_string_pretty(&json).unwrap_or_default());
+                    println!("--- End RDAP Response ---\n");
+                }
+                
                 let domain_info = extract_domain_info(&json);
+                
+                // 🔍 DEBUG: Print extracted info
+                if std::env::var("DOMAIN_CHECK_DEBUG_RDAP").is_ok() {
+                    println!("🔍 Extracted Info for {}:", domain);
+                    println!("  Registrar: {:?}", domain_info.registrar);
+                    println!("  Created: {:?}", domain_info.creation_date);
+                    println!("  Expires: {:?}", domain_info.expiration_date);
+                    println!("  Status: {:?}", domain_info.status);
+                    println!("--- End Extracted Info ---\n");
+                }
+                
                 Ok((false, Some(domain_info)))
             }
             StatusCode::NOT_FOUND => {
@@ -191,6 +209,7 @@ impl RdapClient {
             }
         }
     }
+
 }
 
 impl Default for RdapClient {

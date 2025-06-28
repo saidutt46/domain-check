@@ -201,7 +201,7 @@ impl fmt::Display for DomainCheckError {
                     write!(f, "⏱️ Request timed out\n   💡 Your internet connection may be slow. Try again or check fewer domains at once")
                 } else {
                     match source {
-                        Some(source) => write!(f, "🌐 Network error: {}\n   💡 Please check your internet connection", message),
+                        Some(_) => write!(f, "🌐 Network error: {}\n   💡 Please check your internet connection", message),
                         None => write!(f, "🌐 Network error: {}\n   💡 Please check your internet connection", message),
                     }
                 }
@@ -226,10 +226,10 @@ impl fmt::Display for DomainCheckError {
                     write!(f, "⚠️ {}: WHOIS lookup failed\n   💡 This may indicate the domain is available or the server is busy", domain)
                 }
             }
-            Self::BootstrapError { tld, message } => {
+            Self::BootstrapError { tld, message: _ } => {
                 write!(f, "❓ Unknown domain extension '.{}'\n   💡 This TLD may not support automated checking. Try manually checking with a registrar", tld)
             }
-            Self::ParseError { message, content: _ } => {
+            Self::ParseError { message: _, content: _ } => {
                 write!(f, "⚠️ Unable to understand server response\n   💡 The domain registry may be experiencing issues. Please try again later")
             }
             Self::ConfigError { message } => {
