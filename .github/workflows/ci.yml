@@ -1,40 +1,282 @@
-name: Continuous Integration
+name: CI
+
 on:
   push:
-    branches: [ main, features/** ]
+    branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+  schedule:
+    # Run CI daily to catch regressions
+    - cron: '0 2 * * *'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
 jobs:
-  test:
-    name: Build, Format, Clippy, and Test
+  # Check code formatting
+  fmt:
+    name: Format Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
-      
-      - name: Cache dependencies
-        uses: actions/cache@v3
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+  # Static analysis with Clippy
+  clippy:
+    name: Clippy Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  # Security audit
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run security audit
+        run: cargo audit
+
+  # Test on multiple Rust versions
+  test:
+    name: Test Suite
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [stable, beta, 1.70.0]  # MSRV (Minimum Supported Rust Version)
+        exclude:
+          # Only test MSRV on Ubuntu to save CI time
+          - os: windows-latest
+            rust: 1.70.0
+          - os: macos-latest
+            rust: 1.70.0
+          # Only test beta on Ubuntu
+          - os: windows-latest
+            rust: beta
+          - os: macos-latest
+            rust: beta
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-${{ matrix.rust }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.rust }}-cargo-registry-
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-${{ matrix.rust }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.rust }}-cargo-build-
+
+      - name: Build workspace
+        run: cargo build --workspace --verbose
+
+      - name: Test library
+        run: cargo test -p domain-check-lib --verbose
+
+      - name: Test CLI
+        run: cargo test -p domain-check --verbose
+
+      - name: Test workspace
+        run: cargo test --workspace --verbose
+
+      - name: Test library with all features
+        run: cargo test -p domain-check-lib --all-features --verbose
+
+      - name: Test documentation
+        run: cargo test --doc --workspace
+
+  # Integration tests
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [fmt, clippy]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-      
-      - name: Build
-        run: cargo build --verbose
-      
-      - name: Lint
-        run: cargo clippy --all-targets -- -D warnings
-      
-      - name: Format Check
-        run: cargo fmt -- --check
-      
-      - name: Test
-        run: cargo test --verbose
+          key: ${{ runner.os }}-integration-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-integration-
+
+      - name: Build release binary
+        run: cargo build --release -p domain-check
+
+      - name: Test CLI functionality
+        run: |
+          # Test basic domain check
+          ./target/release/domain-check example.com
+          
+          # Test multiple domains
+          ./target/release/domain-check example startup -t com,org
+          
+          # Test JSON output
+          ./target/release/domain-check google.com --json
+          
+          # Test info flag
+          ./target/release/domain-check google.com --info
+
+      - name: Test library integration
+        run: |
+          # Create a simple integration test
+          cat > /tmp/integration_test.rs << 'EOF'
+          use domain_check_lib::DomainChecker;
+          
+          #[tokio::main]
+          async fn main() -> Result<(), Box<dyn std::error::Error>> {
+              let checker = DomainChecker::new();
+              let result = checker.check_domain("example.com").await?;
+              println!("Domain check result: {:?}", result.available);
+              Ok(())
+          }
+          EOF
+          
+          # Test that library can be used externally
+          cd /tmp
+          cargo init --name integration_test
+          echo 'domain-check-lib = { path = "'${{ github.workspace }}/domain-check-lib" }' >> Cargo.toml
+          echo 'tokio = { version = "1", features = ["full"] }' >> Cargo.toml
+          cp integration_test.rs src/main.rs
+          cargo run
+
+  # Check documentation
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-docs-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check library documentation
+        run: cargo doc -p domain-check-lib --no-deps --document-private-items
+
+      - name: Check CLI documentation
+        run: cargo doc -p domain-check --no-deps --document-private-items
+
+      - name: Check for broken links in docs
+        run: cargo doc --workspace --no-deps
+
+  # Check minimum versions
+  minimal-versions:
+    name: Minimal Dependency Versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-minimal-versions
+        run: cargo install cargo-minimal-versions
+
+      - name: Check minimal versions
+        run: cargo minimal-versions check --workspace
+
+  # Coverage (optional - can be heavy)
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Generate coverage
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+      - name: Upload to codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: lcov.info
+          fail_ci_if_error: false

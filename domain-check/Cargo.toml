@@ -3,9 +3,6 @@
 # This is the command-line interface that provides user-friendly access 
 # to the domain-check-lib functionality. It handles argument parsing,
 # output formatting, and user interaction.
-#
-# This crate depends on domain-check-lib and adds CLI-specific features
-# like colored output, file processing, and interactive modes.
 
 [package]
 name = "domain-check"
@@ -18,12 +15,12 @@ license = { workspace = true }
 repository = { workspace = true }
 keywords = { workspace = true }
 categories = { workspace = true }
-readme = { workspace = true }
 edition = { workspace = true }
 
 # CLI-specific metadata
 documentation = "https://docs.rs/domain-check"
 homepage = "https://github.com/saidutt46/domain-check"
+readme = "../README.md"
 
 # This generates a binary executable
 [[bin]]
@@ -32,7 +29,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Our core library (local dependency)
-domain-check-lib = { path = "../domain-check-lib" }
+domain-check-lib = { path = "../domain-check-lib", version = "=0.4.0" }
 
 # CLI argument parsing
 clap = { workspace = true }
@@ -61,5 +58,5 @@ tokio-test = { workspace = true }
 [features]
 default = []
 
-# Enable terminal UI dashboard (will be re-added later)
+# Enable terminal UI dashboard (future feature)
 # ui = ["crossterm", "tui"]

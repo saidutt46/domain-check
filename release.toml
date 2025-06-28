@@ -1,8 +1,33 @@
+# Release configuration for cargo-release
+# This handles versioning and tagging for the workspace
+
 sign-commit = false
 sign-tag = false
 push = true
 consolidate-commits = false
 
+# Workspace-level configuration
 tag-prefix = "v"
 pre-release-commit-message = "chore: release {{version}}"
 tag-message = "release: {{version}}"
+
+# Don't publish individual crates - we use GitHub Actions for that
+publish = false
+
+# Shared version across workspace
+shared-version = true
+
+# Pre-release hooks
+pre-release-replacements = [
+  { file = "README.md", search = "domain-check-lib = \"[^\"]*\"", replace = "domain-check-lib = \"{{version}}\"" },
+  { file = "domain-check-lib/README.md", search = "domain-check-lib = \"[^\"]*\"", replace = "domain-check-lib = \"{{version}}\"" },
+]
+
+# Package-specific configurations
+[[package]]
+name = "domain-check-lib"
+# Library gets released first in CI/CD
+
+[[package]]
+name = "domain-check"
+# CLI gets released second, depends on library

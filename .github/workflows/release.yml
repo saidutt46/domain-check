@@ -1,64 +1,311 @@
-name: Rust CI/CD
+name: Release
+
 on:
   push:
-    branches: [ main ]
     tags:
-      - 'v*' # e.g., v0.3.1
-  pull_request:
-    branches: [ main ]
+      - 'v*.*.*'  # Triggers on version tags like v0.4.0
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
-  lint_and_test:
+  # Validate the release
+  validate:
+    name: Validate Release
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      
-      - name: Cache dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-      
-      - name: Run clippy
-        run: cargo clippy -- -D warnings
-      
-      - name: Build and test
-        run: |
-          cargo build --release --verbose
-          cargo test --verbose
 
-  publish:
-    needs: lint_and_test
-    if: startsWith(github.ref, 'refs/tags/v')
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Verify version in Cargo.toml
+        run: |
+          CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "//' | sed 's/"//')
+          if [ "$CARGO_VERSION" != "${{ steps.version.outputs.version }}" ]; then
+            echo "Version mismatch: git tag has ${{ steps.version.outputs.version }}, Cargo.toml has $CARGO_VERSION"
+            exit 1
+          fi
+
+      - name: Run full test suite
+        run: |
+          cargo test --workspace --verbose
+          cargo clippy --workspace --all-targets -- -D warnings
+
+  # Build release binaries
+  build-binaries:
+    name: Build Release Binaries
+    needs: validate
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: domain-check-linux-x86_64
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            name: domain-check-linux-x86_64-musl
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            name: domain-check-macos-x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            name: domain-check-macos-aarch64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: domain-check-windows-x86_64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} -p domain-check
+
+      - name: Package binary (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czf ${{ matrix.name }}.tar.gz domain-check
+          echo "ASSET_PATH=target/${{ matrix.target }}/release/${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
+          echo "ASSET_NAME=${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
+
+      - name: Package binary (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd target/${{ matrix.target }}/release
+          7z a ${{ matrix.name }}.zip domain-check.exe
+          echo "ASSET_PATH=target/${{ matrix.target }}/release/${{ matrix.name }}.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "ASSET_NAME=${{ matrix.name }}.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ env.ASSET_PATH }}
+
+  # Publish to crates.io
+  publish-crates:
+    name: Publish to Crates.io
+    needs: [validate, build-binaries]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Cache dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-      
-      - name: Publish to crates.io
+          key: ubuntu-latest-publish-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Verify crates build
+        run: |
+          cargo build --release -p domain-check-lib
+          cargo build --release -p domain-check
+
+      - name: Dry run library publish
+        run: cargo publish --dry-run -p domain-check-lib
+
+      - name: Dry run CLI publish
+        run: cargo publish --dry-run -p domain-check
+
+      - name: Publish library to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --no-verify
+        run: |
+          echo "Publishing domain-check-lib..."
+          cargo publish -p domain-check-lib
+
+      - name: Wait for crates.io indexing
+        run: |
+          echo "Waiting for crates.io to index domain-check-lib..."
+          sleep 60
+          
+          # Verify the library is available
+          for i in {1..10}; do
+            if cargo search domain-check-lib | grep -q "domain-check-lib"; then
+              echo "Library successfully indexed!"
+              break
+            fi
+            echo "Attempt $i: Library not indexed yet, waiting..."
+            sleep 30
+          done
+
+      - name: Update CLI dependency version
+        run: |
+          # Update the CLI's dependency to use the published version
+          sed -i 's/domain-check-lib = { path = "..\/domain-check-lib", version = "=0.4.0" }/domain-check-lib = "0.4.0"/' domain-check/Cargo.toml
+          
+          # Verify the change
+          grep "domain-check-lib" domain-check/Cargo.toml
+
+      - name: Build CLI with published library
+        run: |
+          cd domain-check
+          cargo build --release
+
+      - name: Publish CLI to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          echo "Publishing domain-check..."
+          cargo publish -p domain-check
+
+  # Create GitHub release
+  create-release:
+    name: Create GitHub Release
+    needs: [validate, build-binaries, publish-crates]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          # Extract release notes from CHANGELOG.md
+          VERSION=${{ needs.validate.outputs.version }}
+          
+          # Create release notes
+          cat > release_notes.md << EOF
+          # Domain Check v${VERSION}
+          
+          ## 📦 Installation
+          
+          **Library:**
+          \`\`\`bash
+          cargo add domain-check-lib
+          \`\`\`
+          
+          **CLI Tool:**
+          \`\`\`bash
+          cargo install domain-check
+          \`\`\`
+          
+          ## 📋 What's Changed
+          
+          See [CHANGELOG.md](https://github.com/saidutt46/domain-check/blob/v${VERSION}/CHANGELOG.md#${VERSION//./}) for detailed changes.
+          
+          ## 🚀 Pre-built Binaries
+          
+          Download pre-built binaries for your platform below.
+          EOF
+          
+          echo "notes_file=release_notes.md" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Domain Check v${{ needs.validate.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ needs.validate.outputs.prerelease }}
+
+      - name: Upload release assets
+        run: |
+          # Upload all built binaries
+          for file in artifacts/*/domain-check-*; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file..."
+              curl \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @"$file" \
+                "${{ steps.create_release.outputs.upload_url }}?name=$(basename "$file")"
+            fi
+          done
+
+  # Post-release verification
+  verify-release:
+    name: Verify Release
+    needs: [validate, create-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for crates.io propagation
+        run: sleep 120
+
+      - name: Test library installation
+        run: |
+          cargo init --name test-lib-install
+          cd test-lib-install
+          cargo add domain-check-lib@${{ needs.validate.outputs.version }}
+          
+          # Create simple test
+          cat > src/main.rs << 'EOF'
+          use domain_check_lib::DomainChecker;
+          
+          #[tokio::main]
+          async fn main() {
+              let checker = DomainChecker::new();
+              println!("Library installation test successful!");
+          }
+          EOF
+          
+          echo 'tokio = { version = "1", features = ["full"] }' >> Cargo.toml
+          cargo build
+
+      - name: Test CLI installation
+        run: |
+          cargo install domain-check@${{ needs.validate.outputs.version }}
+          domain-check --version
+
+      - name: Notify success
+        run: |
+          echo "✅ Release v${{ needs.validate.outputs.version }} completed successfully!"
+          echo "📦 Library: https://crates.io/crates/domain-check-lib"
+          echo "🖥️ CLI: https://crates.io/crates/domain-check"
+          echo "📋 Release: https://github.com/saidutt46/domain-check/releases/tag/v${{ needs.validate.outputs.version }}"

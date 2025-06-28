@@ -2,13 +2,6 @@
 #
 # This is the core library that provides domain availability checking functionality.
 # It can be used by other Rust projects as a dependency, or by our CLI application.
-#
-# Design principles:
-# - Zero CLI dependencies (no clap, console, etc.)
-# - Pure async APIs
-# - Comprehensive error handling  
-# - Configurable and extensible
-# - Well-documented public interface
 
 [package]
 name = "domain-check-lib"
@@ -21,12 +14,12 @@ license = { workspace = true }
 repository = { workspace = true }
 keywords = { workspace = true }
 categories = { workspace = true }
-readme = { workspace = true }
 edition = { workspace = true }
 
 # Library-specific metadata
 documentation = "https://docs.rs/domain-check-lib"
 homepage = "https://github.com/saidutt46/domain-check"
+readme = "README.md"
 
 # This is a library crate (generates .rlib for other Rust code to use)
 [lib]
