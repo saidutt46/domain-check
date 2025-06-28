@@ -33,7 +33,7 @@ tokio = { workspace = true }
 futures = { workspace = true }
 
 # HTTP client for RDAP protocol
-reqwest = { workspace = true }
+reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
 
 # JSON parsing and serialization
 serde = { workspace = true }

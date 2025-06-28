@@ -39,7 +39,7 @@ edition = "2021"
 tokio = { version = "1", features = ["full"] }
 
 # HTTP client for RDAP requests
-reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
 
 # Serialization for JSON output and internal data structures
 serde = { version = "1.0", features = ["derive"] }
