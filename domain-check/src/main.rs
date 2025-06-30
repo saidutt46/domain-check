@@ -4,6 +4,7 @@
 //! This CLI application provides a user-friendly interface to the domain-check-lib library.
 
 use clap::Parser;
+use domain_check_lib::{get_all_known_tlds, get_available_presets, get_preset_tlds};
 use domain_check_lib::{CheckConfig, DomainChecker};
 use std::process;
 
@@ -26,6 +27,18 @@ pub struct Args {
     /// TLDs to check for base domain names (comma-separated or multiple -t flags)
     #[arg(short = 't', long = "tld", value_name = "TLD", value_delimiter = ',', action = clap::ArgAction::Append)]
     pub tlds: Option<Vec<String>>,
+
+    /// Check against all known TLDs (~42 TLDs)
+    #[arg(long = "all", help = "Check against all known TLDs")]
+    pub all_tlds: bool,
+
+    /// Use predefined TLD presets
+    #[arg(
+        long = "preset",
+        value_name = "NAME",
+        help = "Use TLD preset:\n  startup (8): com, org, io, ai, tech, app, dev, xyz\n  enterprise (6): com, org, net, info, biz, us\n  country (9): us, uk, de, fr, ca, au, jp, br, in"
+    )]
+    pub preset: Option<String>,
 
     /// Input file with domains to check (one per line)
     #[arg(short = 'f', long = "file", value_name = "FILE")]
@@ -131,7 +144,55 @@ fn validate_args(args: &Args) -> Result<(), String> {
         return Err("Concurrency must be between 1 and 100".to_string());
     }
 
+    // Validate preset if provided
+    if let Some(preset) = &args.preset {
+        if get_preset_tlds(preset).is_none() {
+            return Err(format!(
+                "Unknown preset '{}'. Available presets: {}",
+                preset,
+                get_available_presets().join(", ")
+            ));
+        }
+    }
+
+    // Check for conflicting flags
+    let tld_sources = [args.tlds.is_some(), args.preset.is_some(), args.all_tlds]
+        .iter()
+        .filter(|&&x| x)
+        .count();
+
+    if tld_sources > 1 {
+        return Err(
+            "Cannot specify multiple TLD sources. Use only one of: -t/--tld, --preset, or --all"
+                .to_string(),
+        );
+    }
+
     Ok(())
+}
+
+/// Resolve TLDs based on argument precedence: -t > --preset > --all > default
+fn resolve_tlds(args: &Args) -> Option<Vec<String>> {
+    if args.tlds.is_some() {
+        // Explicit TLD list wins
+        args.tlds.clone()
+    } else if let Some(preset) = &args.preset {
+        // Preset second (validation already done)
+        get_preset_tlds(preset)
+    } else if args.all_tlds {
+        // All TLDs last
+        Some(get_all_known_tlds())
+    } else {
+        // Default behavior (will use .com in expansion)
+        None
+    }
+}
+
+/// Determine if bootstrap should be auto-enabled
+fn should_enable_bootstrap(args: &Args, resolved_tlds: &Option<Vec<String>>) -> bool {
+    // --all needs bootstrap for comprehensive coverage
+    args.bootstrap || args.all_tlds || resolved_tlds.as_ref().map_or(false, |tlds| tlds.len() > 20)
+    // Large sets likely need bootstrap
 }
 
 /// Main domain checking logic
@@ -195,6 +256,17 @@ async fn run_streaming_check(
             domains.len(),
             checker.config().concurrency
         );
+
+        // Show TLD information
+        if !args.json && !args.csv {
+            if args.all_tlds {
+                let tld_count = get_all_known_tlds().len();
+                println!("🌐 Checking against all {} known TLDs", tld_count);
+            } else if let Some(preset) = &args.preset {
+                let preset_tlds = get_preset_tlds(preset).unwrap();
+                println!("🎯 Using '{}' preset ({} TLDs)", preset, preset_tlds.len());
+            }
+        }
 
         if args.debug {
             println!("🔧 Domains: {}", domains.join(", "));
@@ -279,6 +351,16 @@ async fn run_batch_check(
         println!("🔍 Checking {} domains...", domains.len());
     }
 
+    if domains.len() > 1 && (args.verbose || args.pretty) && !args.json && !args.csv {
+        if args.all_tlds {
+            let tld_count = get_all_known_tlds().len();
+            println!("🌐 Checking against all {} known TLDs", tld_count);
+        } else if let Some(preset) = &args.preset {
+            let preset_tlds = get_preset_tlds(preset).unwrap();
+            println!("🎯 Using '{}' preset ({} TLDs)", preset, preset_tlds.len());
+        }
+    }
+
     // Check all domains (concurrent under the hood)
     let results = checker.check_domains(domains).await?;
 
@@ -290,18 +372,25 @@ async fn run_batch_check(
 
 /// Build CheckConfig from CLI arguments
 fn build_config(args: &Args) -> Result<CheckConfig, Box<dyn std::error::Error>> {
+    let resolved_tlds = resolve_tlds(args);
+
     let config = CheckConfig::default()
         .with_concurrency(args.concurrency)
         .with_whois_fallback(!args.no_whois)
-        .with_bootstrap(args.bootstrap)
+        .with_bootstrap(should_enable_bootstrap(args, &resolved_tlds))
         .with_detailed_info(args.info);
 
-    // Add TLDs if specified
-    let config = if let Some(tlds) = &args.tlds {
-        config.with_tlds(tlds.clone())
+    // Add resolved TLDs to config
+    let config = if let Some(tlds) = resolved_tlds {
+        config.with_tlds(tlds)
     } else {
         config
     };
+
+    // Show bootstrap auto-enable message
+    if should_enable_bootstrap(args, &resolve_tlds(args)) && !args.bootstrap && args.verbose {
+        eprintln!("🔧 Auto-enabled bootstrap registry for comprehensive coverage");
+    }
 
     Ok(config)
 }
@@ -315,33 +404,19 @@ async fn get_domains_to_check(args: &Args) -> Result<Vec<String>, Box<dyn std::e
 
     // Add domains from file if specified
     if let Some(file_path) = &args.file {
-        let mut file_domains = read_domains_from_file(file_path).await?;
-
-        // Apply force flag for domain limit
-        if file_domains.len() > 500 && !args.force {
-            return Err(format!(
-                "File contains {} domains, which exceeds the limit of 500. Use --force to override.",
-                file_domains.len()
-            ).into());
-        }
-
-        domains.append(&mut file_domains);
+        let file_domains = read_domains_from_file(file_path).await?;
+        domains.append(&mut file_domains.clone());
     }
 
-    // Apply smart domain expansion
-    let expanded_domains = domain_check_lib::expand_domain_inputs(&domains, &args.tlds);
+    // Apply smart domain expansion with resolved TLDs
+    let resolved_tlds = resolve_tlds(args);
+    let expanded_domains = domain_check_lib::expand_domain_inputs(&domains, &resolved_tlds);
 
     if expanded_domains.is_empty() {
         return Err("No valid domains found to check".into());
     }
 
-    // Final domain count check after expansion (more restrictive)
-    if expanded_domains.len() > 1000 && !args.force {
-        return Err(format!(
-            "After TLD expansion, checking {} domains exceeds the limit of 1000. Use --force to override.",
-            expanded_domains.len()
-        ).into());
-    }
+    // REMOVED: 1000 domain safety limit - let users decide their own constraints
 
     Ok(expanded_domains)
 }
@@ -419,15 +494,6 @@ async fn read_domains_from_file(
     // Check if we have any valid domains
     if domains.is_empty() {
         return Err("No valid domains found in the file.".into());
-    }
-
-    // Check domain limit (500 by default, can be overridden with --force)
-    if domains.len() > 500 {
-        return Err(format!(
-            "File contains {} domains, which exceeds the limit of 500. Use --force to override.",
-            domains.len()
-        )
-        .into());
     }
 
     Ok(domains)
