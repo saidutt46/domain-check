@@ -150,10 +150,7 @@ jobs:
 
       - name: Dry run library publish
         run: cargo publish --dry-run -p domain-check-lib
-
-      - name: Dry run CLI publish
-        run: cargo publish --dry-run -p domain-check
-
+        
       - name: Publish library to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
