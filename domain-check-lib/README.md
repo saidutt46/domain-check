@@ -230,8 +230,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 🎯 **Smart Expansion**: Intelligent domain name expansion with preset integration  
 📊 **Enhanced Results**: Improved error context and domain information
 
-## ADD to Usage Examples section (around line 85):
-
 ### **Universal TLD Checking**
 
 ```rust
