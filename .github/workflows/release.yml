@@ -343,7 +343,7 @@ jobs:
 
       - name: Test library installation
         run: |
-          cargo init --name test-lib-install
+          cargo init test-lib-install
           cd test-lib-install
           cargo add domain-check-lib@${{ needs.validate.outputs.version }}
           
