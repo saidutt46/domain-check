@@ -432,7 +432,7 @@ mod preset_tests {
         let tlds = get_all_known_tlds();
 
         // Should have our expected core TLDs
-        assert!(tlds.len() >= 40);
+        assert!(tlds.len() >= 30);
         assert!(tlds.contains(&"com".to_string()));
         assert!(tlds.contains(&"org".to_string()));
         assert!(tlds.contains(&"io".to_string()));

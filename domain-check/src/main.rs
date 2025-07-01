@@ -337,7 +337,7 @@ fn resolve_tlds(args: &Args) -> Option<Vec<String>> {
 /// Determine if bootstrap should be auto-enabled
 fn should_enable_bootstrap(args: &Args, resolved_tlds: &Option<Vec<String>>) -> bool {
     // --all needs bootstrap for comprehensive coverage
-    args.bootstrap || args.all_tlds || resolved_tlds.as_ref().map_or(false, |tlds| tlds.len() > 20)
+    args.bootstrap || args.all_tlds || resolved_tlds.as_ref().is_some_and(|tlds| tlds.len() > 20)
     // Large sets likely need bootstrap
 }
 

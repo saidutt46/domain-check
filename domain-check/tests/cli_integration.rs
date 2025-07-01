@@ -30,7 +30,7 @@ fn test_help_shows_new_flags() {
 #[test]
 fn test_all_flag_functionality() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["nonexistentdomain12345", "--all", "--batch"]);
+    cmd.args(["nonexistentdomain12345", "--all", "--batch"]);
 
     cmd.assert()
         .success()
@@ -43,7 +43,7 @@ fn test_all_flag_functionality() {
 fn test_all_flag_shows_info_message() {
     // Use multiple domains to trigger the informational message
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["test1", "test2", "--all", "--batch", "--pretty"]);
+    cmd.args(["test1", "test2", "--all", "--batch", "--pretty"]);
 
     cmd.assert()
         .success()
@@ -54,7 +54,7 @@ fn test_all_flag_shows_info_message() {
 #[test]
 fn test_preset_startup_functionality() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["nonexistentdomain12345", "--preset", "startup", "--batch"]);
+    cmd.args(["nonexistentdomain12345", "--preset", "startup", "--batch"]);
 
     cmd.assert()
         .success()
@@ -68,7 +68,7 @@ fn test_preset_startup_functionality() {
 fn test_preset_startup_shows_info_message() {
     // Use multiple domains + pretty to trigger the message
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&[
+    cmd.args([
         "test1", "test2", "--preset", "startup", "--batch", "--pretty",
     ]);
 
@@ -81,7 +81,7 @@ fn test_preset_startup_shows_info_message() {
 #[test]
 fn test_preset_enterprise_functionality() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&[
+    cmd.args([
         "nonexistentdomain12345",
         "--preset",
         "enterprise",
@@ -98,7 +98,7 @@ fn test_preset_enterprise_functionality() {
 #[test]
 fn test_preset_country_functionality() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["nonexistentdomain12345", "--preset", "country", "--batch"]);
+    cmd.args(["nonexistentdomain12345", "--preset", "country", "--batch"]);
 
     cmd.assert()
         .success()
@@ -110,7 +110,7 @@ fn test_preset_country_functionality() {
 #[test]
 fn test_invalid_preset_error() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["test", "--preset", "invalid"]);
+    cmd.args(["test", "--preset", "invalid"]);
 
     cmd.assert()
         .failure()
@@ -123,7 +123,7 @@ fn test_invalid_preset_error() {
 #[test]
 fn test_conflicting_tld_sources_error() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["test", "--all", "--preset", "startup"]);
+    cmd.args(["test", "--all", "--preset", "startup"]);
 
     cmd.assert().failure().stderr(predicate::str::contains(
         "Cannot specify multiple TLD sources",
@@ -134,7 +134,7 @@ fn test_conflicting_tld_sources_error() {
 fn test_tld_and_all_conflict_error() {
     // This is the correct behavior - should error, not take precedence
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["test", "-t", "com,org", "--all"]);
+    cmd.args(["test", "-t", "com,org", "--all"]);
 
     cmd.assert().failure().stderr(predicate::str::contains(
         "Cannot specify multiple TLD sources",
@@ -145,7 +145,7 @@ fn test_tld_and_all_conflict_error() {
 fn test_explicit_tld_works_alone() {
     // Test that -t works when used alone (not conflicting with --all)
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["nonexistentdomain12345", "-t", "com,org", "--batch"]);
+    cmd.args(["nonexistentdomain12345", "-t", "com,org", "--batch"]);
 
     cmd.assert()
         .success()
@@ -157,7 +157,7 @@ fn test_explicit_tld_works_alone() {
 #[test]
 fn test_json_output_with_all_flag() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["nonexistentdomain12345", "--all", "--json"]);
+    cmd.args(["nonexistentdomain12345", "--all", "--json"]);
 
     cmd.assert()
         .success()
@@ -167,7 +167,7 @@ fn test_json_output_with_all_flag() {
 #[test]
 fn test_csv_output_with_preset() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["nonexistentdomain12345", "--preset", "startup", "--csv"]);
+    cmd.args(["nonexistentdomain12345", "--preset", "startup", "--csv"]);
 
     cmd.assert()
         .success()
@@ -182,7 +182,7 @@ fn test_file_input_with_all_flag() {
     let file = create_test_domains_file(&domains);
 
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["--file", file.path().to_str().unwrap(), "--all", "--batch"]);
+    cmd.args(["--file", file.path().to_str().unwrap(), "--all", "--batch"]);
 
     cmd.assert()
         .success()
@@ -196,7 +196,7 @@ fn test_file_input_with_preset() {
     let file = create_test_domains_file(&domains);
 
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&[
+    cmd.args([
         "--file",
         file.path().to_str().unwrap(),
         "--preset",
@@ -216,7 +216,7 @@ fn test_file_input_with_preset_shows_message() {
     let file = create_test_domains_file(&domains);
 
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&[
+    cmd.args([
         "--file",
         file.path().to_str().unwrap(),
         "--preset",
@@ -233,7 +233,7 @@ fn test_file_input_with_preset_shows_message() {
 #[test]
 fn test_multiple_domains_with_all_flag() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["test1", "test2", "test3", "--all", "--batch"]);
+    cmd.args(["test1", "test2", "test3", "--all", "--batch"]);
 
     cmd.assert()
         .success()
@@ -245,7 +245,7 @@ fn test_multiple_domains_with_all_flag() {
 #[test]
 fn test_bootstrap_auto_enable_with_verbose() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["test", "--all", "--verbose"]);
+    cmd.args(["test", "--all", "--verbose"]);
 
     cmd.assert().success().stderr(
         predicate::str::contains("Auto-enabled bootstrap registry").or(
@@ -258,7 +258,7 @@ fn test_bootstrap_auto_enable_with_verbose() {
 fn test_error_aggregation_in_output() {
     // This test checks that summary contains the expected text
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["sometestdomain123456", "--all", "--batch"])
+    cmd.args(["sometestdomain123456", "--all", "--batch"])
         .timeout(std::time::Duration::from_secs(30));
 
     cmd.assert()
@@ -272,7 +272,7 @@ fn test_error_aggregation_in_output() {
 fn test_backward_compatibility_default_behavior() {
     // Ensure old behavior still works
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["google"]); // Should default to google.com
+    cmd.args(["google"]); // Should default to google.com
 
     cmd.assert()
         .success()
@@ -283,7 +283,7 @@ fn test_backward_compatibility_default_behavior() {
 fn test_backward_compatibility_explicit_tlds() {
     // Ensure old -t behavior still works
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["google", "-t", "com,org"]);
+    cmd.args(["google", "-t", "com,org"]);
 
     cmd.assert()
         .success()
@@ -298,7 +298,7 @@ fn test_moderate_domain_set_no_artificial_limits() {
     let file = create_test_domains_file(&domains.iter().map(|s| s.as_str()).collect::<Vec<_>>());
 
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&[
+    cmd.args([
         "--file",
         file.path().to_str().unwrap(),
         "--preset",

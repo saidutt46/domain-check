@@ -8,7 +8,7 @@ fn test_all_flag_performance() {
     let start = Instant::now();
 
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["testdomain12345", "--all", "--batch"])
+    cmd.args(["testdomain12345", "--all", "--batch"])
         .timeout(std::time::Duration::from_secs(45)); // More realistic timeout
 
     cmd.assert().success();
@@ -28,7 +28,7 @@ fn test_preset_performance() {
     let start = Instant::now();
 
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["testdomain12345", "--preset", "startup", "--batch"])
+    cmd.args(["testdomain12345", "--preset", "startup", "--batch"])
         .timeout(std::time::Duration::from_secs(15));
 
     cmd.assert().success();
@@ -49,7 +49,7 @@ fn test_concurrent_processing_efficiency() {
     let start = Instant::now();
 
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&[
+    cmd.args([
         "test1",
         "test2",
         "test3",
@@ -87,7 +87,7 @@ fn test_moderate_domain_list_performance() {
     let start = Instant::now();
 
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&[
+    cmd.args([
         "--file",
         file.path().to_str().unwrap(),
         "--preset",
@@ -114,7 +114,7 @@ fn test_single_domain_default_performance() {
     let start = Instant::now();
 
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(&["testdomain12345"]) // Default to .com only
+    cmd.args(["testdomain12345"]) // Default to .com only
         .timeout(std::time::Duration::from_secs(5));
 
     cmd.assert().success();
