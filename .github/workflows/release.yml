@@ -254,6 +254,8 @@ jobs:
     name: Create GitHub Release
     needs: [validate, build-binaries, publish-crates]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -263,64 +265,72 @@ jobs:
         with:
           path: artifacts
 
-      - name: Generate release notes
-        id: release_notes
+      - name: Prepare release assets
         run: |
-          # Extract release notes from CHANGELOG.md
-          VERSION=${{ needs.validate.outputs.version }}
+          # Move all artifacts to a single directory
+          mkdir -p release-assets
+          find artifacts -name "*.tar.gz" -o -name "*.zip" | while read file; do
+            cp "$file" release-assets/
+          done
+          
+          ls -la release-assets/
+
+      - name: Create release with GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          TAG="v${VERSION}"
           
           # Create release notes
           cat > release_notes.md << EOF
-          # Domain Check v${VERSION}
-          
+          # 🚀 Domain Check v${VERSION} - Universal TLD Checking & Smart Presets
+
+          ## ✨ Major New Features
+
+          ### 🌐 Universal TLD Checking
+          ```bash
+          # Check against ALL known TLDs (~42 TLDs)
+          domain-check myapp --all
+          ```
+
+          ### 🎯 Smart TLD Presets
+          ```bash
+          # Startup-focused TLDs
+          domain-check myapp --preset startup
+
+          # Enterprise TLDs  
+          domain-check mybrand --preset enterprise
+
+          # Country code TLDs
+          domain-check mysite --preset country
+          ```
+
           ## 📦 Installation
-          
-          **Library:**
-          \`\`\`bash
-          cargo add domain-check-lib
-          \`\`\`
-          
-          **CLI Tool:**
-          \`\`\`bash
-          cargo install domain-check
-          \`\`\`
-          
-          ## 📋 What's Changed
-          
-          See [CHANGELOG.md](https://github.com/saidutt46/domain-check/blob/v${VERSION}/CHANGELOG.md#${VERSION//./}) for detailed changes.
-          
-          ## 🚀 Pre-built Binaries
-          
-          Download pre-built binaries for your platform below.
+
+          **Library:** `cargo add domain-check-lib@${VERSION}`
+          **CLI:** `cargo install domain-check@${VERSION}`
+
+          ## 🔄 Backward Compatibility
+          ✅ 100% backward compatible - all existing commands work unchanged
+
+          See [CHANGELOG.md](https://github.com/saidutt46/domain-check/blob/v${VERSION}/CHANGELOG.md) for complete details.
           EOF
           
-          echo "notes_file=release_notes.md" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Domain Check v${{ needs.validate.outputs.version }}
-          body_path: release_notes.md
-          draft: false
-          prerelease: ${{ needs.validate.outputs.prerelease }}
-
-      - name: Upload release assets
-        run: |
-          # Upload all built binaries
-          for file in artifacts/*/domain-check-*; do
-            if [ -f "$file" ]; then
-              echo "Uploading $file..."
-              curl \
-                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                -H "Content-Type: application/octet-stream" \
-                --data-binary @"$file" \
-                "${{ steps.create_release.outputs.upload_url }}?name=$(basename "$file")"
-            fi
-          done
+          # Create the release
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "✅ Release $TAG already exists, updating..."
+            gh release upload "$TAG" release-assets/* --clobber || echo "No new assets to upload"
+          else
+            echo "🚀 Creating new release $TAG..."
+            gh release create "$TAG" \
+              --title "Domain Check v${VERSION}" \
+              --notes-file release_notes.md \
+              $([ "${{ needs.validate.outputs.prerelease }}" = "true" ] && echo "--prerelease" || echo "") \
+              release-assets/*
+          fi
+          
+          echo "✅ GitHub release completed!"
 
   # Post-release verification
   verify-release:
