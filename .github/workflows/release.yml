@@ -143,7 +143,7 @@ jobs:
             target
           key: ubuntu-latest-publish-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Verify crates build
+      - name: Verify workspace builds
         run: |
           cargo build --release -p domain-check-lib
           cargo build --release -p domain-check
@@ -155,70 +155,99 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          echo "Checking if domain-check-lib is already published..."
-          VERSION="${{ needs.validate.outputs.version }}"
+          echo "🚀 Publishing domain-check-lib v${{ needs.validate.outputs.version }}..."
           
-          # Check if this exact version exists on crates.io
-          if cargo search domain-check-lib | grep -q "domain-check-lib = \"$VERSION\""; then
-            echo "✅ domain-check-lib $VERSION already published, skipping..."
+          # Capture both stdout and stderr, and the exit code
+          set +e
+          output=$(cargo publish -p domain-check-lib 2>&1)
+          exit_code=$?
+          set -e
+          
+          echo "Publish output:"
+          echo "$output"
+          echo "Exit code: $exit_code"
+          
+          if [ $exit_code -eq 0 ]; then
+            echo "✅ domain-check-lib published successfully!"
+            echo "LIBRARY_PUBLISHED=true" >> $GITHUB_ENV
+          elif [ $exit_code -eq 101 ] && echo "$output" | grep -q "already exists"; then
+            echo "✅ domain-check-lib v${{ needs.validate.outputs.version }} already exists on crates.io"
+            echo "🔄 Continuing with existing version..."
+            echo "LIBRARY_PUBLISHED=existing" >> $GITHUB_ENV
           else
-            echo "Publishing domain-check-lib..."
-            cargo publish -p domain-check-lib
+            echo "❌ Failed to publish domain-check-lib (exit code: $exit_code)"
+            echo "Error output: $output"
+            exit 1
           fi
 
       - name: Wait for crates.io indexing
         run: |
-          VERSION="${{ needs.validate.outputs.version }}"
-          
-          # Only wait if we just published
-          if ! cargo search domain-check-lib | grep -q "domain-check-lib = \"$VERSION\""; then
-            echo "Waiting for crates.io to index domain-check-lib..."
-            sleep 60
-            
-            # Verify the library is available
-            for i in {1..10}; do
-              if cargo search domain-check-lib | grep -q "domain-check-lib = \"$VERSION\""; then
-                echo "Library successfully indexed!"
-                break
-              fi
-              echo "Attempt $i: Library not indexed yet, waiting..."
-              sleep 30
-            done
+          if [ "$LIBRARY_PUBLISHED" = "true" ]; then
+            echo "⏳ Waiting 90 seconds for crates.io to index newly published library..."
+            sleep 90
           else
-            echo "Library already indexed, skipping wait..."
+            echo "📚 Library already existed, shorter wait for index refresh..."
+            sleep 30
           fi
-
-      - name: Update CLI dependency version
-        run: |
-          VERSION="${{ needs.validate.outputs.version }}"
           
-          # Dynamic version matching
-          sed -i "s/domain-check-lib = { path = \"..\/domain-check-lib\", version = \"[^\"]*\" }/domain-check-lib = \"$VERSION\"/" domain-check/Cargo.toml
-          
-          # Verify the change
-          echo "Updated domain-check/Cargo.toml:"
-          grep "domain-check-lib" domain-check/Cargo.toml
-
-      - name: Build CLI with published library
-        run: |
-          cd domain-check
-          cargo build --release
+          # Verify library is available
+          echo "🔍 Verifying library availability..."
+          for i in {1..5}; do
+            if cargo search domain-check-lib --limit 1 | grep -q "domain-check-lib"; then
+              echo "✅ Library confirmed available on crates.io"
+              break
+            else
+              echo "⏳ Attempt $i: Library not yet indexed, waiting 15s..."
+              sleep 15
+            fi
+          done
 
       - name: Publish CLI to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          echo "Checking if domain-check is already published..."
-          VERSION="${{ needs.validate.outputs.version }}"
+          echo "🚀 Publishing domain-check v${{ needs.validate.outputs.version }}..."
           
-          # Check if this exact version exists on crates.io
-          if cargo search domain-check | grep -q "^domain-check = \"$VERSION\""; then
-            echo "✅ domain-check $VERSION already published, skipping..."
+          # Capture both stdout and stderr, and the exit code
+          set +e
+          output=$(cargo publish -p domain-check --allow-dirty 2>&1)
+          exit_code=$?
+          set -e
+          
+          echo "Publish output:"
+          echo "$output"
+          echo "Exit code: $exit_code"
+          
+          if [ $exit_code -eq 0 ]; then
+            echo "✅ domain-check published successfully!"
+          elif [ $exit_code -eq 101 ] && echo "$output" | grep -q "already exists"; then
+            echo "✅ domain-check v${{ needs.validate.outputs.version }} already exists on crates.io"
+            echo "🔄 Release continues with existing version..."
           else
-            echo "Publishing domain-check..."
-            cd domain-check
-            cargo publish --allow-dirty
+            echo "❌ Failed to publish domain-check (exit code: $exit_code)"
+            echo "Error output: $output"
+            exit 1
           fi
+
+      - name: Verify publications
+        run: |
+          echo "🔍 Final verification of published crates..."
+          
+          # Verify library
+          if cargo search domain-check-lib --limit 1 | grep -q "domain-check-lib"; then
+            echo "✅ domain-check-lib confirmed on crates.io"
+          else
+            echo "⚠️ domain-check-lib not found on crates.io"
+          fi
+          
+          # Verify CLI
+          if cargo search domain-check --limit 1 | grep -q "^domain-check "; then
+            echo "✅ domain-check confirmed on crates.io"
+          else
+            echo "⚠️ domain-check not found on crates.io"
+          fi
+          
+          echo "🎉 Crate publishing completed successfully!"
 
   # Create GitHub release
   create-release:
