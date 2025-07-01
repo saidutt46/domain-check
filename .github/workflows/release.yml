@@ -150,7 +150,7 @@ jobs:
 
       - name: Dry run library publish
         run: cargo publish --dry-run -p domain-check-lib
-        
+
       - name: Publish library to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -217,7 +217,7 @@ jobs:
           else
             echo "Publishing domain-check..."
             cd domain-check
-            cargo publish
+            cargo publish --allow-dirty
           fi
 
   # Create GitHub release
