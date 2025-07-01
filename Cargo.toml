@@ -23,9 +23,9 @@ resolver = "2"
 
 # Workspace-wide metadata
 [workspace.package]
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Sai Dutt G.V <gvs46@protonmail.com>"]
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/saidutt46/domain-check"
 keywords = ["cli", "domain", "whois", "rdap", "availability"]
 categories = ["command-line-utilities", "network-programming"]

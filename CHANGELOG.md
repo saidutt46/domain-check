@@ -1,5 +1,60 @@
 # Changelog
 
+## [0.5.1] - 2025-01-XX
+
+### 🚀 Distribution & Licensing Updates
+
+This release focuses on improved distribution channels and enhanced legal protection for the growing domain-check ecosystem.
+
+### 🎉 Added
+
+#### **Homebrew Package Support**
+- **Automated Homebrew formula**: Full integration with Homebrew package manager for macOS users
+- **Cross-platform binaries**: Support for both Intel and Apple Silicon Macs
+- **Automatic updates**: GitHub Actions workflow automatically updates Homebrew formula on release
+- **Simple installation**: `brew tap saidutt46/domain-check && brew install domain-check`
+
+#### **Enhanced Release Automation**
+- **SHA256 checksum calculation**: Automatic security verification for all binary releases
+- **Multi-architecture support**: Optimized release process for Intel and ARM Macs
+- **Formula synchronization**: Seamless integration between releases and package distribution
+
+### 🔄 Changed
+
+#### **License Migration: MIT → Apache 2.0**
+- **Enhanced protection**: Apache 2.0 provides stronger patent protection and attribution requirements
+- **Industry standard**: Aligns with major open-source projects for better compatibility
+- **Copy protection**: Better safeguards against unauthorized code usage without proper attribution
+- **All files updated**: License references updated across workspace, documentation, and badges
+
+#### **Infrastructure Improvements**
+- **Version synchronization**: Unified version bump across all workspace crates to 0.5.1
+- **Badge updates**: Updated README badges to reflect new license and improved visual consistency
+- **Distribution readiness**: Enhanced release pipeline for multiple package managers
+
+### 🛡️ Security & Legal
+
+#### **Strengthened Legal Framework**
+- **Patent protection**: Apache 2.0 includes explicit patent grants and protections
+- **Clear attribution**: Enhanced requirements for derivative works and distribution
+- **Enterprise friendly**: Better compatibility with enterprise legal requirements
+- **Community protection**: Stronger safeguards for contributors and users
+
+### 📦 Installation Options
+
+#### **Multiple Distribution Channels**
+```bash
+# Homebrew (NEW!)
+brew tap saidutt46/domain-check
+brew install domain-check
+
+# Cargo (existing)
+cargo install domain-check
+
+# Library
+cargo add domain-check-lib
+```
+
 ## [0.5.0] - 2025-01-XX
 
 ### 🚀 Major Release: Universal TLD Checking & Smart Presets

@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'  # Triggers on version tags like v0.4.0
+      - 'v*.*.*'  # Triggers on version tags like v0.x.0
 
 env:
   CARGO_TERM_COLOR: always
@@ -256,6 +256,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_id: ${{ steps.create_release.outputs.id }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -276,6 +279,7 @@ jobs:
           ls -la release-assets/
 
       - name: Create release with GitHub CLI
+        id: create_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -284,32 +288,26 @@ jobs:
           
           # Create release notes
           cat > release_notes.md << EOF
-          # 🚀 Domain Check v${VERSION} - Universal TLD Checking & Smart Presets
-
-          ## ✨ Major New Features
-
-          ### 🌐 Universal TLD Checking
-          ```bash
-          # Check against ALL known TLDs (~42 TLDs)
-          domain-check myapp --all
-          ```
-
-          ### 🎯 Smart TLD Presets
-          ```bash
-          # Startup-focused TLDs
-          domain-check myapp --preset startup
-
-          # Enterprise TLDs  
-          domain-check mybrand --preset enterprise
-
-          # Country code TLDs
-          domain-check mysite --preset country
-          ```
+          # 🚀 Domain Check v${VERSION}
 
           ## 📦 Installation
 
-          **Library:** `cargo add domain-check-lib@${VERSION}`
-          **CLI:** `cargo install domain-check@${VERSION}`
+          **Homebrew:**
+          \`\`\`bash
+          brew tap saidutt46/domain-check
+          brew install domain-check
+          \`\`\`
+
+          **Cargo:**
+          \`\`\`bash
+          # Library
+          cargo add domain-check-lib@${VERSION}
+          
+          # CLI
+          cargo install domain-check@${VERSION}
+          \`\`\`
+
+          **Download Binaries:** Available below for all platforms
 
           ## 🔄 Backward Compatibility
           ✅ 100% backward compatible - all existing commands work unchanged
@@ -321,6 +319,7 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "✅ Release $TAG already exists, updating..."
             gh release upload "$TAG" release-assets/* --clobber || echo "No new assets to upload"
+            RELEASE_ID=$(gh release view "$TAG" --json id -q .id)
           else
             echo "🚀 Creating new release $TAG..."
             gh release create "$TAG" \
@@ -328,14 +327,105 @@ jobs:
               --notes-file release_notes.md \
               $([ "${{ needs.validate.outputs.prerelease }}" = "true" ] && echo "--prerelease" || echo "") \
               release-assets/*
+            RELEASE_ID=$(gh release view "$TAG" --json id -q .id)
           fi
           
+          echo "id=$RELEASE_ID" >> $GITHUB_OUTPUT
           echo "✅ GitHub release completed!"
+
+  # NEW: Update Homebrew formula
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: [validate, create-release]
+    runs-on: ubuntu-latest
+    if: needs.validate.outputs.prerelease == 'false'  # Only for stable releases
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download macOS artifacts for Homebrew
+        uses: actions/download-artifact@v4
+        with:
+          name: domain-check-macos-x86_64
+          path: ./macos-x86_64
+
+      - name: Download macOS ARM artifacts for Homebrew  
+        uses: actions/download-artifact@v4
+        with:
+          name: domain-check-macos-aarch64
+          path: ./macos-aarch64
+
+      - name: Calculate SHA256 checksums
+        id: checksums
+        run: |
+          # Calculate SHA256 for both architectures
+          X86_64_SHA=$(sha256sum ./macos-x86_64/domain-check-macos-x86_64.tar.gz | cut -d' ' -f1)
+          AARCH64_SHA=$(sha256sum ./macos-aarch64/domain-check-macos-aarch64.tar.gz | cut -d' ' -f1)
+          
+          echo "x86_64_sha=$X86_64_SHA" >> $GITHUB_OUTPUT
+          echo "aarch64_sha=$AARCH64_SHA" >> $GITHUB_OUTPUT
+          
+          echo "x86_64 SHA256: $X86_64_SHA"
+          echo "aarch64 SHA256: $AARCH64_SHA"
+
+      - name: Update Homebrew formula
+        env:
+          GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}  # New secret needed
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          X86_64_SHA="${{ steps.checksums.outputs.x86_64_sha }}"
+          AARCH64_SHA="${{ steps.checksums.outputs.aarch64_sha }}"
+          
+          # Clone the homebrew tap repository
+          git clone https://x-access-token:${GITHUB_TOKEN}@github.com/saidutt46/homebrew-domain-check.git tap-repo
+          cd tap-repo
+          
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create/update the formula
+          cat > Formula/domain-check.rb << EOF
+          class DomainCheck < Formula
+            desc "Fast, powerful CLI tool for checking domain availability using RDAP and WHOIS"
+            homepage "https://github.com/saidutt46/domain-check"
+            version "${VERSION}"
+            license "Apache-2.0"
+          
+            if Hardware::CPU.arm?
+              url "https://github.com/saidutt46/domain-check/releases/download/v${VERSION}/domain-check-macos-aarch64.tar.gz"
+              sha256 "${AARCH64_SHA}"
+            else
+              url "https://github.com/saidutt46/domain-check/releases/download/v${VERSION}/domain-check-macos-x86_64.tar.gz"
+              sha256 "${X86_64_SHA}"
+            end
+          
+            def install
+              bin.install "domain-check"
+            end
+          
+            test do
+              assert_match version.to_s, shell_output("#{bin}/domain-check --version")
+              # Test basic functionality
+              assert_match "TAKEN", shell_output("#{bin}/domain-check google.com")
+            end
+          end
+          EOF
+          
+          # Commit and push
+          git add Formula/domain-check.rb
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update domain-check to v${VERSION}"
+            git push origin main
+            echo "✅ Homebrew formula updated to v${VERSION}"
+          fi
 
   # Post-release verification
   verify-release:
     name: Verify Release
-    needs: [validate, create-release]
+    needs: [validate, create-release, update-homebrew]
     runs-on: ubuntu-latest
     steps:
       - name: Wait for crates.io propagation
@@ -371,4 +461,5 @@ jobs:
           echo "✅ Release v${{ needs.validate.outputs.version }} completed successfully!"
           echo "📦 Library: https://crates.io/crates/domain-check-lib"
           echo "🖥️ CLI: https://crates.io/crates/domain-check"
+          echo "🍺 Homebrew: brew tap saidutt46/domain-check && brew install domain-check"
           echo "📋 Release: https://github.com/saidutt46/domain-check/releases/tag/v${{ needs.validate.outputs.version }}"
