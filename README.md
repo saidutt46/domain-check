@@ -2,11 +2,11 @@
 
 **A fast, powerful Rust library and CLI tool for checking domain availability using RDAP and WHOIS protocols.**
 
-[![Crates.io - CLI](https://img.shields.io/crates/v/domain-check.svg)](https://crates.io/crates/domain-check)
-[![Crates.io - Library](https://img.shields.io/crates/v/domain-check-lib.svg)](https://crates.io/crates/domain-check-lib)
+[![domain-check CLI](https://img.shields.io/crates/v/domain-check.svg?label=domain-check%20CLI)](https://crates.io/crates/domain-check)
+[![domain-check-lib](https://img.shields.io/crates/v/domain-check-lib.svg?label=domain-check-lib)](https://crates.io/crates/domain-check-lib)
 [![Documentation](https://docs.rs/domain-check-lib/badge.svg)](https://docs.rs/domain-check-lib)
 [![Downloads](https://img.shields.io/crates/d/domain-check.svg)](https://crates.io/crates/domain-check)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Build Status](https://github.com/saidutt46/domain-check/workflows/CI/badge.svg)](https://github.com/saidutt46/domain-check/actions)
 [![Security Audit](https://github.com/saidutt46/domain-check/workflows/Security%20Audit/badge.svg)](https://github.com/saidutt46/domain-check/security)
 [![Rust Version](https://img.shields.io/badge/rust-1.70+-blue.svg)](https://www.rust-lang.org)
@@ -566,7 +566,7 @@ cargo run -- example.com
 
 ## 📝 License
 
-Licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Licensed under the Apache License, Version 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ---
 
