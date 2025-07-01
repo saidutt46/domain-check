@@ -135,7 +135,7 @@ pub fn get_all_known_tlds() -> Vec<String> {
 /// # Examples
 ///
 /// ```rust
-/// use domain_check_lib::protocols::registry::get_preset_tlds;
+/// use domain_check_lib::get_preset_tlds;
 ///
 /// let startup_tlds = get_preset_tlds("startup").unwrap();
 /// assert!(startup_tlds.contains(&"io".to_string()));
