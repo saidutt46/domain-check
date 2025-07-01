@@ -113,6 +113,7 @@ async fn check_single_domain_concurrent(
 ///     Ok(())
 /// }
 /// ```
+#[derive(Clone)]
 pub struct DomainChecker {
     /// Configuration settings for this checker instance
     config: CheckConfig,

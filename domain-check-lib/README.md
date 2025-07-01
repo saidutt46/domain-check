@@ -15,7 +15,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-domain-check-lib = "0.4.0"
+domain-check-lib = "0.5.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -162,6 +162,101 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             result.method_used
         );
     }
+    
+    Ok(())
+}
+```
+
+### **🆕 TLD Management (v0.5.0)**
+
+The library now provides direct access to TLD knowledge for building domain exploration tools:
+
+```rust
+use domain_check_lib::{get_all_known_tlds, get_preset_tlds, get_available_presets};
+
+#[tokio::main] 
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Get all TLDs with RDAP endpoints
+    let all_tlds = get_all_known_tlds();
+    println!("Checking across {} TLDs", all_tlds.len()); // ~42 TLDs
+    
+    // Use curated presets for common scenarios
+    let startup_tlds = get_preset_tlds("startup").unwrap();
+    println!("Startup TLDs: {:?}", startup_tlds); // 8 tech-focused TLDs
+    
+    // List available presets
+    let presets = get_available_presets();
+    println!("Available presets: {:?}", presets); // ["startup", "enterprise", "country"]
+    
+    Ok(())
+}
+```
+
+### **Smart Domain Expansion**
+
+Combine TLD management with domain expansion for powerful bulk operations:
+
+```rust
+use domain_check_lib::{DomainChecker, get_preset_tlds, expand_domain_inputs};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let checker = DomainChecker::new();
+    
+    // Define base domain names
+    let base_names = vec!["myapp".to_string(), "mystartup".to_string()];
+    
+    // Expand with startup-focused TLDs
+    let startup_tlds = get_preset_tlds("startup");
+    let domains = expand_domain_inputs(&base_names, &startup_tlds);
+    // Results in: myapp.com, myapp.io, myapp.ai, etc.
+    
+    // Check all expanded domains
+    let results = checker.check_domains(&domains).await?;
+    
+    // Filter for available domains
+    let available: Vec<_> = results
+        .iter()
+        .filter(|r| r.available == Some(true))
+        .collect();
+        
+    println!("Found {} available domains", available.len());
+    
+    Ok(())
+}
+```
+
+🌐 **TLD Management**: Access to 40+ known TLDs and curated presets  
+🎯 **Smart Expansion**: Intelligent domain name expansion with preset integration  
+📊 **Enhanced Results**: Improved error context and domain information
+
+## ADD to Usage Examples section (around line 85):
+
+### **Universal TLD Checking**
+
+```rust
+use domain_check_lib::{DomainChecker, get_all_known_tlds};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let checker = DomainChecker::new();
+    
+    // Check against all known TLDs
+    let all_tlds = get_all_known_tlds();
+    let domains = domain_check_lib::expand_domain_inputs(
+        &["myapp".to_string()], 
+        &Some(all_tlds)
+    );
+    
+    println!("Checking {} domains across all TLDs", domains.len());
+    
+    let results = checker.check_domains(&domains).await?;
+    
+    // Analyze results
+    let available_count = results.iter().filter(|r| r.available == Some(true)).count();
+    let taken_count = results.iter().filter(|r| r.available == Some(false)).count();
+    
+    println!("Results: {} available, {} taken", available_count, taken_count);
     
     Ok(())
 }

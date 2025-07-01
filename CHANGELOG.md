@@ -1,5 +1,164 @@
 # Changelog
 
+## [0.5.0] - 2025-01-XX
+
+### 🚀 Major Release: Universal TLD Checking & Smart Presets
+
+This release introduces game-changing functionality for comprehensive domain availability checking, transforming domain-check from a targeted tool into a universal domain exploration platform.
+
+### 🎉 Added
+
+#### **Universal TLD Checking**
+- **`--all` flag**: Check domains against all 42+ known TLDs in a single command
+- **Intelligent auto-bootstrap**: Automatically enables IANA registry discovery for comprehensive coverage
+- **Streaming results**: Real-time domain availability updates as checks complete
+- **No artificial limits**: Removed 1000 domain safety restriction - check as many domains as needed
+
+#### **Smart TLD Presets System**
+- **`--preset startup`**: Tech-focused TLDs (com, org, io, ai, tech, app, dev, xyz) - 8 TLDs
+- **`--preset enterprise`**: Business-focused TLDs (com, org, net, info, biz, us) - 6 TLDs  
+- **`--preset country`**: Major country codes (us, uk, de, fr, ca, au, jp, br, in) - 9 TLDs
+- **Case-insensitive preset names**: `--preset STARTUP` works the same as `--preset startup`
+- **Comprehensive validation**: Clear error messages for invalid preset names with available options
+
+#### **Enhanced User Experience**
+- **Professional error reporting**: Intelligent error aggregation with actionable domain-specific summaries
+- **Smart error categorization**: Groups timeouts, network errors, and parsing failures separately
+- **Informational messaging**: Clear indication of TLD scope ("Checking against all 42 known TLDs")
+- **Error truncation**: Shows first 5 failed domains, then "... and X more" for large error sets
+
+#### **Library API Extensions**
+- **`get_all_known_tlds()`**: Extract all TLDs with RDAP endpoints (42+ TLDs, sorted)
+- **`get_preset_tlds(preset)`**: Access predefined TLD groups programmatically
+- **`get_available_presets()`**: List available preset names for validation
+- **Enhanced exports**: All new functions available for library integration
+
+#### **Advanced CLI Features**
+- **Argument precedence logic**: `-t` (explicit) > `--preset` (curated) > `--all` (comprehensive) > default (.com)
+- **Conflict detection**: Prevents ambiguous TLD source combinations with clear error messages
+- **Enhanced file processing**: Works seamlessly with new TLD options for bulk operations
+- **Performance optimization**: Smart concurrency management for large TLD sets
+
+### 🔄 Changed
+
+#### **Error Handling Revolution**
+- **Streaming mode errors**: Brief inline errors (`domain.app (timeout)`) with comprehensive end summary
+- **Batch mode errors**: Detailed errors preserved for debugging while maintaining clean aggregation
+- **JSON/CSV modes**: Clean structured output with errors properly embedded in data
+- **Full domain context**: Error summaries show complete domain names instead of just TLDs
+
+#### **Validation & Safety**
+- **Multi-source validation**: Prevents conflicting TLD source arguments (e.g., `--all --preset startup`)
+- **Enhanced preset validation**: Immediate feedback for typos with helpful suggestions
+- **Bootstrap auto-enable**: Intelligently enables bootstrap for `--all` and large TLD sets
+- **Removed arbitrary limits**: Users control their own resource constraints
+
+#### **Performance Improvements**
+- **Optimized concurrency**: Enhanced concurrent processing for 40+ simultaneous TLD checks
+- **Smart timeout handling**: Registry-specific timeout optimization for better success rates  
+- **Efficient error recovery**: Improved fallback logic with minimal performance impact
+- **Streamlined validation**: Faster argument processing and validation chains
+
+### 🐛 Fixed
+
+#### **Error Message Quality**
+- **Domain context preservation**: Error summaries now show full domain names instead of meaningless TLD duplicates
+- **Actionable error reporting**: Users can identify and retry specific failed domains
+- **Intelligent error aggregation**: Similar errors grouped logically with smart truncation
+- **Clean output separation**: Errors don't interrupt successful result streams
+
+#### **CLI Robustness**
+- **Argument validation edge cases**: Comprehensive validation prevents invalid combinations
+- **File processing reliability**: Enhanced domain file parsing with better error recovery
+- **Bootstrap integration**: Seamless IANA registry integration for unknown TLDs
+- **Memory optimization**: Efficient handling of large domain sets with multiple TLDs
+
+### ⚡ Performance Impact
+
+#### **Capability Expansion**
+- **Single command scope**: Check 40+ TLDs instead of manually specifying each one
+- **Preset efficiency**: 8 TLD startup check vs 40+ individual specifications
+- **Bulk operation scaling**: Process hundreds of domains against multiple TLD sets efficiently
+- **Real-time feedback**: Streaming results provide immediate value for large operations
+
+#### **Resource Optimization**
+- **Smart concurrency**: Automatic rate limiting prevents registry overwhelm
+- **Connection reuse**: Efficient HTTP client pooling for multiple registry endpoints
+- **Memory efficiency**: Optimized data structures for large result sets
+- **Error resilience**: Graceful handling of registry failures without operation termination
+
+### 🔧 Technical Improvements
+
+#### **Library Architecture**
+- **Enhanced modularity**: Clean separation between TLD management and domain checking
+- **Type safety**: Strong typing for preset names and TLD collections
+- **Comprehensive testing**: 25+ new test cases covering all functionality and edge cases
+- **Documentation coverage**: Extensive inline documentation with usage examples
+
+#### **CLI Architecture**  
+- **Argument parsing**: Robust clap integration with comprehensive validation
+- **Output formatting**: Mode-specific formatting (streaming vs batch vs structured)
+- **Error propagation**: Clean error handling from library through to user-friendly messages
+- **Backward compatibility**: 100% compatibility with existing usage patterns
+
+### 🎯 Use Cases Enabled
+
+#### **Domain Investment**
+```bash
+# Explore all TLD opportunities for a brand
+domain-check "mybrand" --all --streaming --csv > opportunities.csv
+```
+
+#### **Startup Domain Search**  
+```bash
+# Quick startup-focused domain check
+domain-check "mystartup" --preset startup --pretty
+```
+
+#### **Enterprise Brand Protection**
+```bash
+# Comprehensive brand monitoring across business TLDs
+domain-check --file brand-variations.txt --preset enterprise --json > monitoring.json
+```
+
+#### **International Expansion**
+```bash
+# Check availability across major country markets
+domain-check "mycompany" --preset country --info
+```
+
+### 📊 Migration Guide
+
+#### **For Existing CLI Users**
+✅ **Zero breaking changes** - all existing commands work unchanged
+🆕 **New capabilities** - add `--all` or `--preset` for enhanced functionality
+🔧 **Enhanced output** - better error messages and progress indicators
+
+#### **For Library Users**
+✅ **API stability** - existing functions unchanged
+🆕 **New exports** - `get_all_known_tlds()`, `get_preset_tlds()`, `get_available_presets()`
+🔧 **Enhanced types** - improved error handling and result structures
+
+#### **Upgrade Examples**
+```bash
+# Old approach (manual TLD specification)
+domain-check myapp -t com,org,io,ai,tech,app,dev,xyz
+
+# New approach (preset)  
+domain-check myapp --preset startup
+
+# New capability (comprehensive checking)
+domain-check myapp --all
+```
+
+### 🎉 Community Impact
+
+This release addresses the most requested feature: **effortless comprehensive domain checking**. Users can now explore domain availability across the entire TLD landscape with a single command, while smart presets provide curated experiences for common scenarios.
+
+The enhanced error reporting transforms domain-check from a basic availability checker into a professional domain management tool suitable for enterprise workflows and bulk operations.
+
+---
+
 ## [0.4.0] - 2025-06-28
 
 ### 🚀 Major Release: Library-First Architecture

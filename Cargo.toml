@@ -23,7 +23,7 @@ resolver = "2"
 
 # Workspace-wide metadata
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Sai Dutt G.V <gvs46@protonmail.com>"]
 license = "MIT"
 repository = "https://github.com/saidutt46/domain-check"

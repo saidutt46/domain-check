@@ -35,6 +35,11 @@ It combines a robust asynchronous library with a flexible CLI, optimized for RDA
 - ⚙️ **Highly configurable**: set concurrency up to 100, customize timeouts, enable or disable WHOIS fallback, or use IANA bootstrap for unknown TLDs
 - 🐛 **Debug & verbose modes**: get detailed protocol-level logs and error diagnostics with `--debug` and `--verbose`
 - 📝 **Perfect for CI/CD & shell scripts**: pipe JSON or CSV directly to tools like `jq` or `grep`
+- 🌐 **Universal TLD checking with --all flag** (35+ TLDs)
+- 🎯 **Smart TLD presets**: startup, enterprise, country presets for common scenarios
+- 📊 **Enhanced error reporting** with intelligent error aggregation and actionable summaries
+- ⚡ **No artificial limits** - check as many domains as you need
+- 🔄 **Auto-bootstrap** - automatically enables comprehensive registry coverage
 - 💻 **Robust CLI options**:
   - `--file <domains.txt>` to load domains
   - `--streaming` for real-time feedback
@@ -75,6 +80,19 @@ domain-check example.com
 # Check multiple TLDs
 domain-check startup -t com,org,net,io
 
+# NEW in v0.5.0: Check ALL known TLDs at once
+domain-check myapp --all
+
+# NEW: Use curated TLD presets  
+domain-check startup -t com,org,net,io    # OLD way
+domain-check startup --preset startup     # NEW way (same result!)
+
+# NEW: Enterprise-focused domains
+domain-check mybrand --preset enterprise
+
+# NEW: Country code domains
+domain-check mysite --preset country
+
 # Bulk check from file
 domain-check --file domains.txt -t com,org
 ```
@@ -83,7 +101,7 @@ domain-check --file domains.txt -t com,org
 
 ```toml
 [dependencies]
-domain-check-lib = "0.4.0"
+domain-check-lib = "0.5.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -95,6 +113,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let checker = DomainChecker::new();
     let result = checker.check_domain("example.com").await?;
     println!("Available: {:?}", result.available);
+    Ok(())
+}
+
+// NEW in v0.5.0: Use TLD presets in your applications
+use domain_check_lib::{DomainChecker, get_preset_tlds, get_all_known_tlds};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let checker = DomainChecker::new();
+    
+    // Check against startup-focused TLDs
+    let startup_tlds = get_preset_tlds("startup").unwrap();
+    let expanded_domains = domain_check_lib::expand_domain_inputs(
+        &["myapp".to_string()], 
+        &Some(startup_tlds)
+    );
+    
+    let results = checker.check_domains(&expanded_domains).await?;
+    println!("Checked {} startup domains", results.len());
+    
     Ok(())
 }
 ```
@@ -170,6 +208,32 @@ Output:
 🔴 myawesome.io is TAKEN
 
 ✅ 4 domains processed in 1.2s: 🟢 2 available, 🔴 2 taken, ⚠️ 0 unknown
+```
+
+#### 🆕 Universal Domain Checking
+
+```bash
+# Check against ALL known TLDs (~42 TLDs)
+domain-check myapp --all
+
+# Real-time results as they complete
+domain-check myapp --all --streaming
+```
+
+#### 🆕 Smart TLD Presets
+
+```bash
+# Startup/tech-focused TLDs (8 TLDs)
+domain-check myapp --preset startup
+# Checks: .com, .org, .io, .ai, .tech, .app, .dev, .xyz
+
+# Enterprise/business TLDs (6 TLDs)  
+domain-check mybrand --preset enterprise
+# Checks: .com, .org, .net, .info, .biz, .us
+
+# Major country codes (9 TLDs)
+domain-check mysite --preset country
+# Checks: .us, .uk, .de, .fr, .ca, .au, .jp, .br, .in
 ```
 
 #### Check with detailed information
@@ -288,6 +352,17 @@ domain-check --file large-list.txt --streaming
 domain-check --file domains.txt --batch --pretty
 ```
 
+### 🆕 Powerful Bulk Operations
+
+```bash
+# Check startup names against all TLDs
+echo -e "airbnb\nuber\nstripe" > startups.txt
+domain-check --file startups.txt --all --streaming
+
+# Enterprise domain audit
+domain-check --file companies.txt --preset enterprise --csv > audit.csv
+```
+
 ### Command Reference
 
 ```
@@ -305,6 +380,11 @@ OPTIONS:
     -i, --info                   Show detailed domain information when available
     -b, --bootstrap              Use IANA bootstrap to find RDAP endpoints for unknown TLDs
         --no-whois               Disable automatic WHOIS fallback
+        --all                    Check against all known TLDs (~42 TLDs)
+        --preset <NAME>          Use TLD preset: startup, enterprise, country
+                                 startup (8): com, org, io, ai, tech, app, dev, xyz
+                                 enterprise (6): com, org, net, info, biz, us  
+                                 country (9): us, uk, de, fr, ca, au, jp, br, in
     -j, --json                   Output results in JSON format
         --csv                    Output results in CSV format
     -p, --pretty                 Enable colorful, formatted output

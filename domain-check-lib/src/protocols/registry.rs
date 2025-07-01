@@ -102,6 +102,110 @@ pub fn get_rdap_registry_map() -> HashMap<&'static str, &'static str> {
     ])
 }
 
+// Add these functions after line 81 in domain-check-lib/src/protocols/registry.rs
+
+/// Get all TLDs that we have RDAP endpoints for.
+///
+/// This function extracts TLD knowledge from our built-in registry mappings,
+/// providing a comprehensive list for the --all flag functionality.
+///
+/// # Returns
+///
+/// Vector of TLD strings (e.g., ["com", "org", "net", ...]) sorted alphabetically.
+pub fn get_all_known_tlds() -> Vec<String> {
+    let registry = get_rdap_registry_map();
+    let mut tlds: Vec<String> = registry.keys().map(|k| k.to_string()).collect();
+    tlds.sort(); // Consistent ordering for user experience
+    tlds
+}
+
+/// Get predefined TLD presets for common use cases.
+///
+/// This function provides curated TLD lists that cover the most common
+/// domain checking scenarios without overwhelming users.
+///
+/// # Arguments
+///
+/// * `preset` - The preset name ("startup", "enterprise", "country")
+///
+/// # Returns
+///
+/// Optional vector of TLD strings, None if preset doesn't exist.
+///
+/// # Examples
+///
+/// ```rust
+/// use domain_check_lib::protocols::registry::get_preset_tlds;
+///
+/// let startup_tlds = get_preset_tlds("startup").unwrap();
+/// assert!(startup_tlds.contains(&"io".to_string()));
+/// ```
+pub fn get_preset_tlds(preset: &str) -> Option<Vec<String>> {
+    match preset.to_lowercase().as_str() {
+        "startup" => Some(vec![
+            "com".to_string(),
+            "org".to_string(),
+            "io".to_string(),
+            "ai".to_string(),
+            "tech".to_string(),
+            "app".to_string(),
+            "dev".to_string(),
+            "xyz".to_string(),
+        ]),
+        "enterprise" => Some(vec![
+            "com".to_string(),
+            "org".to_string(),
+            "net".to_string(),
+            "info".to_string(),
+            "biz".to_string(),
+            "us".to_string(),
+        ]),
+        "country" => Some(vec![
+            "us".to_string(),
+            "uk".to_string(),
+            "de".to_string(),
+            "fr".to_string(),
+            "ca".to_string(),
+            "au".to_string(),
+            "jp".to_string(),
+            "br".to_string(),
+            "in".to_string(),
+        ]),
+        _ => None,
+    }
+}
+
+/// Get available preset names.
+///
+/// Useful for CLI help text and validation.
+///
+/// # Returns
+///
+/// Vector of available preset names.
+pub fn get_available_presets() -> Vec<&'static str> {
+    vec!["startup", "enterprise", "country"]
+}
+
+/// Validate that all TLDs in a preset have RDAP endpoints.
+///
+/// This ensures preset TLDs can actually be checked via our registry.
+/// Used internally and for testing.
+///
+/// # Arguments
+///
+/// * `preset_tlds` - TLD list to validate
+///
+/// # Returns
+///
+/// True if all TLDs have known RDAP endpoints, false otherwise.
+#[allow(dead_code)]
+pub fn validate_preset_tlds(preset_tlds: &[String]) -> bool {
+    let registry = get_rdap_registry_map();
+    preset_tlds
+        .iter()
+        .all(|tld| registry.contains_key(tld.as_str()))
+}
+
 /// Look up RDAP endpoint for a given TLD.
 ///
 /// First checks the built-in registry, then checks the bootstrap cache,
@@ -316,5 +420,106 @@ mod tests {
     async fn test_get_rdap_endpoint_unknown_no_bootstrap() {
         let result = get_rdap_endpoint("unknowntld123", false).await;
         assert!(result.is_err());
+    }
+}
+
+#[cfg(test)]
+mod preset_tests {
+    use super::*;
+
+    #[test]
+    fn test_get_all_known_tlds() {
+        let tlds = get_all_known_tlds();
+
+        // Should have our expected core TLDs
+        assert!(tlds.len() >= 40);
+        assert!(tlds.contains(&"com".to_string()));
+        assert!(tlds.contains(&"org".to_string()));
+        assert!(tlds.contains(&"io".to_string()));
+        assert!(tlds.contains(&"ai".to_string()));
+
+        // Should be sorted for consistent UX
+        let mut sorted_tlds = tlds.clone();
+        sorted_tlds.sort();
+        assert_eq!(tlds, sorted_tlds);
+    }
+
+    #[test]
+    fn test_startup_preset() {
+        let tlds = get_preset_tlds("startup").unwrap();
+
+        assert_eq!(tlds.len(), 8);
+        assert!(tlds.contains(&"com".to_string()));
+        assert!(tlds.contains(&"io".to_string()));
+        assert!(tlds.contains(&"ai".to_string()));
+        assert!(tlds.contains(&"tech".to_string()));
+
+        // Case insensitive
+        assert_eq!(get_preset_tlds("STARTUP"), get_preset_tlds("startup"));
+    }
+
+    #[test]
+    fn test_enterprise_preset() {
+        let tlds = get_preset_tlds("enterprise").unwrap();
+
+        assert_eq!(tlds.len(), 6);
+        assert!(tlds.contains(&"com".to_string()));
+        assert!(tlds.contains(&"org".to_string()));
+        assert!(tlds.contains(&"biz".to_string()));
+    }
+
+    #[test]
+    fn test_country_preset() {
+        let tlds = get_preset_tlds("country").unwrap();
+
+        assert_eq!(tlds.len(), 9);
+        assert!(tlds.contains(&"us".to_string()));
+        assert!(tlds.contains(&"uk".to_string()));
+        assert!(tlds.contains(&"de".to_string()));
+    }
+
+    #[test]
+    fn test_invalid_preset() {
+        assert!(get_preset_tlds("invalid").is_none());
+        assert!(get_preset_tlds("").is_none());
+    }
+
+    #[test]
+    fn test_available_presets() {
+        let presets = get_available_presets();
+        assert_eq!(presets.len(), 3);
+        assert!(presets.contains(&"startup"));
+        assert!(presets.contains(&"enterprise"));
+        assert!(presets.contains(&"country"));
+    }
+
+    #[test]
+    fn test_validate_preset_tlds() {
+        // All preset TLDs should have RDAP endpoints
+        for preset_name in get_available_presets() {
+            let tlds = get_preset_tlds(preset_name).unwrap();
+            assert!(
+                validate_preset_tlds(&tlds),
+                "Preset '{}' contains TLDs without RDAP endpoints",
+                preset_name
+            );
+        }
+    }
+
+    #[test]
+    fn test_preset_tlds_subset_of_known() {
+        let all_tlds = get_all_known_tlds();
+
+        for preset_name in get_available_presets() {
+            let preset_tlds = get_preset_tlds(preset_name).unwrap();
+            for tld in preset_tlds {
+                assert!(
+                    all_tlds.contains(&tld),
+                    "Preset '{}' contains unknown TLD: {}",
+                    preset_name,
+                    tld
+                );
+            }
+        }
     }
 }
