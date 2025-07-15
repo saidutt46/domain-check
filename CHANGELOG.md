@@ -1,6 +1,150 @@
 # Changelog
 
-## [0.5.1] - 2025-01-XX
+## [0.6.0] - 2025-01-XX
+
+### 🚀 Major Release: Configuration Files & Environment Variables
+
+This release introduces comprehensive configuration management, transforming domain-check from a command-line only tool into a fully configurable domain checking platform with persistent settings, custom presets, and environment variable support.
+
+### 🎉 Added
+
+#### **Configuration File Support**
+- **TOML configuration files**: Create `.domain-check.toml` for persistent settings
+- **Multi-location discovery**: Local (`./.domain-check.toml`), global (`~/.domain-check.toml`), and XDG (`~/.config/domain-check/config.toml`)
+- **Hierarchical precedence**: CLI args > environment variables > local config > global config > XDG config > defaults
+- **Comprehensive validation**: Clear error messages for invalid configuration values
+- **--config flag**: Specify custom configuration file locations
+
+#### **Environment Variable Support**
+- **Complete DC_* variable set**: All CLI options available as environment variables
+- **Smart validation**: Invalid values logged with warnings, fallback to next precedence level
+- **CI/CD integration**: `DC_CONCURRENCY`, `DC_PRESET`, `DC_TLD`, `DC_TIMEOUT`, `DC_BOOTSTRAP`, etc.
+- **File path variables**: `DC_CONFIG` and `DC_FILE` for default file locations
+
+#### **Custom TLD Presets**
+- **User-defined presets**: Create custom TLD combinations in config files
+- **Preset override**: Custom presets take precedence over built-in presets
+- **Flexible usage**: Use custom presets with `--preset my_custom` or `DC_PRESET=my_custom`
+- **Smart validation**: Custom presets validated with helpful error messages
+
+#### **Enhanced User Experience**
+- **Persistent preferences**: Set default concurrency, presets, output formats
+- **Reduced typing**: Common settings automatically applied
+- **Team collaboration**: Share config files for consistent team settings
+- **Better defaults**: Increased default concurrency from 10 to 20 for improved performance
+
+### 🔄 Changed
+
+#### **Configuration Management**
+- **Centralized config resolution**: All settings resolved through unified precedence system
+- **Improved error handling**: Configuration errors provide actionable feedback with context
+- **Smart precedence logic**: CLI arguments only override when explicitly provided by user
+- **Enhanced validation**: Comprehensive validation with user-friendly error messages
+
+#### **Performance Improvements**
+- **Default concurrency**: Increased from 10 to 20 concurrent requests for better performance
+- **Optimized config loading**: Efficient discovery and caching of configuration files
+- **Reduced redundancy**: Eliminated duplicate config loading in domain processing
+
+### 📊 Configuration Examples
+
+#### Basic Configuration File
+```toml
+# .domain-check.toml
+[defaults]
+concurrency = 25
+preset = "startup"
+pretty = true
+timeout = "8s"
+bootstrap = true
+
+[custom_presets]
+my_startup = ["com", "io", "ai", "dev", "app"]
+my_enterprise = ["com", "org", "net", "biz", "info"]
+my_crypto = ["com", "org", "crypto", "blockchain", "web3"]
+
+[output]
+default_format = "pretty"
+csv_headers = true
+```
+
+#### Environment Variables
+```sh
+# Set defaults via environment
+export DC_CONCURRENCY=50
+export DC_PRESET=startup
+export DC_PRETTY=true
+export DC_BOOTSTRAP=true
+# CI/CD integration
+DC_TIMEOUT=30s DC_CONCURRENCY=25 domain-check --file domains.txt
+```
+
+#### Precedence Examples
+- Config file sets `concurrency=25`, but CLI overrides:
+  ```sh
+  domain-check --concurrency 50 mystartup  # Uses 50
+  ```
+- Environment variable overrides config file:
+  ```sh
+  DC_PRESET=enterprise domain-check mystartup  # Uses enterprise preset
+  ```
+- Custom preset from config file:
+  ```sh
+  domain-check --preset my_startup mystartup  # Uses custom preset
+  ```
+
+🎯 Use Cases Enabled
+Developer Workflows
+• Project-specific configs: Different settings per project directory
+• Personal defaults: Global settings for individual developer preferences
+• Team standardization: Shared config files in repositories
+
+Automation & CI/CD
+• Environment-driven configuration: Dynamic settings via environment variables
+• Docker integration: Configuration via environment in containerized environments
+• Script automation: Reduced command-line complexity in automated tools
+
+Enterprise & Teams
+• Consistent settings: Team-wide configuration standards
+• Custom domain strategies: Organization-specific TLD presets
+• Audit trails: Configuration-driven domain checking policies
+
+🔧 Technical Improvements
+• Modular configuration system: Clean separation of config sources and validation
+• Type-safe parsing: Comprehensive TOML parsing with validation
+• Error recovery: Graceful handling of invalid configurations
+• Memory efficiency: Optimized config loading and caching
+
+Developer Experience
+• Rich error messages: Actionable feedback for configuration issues
+• Comprehensive testing: Full test coverage for configuration features
+• Documentation: Complete examples and usage patterns
+
+📋 Migration Guide
+For Existing CLI Users
+✅ Zero breaking changes - All existing commands work unchanged
+🆕 New capabilities - Add config files for persistent settings
+🔧 Enhanced workflow - Reduce repetitive typing with defaults
+
+Upgrade Examples
+
+# Before: Repetitive commands
+domain-check --concurrency 25 --preset startup --pretty mystartup
+domain-check --concurrency 25 --preset startup --pretty anotherdomain
+# After: One-time config setup
+echo '[defaults]
+concurrency = 25
+preset = "startup"
+pretty = true' > .domain-check.toml
+# Now simple commands use your preferences
+domain-check mystartup
+domain-check anotherdomain
+
+🎉 Community Impact
+This release addresses the most requested workflow improvements: persistent configuration and reduced command repetition. The configuration system transforms domain-check from a basic CLI tool into a comprehensive domain management platform suitable for individual developers, teams, and enterprise automation.
+
+
+## [0.5.1] - 2024-06-24
 
 ### 🚀 Distribution & Licensing Updates
 
@@ -55,7 +199,7 @@ cargo install domain-check
 cargo add domain-check-lib
 ```
 
-## [0.5.0] - 2025-01-XX
+## [0.5.0] - 2025-06-15
 
 ### 🚀 Major Release: Universal TLD Checking & Smart Presets
 

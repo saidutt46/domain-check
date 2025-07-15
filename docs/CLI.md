@@ -39,6 +39,108 @@ domain-check example.com google.com startup.org
 
 ---
 
+## ⚙️ Configuration Files
+
+### Configuration File Support
+
+Domain-check supports persistent configuration through TOML files. This eliminates repetitive typing and enables team standardization.
+
+#### Configuration File Locations (checked in order)
+
+1. `./domain-check.toml` (project-specific)
+2. `~/.domain-check.toml` (user global)  
+3. `~/.config/domain-check/config.toml` (XDG standard)
+
+#### Basic Configuration Example
+
+```toml
+# .domain-check.toml
+[defaults]
+concurrency = 25
+preset = "startup"
+pretty = true
+timeout = "8s"
+bootstrap = true
+
+[custom_presets]
+my_startup = ["com", "io", "ai", "dev", "app"]
+my_enterprise = ["com", "org", "net", "biz", "info"]
+
+[output]
+default_format = "pretty"
+csv_headers = true
+```
+
+#### Usage with Configuration
+
+```bash
+# Uses settings from config file automatically
+domain-check mystartup
+
+# Override specific settings
+domain-check mystartup --concurrency 50
+
+# Use specific config file
+domain-check --config my-team-config.toml mystartup
+
+# Use custom preset from config
+domain-check mystartup --preset my_startup
+```
+
+### Precedence Rules
+
+Settings are resolved in this order (highest to lowest):
+1. **CLI arguments** (explicit user input)
+2. **Environment variables** (DC_*)
+3. **Local config** (./.domain-check.toml)
+4. **Global config** (~/.domain-check.toml)
+5. **XDG config** (~/.config/domain-check/config.toml)
+6. **Built-in defaults**
+
+---
+
+## 🔧 Environment Variables
+
+### Complete Environment Variable Support
+
+All CLI options can be set via environment variables using the `DC_*` prefix:
+
+| Environment Variable | CLI Equivalent | Example | Description |
+|---------------------|----------------|---------|-------------|
+| `DC_CONCURRENCY` | `--concurrency` | `DC_CONCURRENCY=50` | Max concurrent checks |
+| `DC_PRESET` | `--preset` | `DC_PRESET=startup` | Default TLD preset |
+| `DC_TLD` | `--tld` | `DC_TLD=com,io,dev` | Default TLD list |
+| `DC_PRETTY` | `--pretty` | `DC_PRETTY=true` | Enable pretty output |
+| `DC_TIMEOUT` | N/A | `DC_TIMEOUT=10s` | Request timeout |
+| `DC_BOOTSTRAP` | `--bootstrap` | `DC_BOOTSTRAP=true` | Enable IANA bootstrap |
+| `DC_WHOIS_FALLBACK` | `--no-whois` | `DC_WHOIS_FALLBACK=false` | WHOIS fallback |
+| `DC_DETAILED_INFO` | `--info` | `DC_DETAILED_INFO=true` | Detailed domain info |
+| `DC_JSON` | `--json` | `DC_JSON=true` | JSON output format |
+| `DC_CSV` | `--csv` | `DC_CSV=true` | CSV output format |
+| `DC_FILE` | `--file` | `DC_FILE=domains.txt` | Default domains file |
+| `DC_CONFIG` | `--config` | `DC_CONFIG=my-config.toml` | Default config file |
+
+### Environment Variable Examples
+
+```bash
+# CI/CD Pipeline
+DC_CONCURRENCY=30 DC_PRESET=enterprise domain-check --file domains.txt --json
+
+# Docker Container
+docker run -e DC_PRESET=startup -e DC_PRETTY=true domain-check:latest myapp
+
+# Development Environment
+export DC_CONCURRENCY=25
+export DC_PRESET=startup
+export DC_PRETTY=true
+# Now all commands use these defaults
+
+# Team Standardization
+DC_CONFIG=team-config.toml domain-check mystartup
+```
+
+---
+
 ## Command Reference
 
 ### Core Options
@@ -46,6 +148,11 @@ domain-check example.com google.com startup.org
 | Flag | Description | Example |
 |------|-------------|---------|
 | `<DOMAINS>...` | Domain names to check | `domain-check example.com google.com` |
+| `-t, --tld <TLD>` | Specify TLDs for base names | `domain-check startup -t com,org,io` |
+| `--all` | Check against all 42+ known TLDs | `domain-check myapp --all` |
+| `--preset <NAME>` | Use TLD preset or custom preset | `domain-check myapp --preset startup` |
+| `-f, --file <FILE>` | Read domains from file | `domain-check --file domains.txt` |
+| `--config <FILE>` | Use specific config file | `domain-check --config my-config.toml` |
 | `-h, --help` | Show help information | `domain-check --help` |
 | `-V, --version` | Show version | `domain-check --version` |
 
@@ -85,6 +192,10 @@ domain-check example.com google.com startup.org
 |------|-------------|---------|
 | `-c, --concurrency <N>` | Max concurrent checks (1-100) | `domain-check --file domains.txt -c 50` |
 | `--force` | Override safety limits | `domain-check --file huge.txt --force` |
+| `--streaming` | Show results as they complete | `domain-check --file large.txt --streaming` |
+| `--batch` | Collect all results before showing | `domain-check --file domains.txt --batch` |
+
+**Default concurrency:** 20 (increased from 10 for better performance)
 
 ### Protocol Options
 
@@ -152,6 +263,42 @@ domain-check myapp --all
 domain-check myapp --all --streaming
 # Shows results as they complete
 ```
+
+---
+
+## 🎯 Custom Presets
+
+### Defining Custom Presets
+
+Create reusable TLD combinations in your configuration file:
+
+```toml
+# .domain-check.toml
+[custom_presets]
+my_startup = ["com", "io", "ai", "dev", "app", "tech"]
+my_crypto = ["com", "org", "crypto", "blockchain", "web3"]
+my_enterprise = ["com", "org", "net", "info", "biz"]
+my_international = ["com", "org", "uk", "de", "fr", "jp"]
+```
+
+### Using Custom Presets
+
+```bash
+# Use custom preset via CLI
+domain-check mystartup --preset my_crypto
+
+# Use custom preset via environment variable
+DC_PRESET=my_startup domain-check mystartup
+
+# Custom presets override built-in presets with same name
+domain-check mystartup --preset startup  # Uses your custom 'startup' if defined
+```
+
+### Preset Precedence
+
+1. **Custom presets** (from config files) override built-in presets
+2. **Built-in presets** used if no custom preset with same name exists
+3. **Available built-in presets**: startup, enterprise, country
 
 ---
 
@@ -284,7 +431,7 @@ domain-check --file domains.txt --all --concurrency 100
 #### Streaming Mode (Real-time Results)
 ```bash
 domain-check --file domains.txt --all --streaming
-# 🔍 Checking 42 domains with concurrency: 10
+# 🔍 Checking 42 domains with concurrency: 20
 # 🟢 example.com is AVAILABLE
 # 🔴 test.org is TAKEN
 # 🟢 startup.io is AVAILABLE
@@ -416,6 +563,46 @@ echo "Checking brand protection..."
 domain-check --file brand-variations.txt --preset enterprise --json > "brand-$(date +%Y%m%d).json"
 
 echo "Reports generated!"
+```
+
+### Configuration-Driven Workflows
+
+```bash
+# Team Configuration
+# Create shared team-config.toml in repository
+domain-check --config team-config.toml --file project-domains.txt
+
+# Personal Defaults
+# Set up ~/.domain-check.toml once
+cat > ~/.domain-check.toml << 'EOF'
+[defaults]
+concurrency = 30
+pretty = true
+preset = "startup"
+EOF
+
+# Now all commands use your preferences
+domain-check mystartup  # Automatic startup preset, pretty output, 30 concurrency
+
+# Environment-Specific Settings
+# Development
+DC_CONCURRENCY=10 domain-check mystartup
+
+# Production CI
+DC_CONCURRENCY=50 DC_TIMEOUT=30s domain-check --file critical-domains.txt
+```
+
+### Configuration Debugging
+
+```bash
+# See which config files are being used
+domain-check mystartup --verbose
+
+# Test specific configuration
+domain-check --config test-config.toml mystartup --verbose
+
+# Override everything with CLI
+domain-check mystartup --concurrency 1 --preset enterprise --no-pretty
 ```
 
 ---

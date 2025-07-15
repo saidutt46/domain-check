@@ -121,8 +121,8 @@ pub fn get_all_known_tlds() -> Vec<String> {
 
 /// Get predefined TLD presets for common use cases.
 ///
-/// This function provides curated TLD lists that cover the most common
-/// domain checking scenarios without overwhelming users.
+/// This function provides curated TLD lists for common scenarios.
+/// For custom preset support, use `get_preset_tlds_with_custom()`.
 ///
 /// # Arguments
 ///
@@ -173,6 +173,52 @@ pub fn get_preset_tlds(preset: &str) -> Option<Vec<String>> {
         ]),
         _ => None,
     }
+}
+
+/// Get predefined TLD presets with custom preset support.
+///
+/// This function checks custom presets first, then falls back to built-in presets.
+///
+/// # Arguments
+///
+/// * `preset` - The preset name to look up
+/// * `custom_presets` - Optional custom presets from config files
+///
+/// # Returns
+///
+/// Optional vector of TLD strings, None if preset doesn't exist.
+///
+/// # Examples
+///
+/// ```rust
+/// use std::collections::HashMap;
+/// use domain_check_lib::get_preset_tlds_with_custom;
+///
+/// let mut custom = HashMap::new();
+/// custom.insert("my_preset".to_string(), vec!["com".to_string(), "dev".to_string()]);
+///
+/// let tlds = get_preset_tlds_with_custom("my_preset", Some(&custom)).unwrap();
+/// assert_eq!(tlds, vec!["com", "dev"]);
+/// ```
+pub fn get_preset_tlds_with_custom(
+    preset: &str,
+    custom_presets: Option<&std::collections::HashMap<String, Vec<String>>>,
+) -> Option<Vec<String>> {
+    let preset_lower = preset.to_lowercase();
+
+    // 1. Check custom presets first (highest precedence)
+    if let Some(custom_map) = custom_presets {
+        // Check both original case and lowercase
+        if let Some(custom_tlds) = custom_map
+            .get(preset)
+            .or_else(|| custom_map.get(&preset_lower))
+        {
+            return Some(custom_tlds.clone());
+        }
+    }
+
+    // 2. Fall back to built-in presets
+    get_preset_tlds(&preset_lower)
 }
 
 /// Get available preset names.

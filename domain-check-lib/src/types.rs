@@ -4,6 +4,7 @@
 //! including domain results, configuration options, and output formatting.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::Duration;
 
 /// Result of a domain availability check.
@@ -70,7 +71,7 @@ pub struct DomainInfo {
 ///
 /// This struct allows fine-tuning of the domain checking behavior,
 /// including performance, timeout, and protocol preferences.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckConfig {
     /// Maximum number of concurrent domain checks
     /// Default: 10, Range: 1-100
@@ -78,6 +79,7 @@ pub struct CheckConfig {
 
     /// Timeout for each individual domain check
     /// Default: 5 seconds
+    #[serde(skip)] // Don't serialize Duration directly
     pub timeout: Duration,
 
     /// Whether to automatically fall back to WHOIS when RDAP fails
@@ -98,11 +100,18 @@ pub struct CheckConfig {
 
     /// Custom timeout for RDAP requests (separate from overall timeout)
     /// Default: 3 seconds
+    #[serde(skip)] // Don't serialize Duration directly
     pub rdap_timeout: Duration,
 
     /// Custom timeout for WHOIS requests
     /// Default: 5 seconds  
+    #[serde(skip)] // Don't serialize Duration directly
     pub whois_timeout: Duration,
+
+    /// Custom user-defined TLD presets from config files
+    /// Default: empty
+    #[serde(skip)] // Handled separately in config merging
+    pub custom_presets: HashMap<String, Vec<String>>,
 }
 
 /// Method used to check domain availability.
@@ -151,7 +160,7 @@ impl Default for CheckConfig {
     /// while being conservative about resource usage.
     fn default() -> Self {
         Self {
-            concurrency: 10,
+            concurrency: 20,
             timeout: Duration::from_secs(5),
             enable_whois_fallback: true,
             enable_bootstrap: false,
@@ -159,6 +168,7 @@ impl Default for CheckConfig {
             tlds: None, // Will default to ["com"] when needed
             rdap_timeout: Duration::from_secs(3),
             whois_timeout: Duration::from_secs(5),
+            custom_presets: HashMap::new(),
         }
     }
 }

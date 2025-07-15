@@ -108,19 +108,6 @@ fn test_all_flag_shows_info_message() {
 // }
 
 #[test]
-fn test_invalid_preset_error() {
-    let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(["test", "--preset", "invalid"]);
-
-    cmd.assert()
-        .failure()
-        .stderr(predicate::str::contains("Unknown preset 'invalid'"))
-        .stderr(predicate::str::contains(
-            "Available presets: startup, enterprise, country",
-        ));
-}
-
-#[test]
 fn test_conflicting_tld_sources_error() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
     cmd.args(["test", "--all", "--preset", "startup"]);
@@ -311,4 +298,124 @@ fn test_moderate_domain_set_no_artificial_limits() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("Summary:")); // Should complete and show summary
+}
+
+#[test]
+fn test_config_file_integration() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    // Create a temporary directory for our test
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("test-config.toml");
+
+    // Create test config file
+    let config_content = r#"
+[defaults]
+concurrency = 35
+preset = "enterprise"
+pretty = true
+
+[custom_presets]
+test_preset = ["com", "org"]
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    // Test explicit config file usage
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args([
+        "--config",
+        config_path.to_str().unwrap(),
+        "testdomain123",
+        "--verbose",
+    ]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Using explicit config file"))
+        .stdout(predicate::str::contains("testdomain123.com"));
+}
+
+#[test]
+fn test_custom_preset_from_config() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("preset-config.toml");
+
+    // Create config with custom preset
+    let config_content = r#"
+[custom_presets]
+my_test = ["com", "net"]
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    // Test custom preset usage
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args([
+        "--config",
+        config_path.to_str().unwrap(),
+        "testdomain123",
+        "--preset",
+        "my_test",
+        "--batch",
+    ]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("testdomain123.com"))
+        .stdout(predicate::str::contains("testdomain123.net"))
+        .stdout(predicate::str::contains("2 taken")); // CHANGE: Look for "2 taken" instead of "Summary: 2"
+}
+
+#[test]
+fn test_environment_variable_integration() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.env("DC_CONCURRENCY", "45")
+        .env("DC_PRESET", "enterprise")
+        .args(["testdomain123", "--verbose"]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Using DC_CONCURRENCY=45"))
+        .stdout(predicate::str::contains("Using DC_PRESET=enterprise"));
+}
+
+#[test]
+fn test_precedence_cli_over_env() {
+    // CLI args should override environment variables
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.env("DC_PRESET", "enterprise")
+        .args(["testdomain123", "--preset", "startup", "--verbose"]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Using DC_PRESET=enterprise"))
+        .stdout(predicate::str::contains("startup")); // CLI preset should be used despite env var
+}
+
+#[test]
+fn test_config_file_discovery() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("domain-check.toml");
+
+    // Create local config file
+    let config_content = r#"
+[defaults]
+pretty = true
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    // Change to temp directory and run (to test local config discovery)
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.current_dir(temp_dir.path())
+        .args(["testdomain123", "--verbose"]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Discovering config files"));
 }

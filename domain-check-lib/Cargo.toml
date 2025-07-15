@@ -39,6 +39,9 @@ reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-feature
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Configuration file parsing
+toml = { workspace = true }
+
 # Text processing and validation
 regex = { workspace = true }
 
@@ -48,6 +51,8 @@ lazy_static = { workspace = true }
 # Development dependencies (for testing)
 [dev-dependencies]
 tokio-test = { workspace = true }
+tempfile = "3.8"
+
 
 # Optional features for advanced functionality
 [features]
