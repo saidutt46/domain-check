@@ -1,0 +1,9 @@
+[defaults]
+concurrency = 25
+preset = "startup"
+pretty = true
+timeout = "8s"
+bootstrap = true
+
+[custom_presets]
+my_test = ["com", "io", "dev"]

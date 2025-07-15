@@ -4,8 +4,8 @@
 //! including domain results, configuration options, and output formatting.
 
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// Result of a domain availability check.
 ///
@@ -79,7 +79,7 @@ pub struct CheckConfig {
 
     /// Timeout for each individual domain check
     /// Default: 5 seconds
-    #[serde(skip)]  // Don't serialize Duration directly
+    #[serde(skip)] // Don't serialize Duration directly
     pub timeout: Duration,
 
     /// Whether to automatically fall back to WHOIS when RDAP fails
@@ -100,17 +100,17 @@ pub struct CheckConfig {
 
     /// Custom timeout for RDAP requests (separate from overall timeout)
     /// Default: 3 seconds
-    #[serde(skip)]  // Don't serialize Duration directly
+    #[serde(skip)] // Don't serialize Duration directly
     pub rdap_timeout: Duration,
 
     /// Custom timeout for WHOIS requests
     /// Default: 5 seconds  
-    #[serde(skip)]  // Don't serialize Duration directly
+    #[serde(skip)] // Don't serialize Duration directly
     pub whois_timeout: Duration,
 
     /// Custom user-defined TLD presets from config files
     /// Default: empty
-    #[serde(skip)]  // Handled separately in config merging
+    #[serde(skip)] // Handled separately in config merging
     pub custom_presets: HashMap<String, Vec<String>>,
 }
 

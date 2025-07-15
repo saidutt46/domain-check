@@ -39,8 +39,8 @@ pub use utils::expand_domain_inputs;
 
 // Internal modules - these are not part of the public API
 mod checker;
-mod config;
 mod concurrent;
+mod config;
 mod error;
 mod protocols;
 mod types;

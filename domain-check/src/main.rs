@@ -323,7 +323,7 @@ fn validate_args(args: &Args) -> Result<(), String> {
 }
 
 /// Resolve TLDs based on argument precedence: -t > --preset > --all > default
-/// Resolve TLDs with environment variable support
+/// Resolve TLDs with environment variable and config support
 /// Precedence: CLI args > Environment > Config file > Default
 fn resolve_tlds_with_env_support(args: &Args) -> Option<Vec<String>> {
     // 1. CLI arguments win (explicit user input)
@@ -353,7 +353,7 @@ fn resolve_tlds_with_env_support(args: &Args) -> Option<Vec<String>> {
         }
     }
     
-    // 3. Config file values are handled in build_config
+    // 3. Config file values are handled in build_config - ISSUE HERE!
     // 4. Default behavior (None = will use .com)
     None
 }
@@ -371,10 +371,10 @@ async fn run_domain_check(args: Args) -> Result<(), Box<dyn std::error::Error>> 
     let config = build_config(&args)?;
 
     // Create domain checker
-    let checker = DomainChecker::with_config(config);
+    let checker = DomainChecker::with_config(config.clone());
 
-    // Determine domains to check
-    let domains = get_domains_to_check(&args).await?;
+    // Determine domains to check (pass the config instead of rebuilding)
+    let domains = get_domains_to_check(&args, &config).await?;
 
     // Decide on processing mode based on domain count and user preferences
     let use_streaming = should_use_streaming(&args, domains.len());
@@ -722,9 +722,19 @@ fn merge_file_config_into_check_config(mut config: CheckConfig, file_config: Fil
         if let Some(detailed_info) = defaults.detailed_info {
             config.detailed_info = detailed_info;
         }
+        
+        // Handle TLDs and presets with proper precedence
         if let Some(tlds) = defaults.tlds {
+            // Explicit TLD list wins over preset
             config.tlds = Some(tlds);
+        } else if let Some(preset_name) = defaults.preset {
+            // Convert preset name to TLD list
+            if let Some(preset_tlds) = get_preset_tlds(&preset_name) {
+                config.tlds = Some(preset_tlds);
+            }
         }
+        
+        // Apply timeout settings
         if let Some(timeout_str) = defaults.timeout {
             if let Ok(timeout_secs) = parse_timeout_string(&timeout_str) {
                 config.timeout = std::time::Duration::from_secs(timeout_secs);
@@ -797,13 +807,15 @@ fn apply_cli_args_to_config(mut config: CheckConfig, args: &Args) -> Result<Chec
     config.enable_whois_fallback = !args.no_whois;
     config.detailed_info = args.info;
     
-    // Resolve TLDs with updated precedence logic
-    let resolved_tlds = resolve_tlds_with_env_support(args);
-    config = if let Some(tlds) = resolved_tlds {
-        config.with_tlds(tlds)
-    } else {
-        config
-    };
+    // Only override config file TLDs if CLI args are explicitly provided
+    if args.tlds.is_some() {
+        config.tlds = args.tlds.clone();
+    } else if let Some(preset) = &args.preset {
+        config.tlds = get_preset_tlds(preset);
+    } else if args.all_tlds {
+        config.tlds = Some(get_all_known_tlds());
+    }
+    // Otherwise, keep the TLDs from config file (already loaded in merge_file_config_into_check_config)
     
     // Bootstrap auto-enable logic
     config.enable_bootstrap = should_enable_bootstrap(args, &resolve_tlds_with_env_support(args)) || args.bootstrap;
@@ -833,7 +845,7 @@ fn parse_timeout_string(timeout_str: &str) -> Result<u64, Box<dyn std::error::Er
 }
 
 /// Get the list of domains to check from CLI args or file
-async fn get_domains_to_check(args: &Args) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+async fn get_domains_to_check(args: &Args, config: &CheckConfig) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut domains = Vec::new();
 
     // Add domains from command line
@@ -845,10 +857,9 @@ async fn get_domains_to_check(args: &Args) -> Result<Vec<String>, Box<dyn std::e
         domains.append(&mut file_domains.clone());
     }
 
-    // Apply smart domain expansion with resolved TLDs
-    let resolved_tlds = resolve_tlds_with_env_support(args);
-    let expanded_domains = domain_check_lib::expand_domain_inputs(&domains, &resolved_tlds);
-
+    // Use TLDs from the built config (which includes file config TLDs)
+    let expanded_domains = domain_check_lib::expand_domain_inputs(&domains, &config.tlds);
+    
     if expanded_domains.is_empty() {
         return Err("No valid domains found to check".into());
     }
