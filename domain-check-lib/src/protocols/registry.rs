@@ -205,15 +205,18 @@ pub fn get_preset_tlds_with_custom(
     custom_presets: Option<&std::collections::HashMap<String, Vec<String>>>,
 ) -> Option<Vec<String>> {
     let preset_lower = preset.to_lowercase();
-    
+
     // 1. Check custom presets first (highest precedence)
     if let Some(custom_map) = custom_presets {
         // Check both original case and lowercase
-        if let Some(custom_tlds) = custom_map.get(preset).or_else(|| custom_map.get(&preset_lower)) {
+        if let Some(custom_tlds) = custom_map
+            .get(preset)
+            .or_else(|| custom_map.get(&preset_lower))
+        {
             return Some(custom_tlds.clone());
         }
     }
-    
+
     // 2. Fall back to built-in presets
     get_preset_tlds(&preset_lower)
 }

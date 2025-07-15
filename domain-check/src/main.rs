@@ -773,7 +773,8 @@ fn apply_environment_config(mut config: CheckConfig, verbose: bool) -> CheckConf
         config.tlds = Some(tlds.clone());
     } else if let Some(preset) = &env_config.preset {
         // Use custom presets if available, fall back to built-in
-        if let Some(preset_tlds) = get_preset_tlds_with_custom(preset, Some(&config.custom_presets)) {
+        if let Some(preset_tlds) = get_preset_tlds_with_custom(preset, Some(&config.custom_presets))
+        {
             config.tlds = Some(preset_tlds);
         }
     }
@@ -1328,18 +1329,17 @@ mod tests {
         assert!(summary.contains("... and 3 more")); // Should truncate after 5
     }
 
-    // FIXED: Updated validation tests to include required domains
+    // validation tests to include required domains
     #[test]
-    fn test_validate_args_invalid_preset() {
+    fn test_validate_args_invalid_preset_now_allowed() {
+        // After Phase 4: Invalid presets are allowed in validate_args()
+        // and checked later during config resolution
         let mut args = create_test_args();
-        args.domains = vec!["test".to_string()]; // Add required domain
+        args.domains = vec!["test".to_string()];
         args.preset = Some("invalid_preset".to_string());
 
         let result = validate_args(&args);
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("Unknown preset 'invalid_preset'"));
+        assert!(result.is_ok()); // Now passes validation, fails later in config resolution
     }
 
     #[test]
