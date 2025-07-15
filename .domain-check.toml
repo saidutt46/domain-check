@@ -1,8 +1,0 @@
-[defaults]
-concurrency = 25
-pretty = true
-
-[custom_presets]
-my_test = ["com", "io", "dev"]
-my_crypto = ["com", "org", "crypto", "blockchain"]
-my_startup = ["com", "io", "ai", "app", "dev"]

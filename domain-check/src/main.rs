@@ -12,7 +12,7 @@ use std::process;
 /// CLI arguments for domain-check
 #[derive(Parser, Debug)]
 #[command(name = "domain-check")]
-#[command(version = "0.5.0")]
+#[command(version = "0.6.0")]
 #[command(author = "Sai Dutt G.V <gvs46@protonmail.com>")]
 #[command(about = "Check domain availability using RDAP with WHOIS fallback")]
 #[command(
