@@ -305,6 +305,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-test",
+ "toml",
 ]
 
 [[package]]

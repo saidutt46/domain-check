@@ -6,6 +6,7 @@
 use clap::Parser;
 use domain_check_lib::{get_all_known_tlds, get_available_presets, get_preset_tlds};
 use domain_check_lib::{CheckConfig, DomainChecker};
+use domain_check_lib::{ConfigManager, FileConfig};
 use std::process;
 
 /// CLI arguments for domain-check
@@ -43,6 +44,10 @@ pub struct Args {
     /// Input file with domains to check (one per line)
     #[arg(short = 'f', long = "file", value_name = "FILE")]
     pub file: Option<String>,
+
+    /// Use specific config file instead of automatic discovery
+    #[arg(long = "config", value_name = "FILE", help = "Use specific config file")]
+    pub config: Option<String>,
 
     /// Max concurrent domain checks (default: 10, max: 100)
     #[arg(short = 'c', long = "concurrency", default_value = "10")]
@@ -318,20 +323,39 @@ fn validate_args(args: &Args) -> Result<(), String> {
 }
 
 /// Resolve TLDs based on argument precedence: -t > --preset > --all > default
-fn resolve_tlds(args: &Args) -> Option<Vec<String>> {
+/// Resolve TLDs with environment variable support
+/// Precedence: CLI args > Environment > Config file > Default
+fn resolve_tlds_with_env_support(args: &Args) -> Option<Vec<String>> {
+    // 1. CLI arguments win (explicit user input)
     if args.tlds.is_some() {
-        // Explicit TLD list wins
-        args.tlds.clone()
-    } else if let Some(preset) = &args.preset {
-        // Preset second (validation already done)
-        get_preset_tlds(preset)
-    } else if args.all_tlds {
-        // All TLDs last
-        Some(get_all_known_tlds())
-    } else {
-        // Default behavior (will use .com in expansion)
-        None
+        return args.tlds.clone();
     }
+    
+    if let Some(preset) = &args.preset {
+        return get_preset_tlds(preset);
+    }
+    
+    if args.all_tlds {
+        return Some(get_all_known_tlds());
+    }
+    
+    // 2. Check environment variables
+    if let Ok(env_preset) = std::env::var("DC_PRESET") {
+        if let Some(tlds) = get_preset_tlds(&env_preset) {
+            return Some(tlds);
+        }
+    }
+    
+    if let Ok(env_tlds) = std::env::var("DC_TLD") {
+        let tlds: Vec<String> = env_tlds.split(',').map(|s| s.trim().to_string()).collect();
+        if !tlds.is_empty() {
+            return Some(tlds);
+        }
+    }
+    
+    // 3. Config file values are handled in build_config
+    // 4. Default behavior (None = will use .com)
+    None
 }
 
 /// Determine if bootstrap should be auto-enabled
@@ -628,29 +652,184 @@ async fn run_batch_check(
     Ok(())
 }
 
-/// Build CheckConfig from CLI arguments
+/// Build CheckConfig from CLI arguments with config file integration.
+/// 
+/// Precedence order (highest to lowest):
+/// 1. CLI arguments (explicit user input)
+/// 2. Environment variables (DC_*)  
+/// 3. Local config file (./.domain-check.toml)
+/// 4. Global config file (~/.domain-check.toml) 
+/// 5. XDG config file (~/.config/domain-check/config.toml)
+/// 6. Built-in defaults
 fn build_config(args: &Args) -> Result<CheckConfig, Box<dyn std::error::Error>> {
-    let resolved_tlds = resolve_tlds(args);
+    let mut config = CheckConfig::default();
+    
+    // Create config manager for file discovery
+    let config_manager = ConfigManager::new(args.verbose);
+    
+    // Step 1: Load config files (if --config not specified, use discovery)
+    if let Some(explicit_config_path) = &args.config {
+        // --config flag provided: ONLY use this file, ignore discovery
+        if args.verbose {
+            println!("🔧 Using explicit config file: {}", explicit_config_path);
+        }
+        
+        let file_config = config_manager.load_file(explicit_config_path)
+            .map_err(|e| format!("Failed to load config file '{}': {}", explicit_config_path, e))?;
+        
+        config = merge_file_config_into_check_config(config, file_config);
+    } else {
+        // No --config flag: Use automatic discovery
+        if args.verbose {
+            println!("🔧 Discovering config files...");
+        }
+        
+        match config_manager.discover_and_load() {
+            Ok(file_config) => {
+                config = merge_file_config_into_check_config(config, file_config);
+            }
+            Err(e) if args.verbose => {
+                eprintln!("⚠️ Config discovery warning: {}", e);
+            }
+            Err(_) => {
+                // Silently continue with defaults if no config files found
+            }
+        }
+    }
+    
+    // Step 2: Apply environment variables (DC_*)
+    config = apply_environment_config(config, args.verbose);
+    
+    // Step 3: Apply CLI arguments (highest precedence)
+    config = apply_cli_args_to_config(config, args)?;
+    
+    Ok(config)
+}
 
-    let config = CheckConfig::default()
-        .with_concurrency(args.concurrency)
-        .with_whois_fallback(!args.no_whois)
-        .with_bootstrap(should_enable_bootstrap(args, &resolved_tlds))
-        .with_detailed_info(args.info);
+/// Merge FileConfig into CheckConfig
+fn merge_file_config_into_check_config(mut config: CheckConfig, file_config: FileConfig) -> CheckConfig {
+    if let Some(defaults) = file_config.defaults {
+        // Apply defaults from config file (only if not already set)
+        if let Some(concurrency) = defaults.concurrency {
+            config.concurrency = concurrency;
+        }
+        if let Some(whois_fallback) = defaults.whois_fallback {
+            config.enable_whois_fallback = whois_fallback;
+        }
+        if let Some(bootstrap) = defaults.bootstrap {
+            config.enable_bootstrap = bootstrap;
+        }
+        if let Some(detailed_info) = defaults.detailed_info {
+            config.detailed_info = detailed_info;
+        }
+        if let Some(tlds) = defaults.tlds {
+            config.tlds = Some(tlds);
+        }
+        if let Some(timeout_str) = defaults.timeout {
+            if let Ok(timeout_secs) = parse_timeout_string(&timeout_str) {
+                config.timeout = std::time::Duration::from_secs(timeout_secs);
+                config.rdap_timeout = std::time::Duration::from_secs(timeout_secs.min(8));
+                config.whois_timeout = std::time::Duration::from_secs(timeout_secs);
+            }
+        }
+    }
+    
+    // Apply custom presets
+    if let Some(custom_presets) = file_config.custom_presets {
+        config.custom_presets = custom_presets;
+    }
+    
+    config
+}
 
-    // Add resolved TLDs to config
-    let config = if let Some(tlds) = resolved_tlds {
+/// Apply environment variables to config (DC_* pattern)
+fn apply_environment_config(mut config: CheckConfig, verbose: bool) -> CheckConfig {
+    if let Ok(val) = std::env::var("DC_CONCURRENCY") {
+        if let Ok(concurrency) = val.parse::<usize>() {
+            if concurrency > 0 && concurrency <= 100 {
+                config.concurrency = concurrency;
+                if verbose {
+                    println!("🔧 Using DC_CONCURRENCY={}", concurrency);
+                }
+            }
+        }
+    }
+    
+    if let Ok(val) = std::env::var("DC_PRETTY") {
+        // Environment variable presence indicates pretty output desired
+        if verbose {
+            println!("🔧 Using DC_PRETTY={}", val);
+        }
+    }
+    
+    if let Ok(val) = std::env::var("DC_PRESET") {
+        if verbose {
+            println!("🔧 Using DC_PRESET={}", val);
+        }
+        // Note: Preset handling is done in resolve_tlds, not here
+    }
+    
+    if let Ok(val) = std::env::var("DC_BOOTSTRAP") {
+        if let Ok(bootstrap) = val.parse::<bool>() {
+            config.enable_bootstrap = bootstrap;
+            if verbose {
+                println!("🔧 Using DC_BOOTSTRAP={}", bootstrap);
+            }
+        }
+    }
+    
+    if let Ok(val) = std::env::var("DC_WHOIS_FALLBACK") {
+        if let Ok(whois_fallback) = val.parse::<bool>() {
+            config.enable_whois_fallback = whois_fallback;
+            if verbose {
+                println!("🔧 Using DC_WHOIS_FALLBACK={}", whois_fallback);
+            }
+        }
+    }
+    
+    config
+}
+
+/// Apply CLI arguments to config (highest precedence)
+fn apply_cli_args_to_config(mut config: CheckConfig, args: &Args) -> Result<CheckConfig, Box<dyn std::error::Error>> {
+    // CLI arguments always win
+    config.concurrency = args.concurrency;
+    config.enable_whois_fallback = !args.no_whois;
+    config.detailed_info = args.info;
+    
+    // Resolve TLDs with updated precedence logic
+    let resolved_tlds = resolve_tlds_with_env_support(args);
+    config = if let Some(tlds) = resolved_tlds {
         config.with_tlds(tlds)
     } else {
         config
     };
-
-    // Show bootstrap auto-enable message
-    if should_enable_bootstrap(args, &resolve_tlds(args)) && !args.bootstrap && args.verbose {
-        eprintln!("🔧 Auto-enabled bootstrap registry for comprehensive coverage");
-    }
-
+    
+    // Bootstrap auto-enable logic
+    config.enable_bootstrap = should_enable_bootstrap(args, &resolve_tlds_with_env_support(args)) || args.bootstrap;
+    
     Ok(config)
+}
+
+/// Parse timeout string like "5s", "30s", "2m" into seconds
+fn parse_timeout_string(timeout_str: &str) -> Result<u64, Box<dyn std::error::Error>> {
+    let timeout_str = timeout_str.trim().to_lowercase();
+    
+    if timeout_str.ends_with('s') {
+        timeout_str
+            .strip_suffix('s')
+            .and_then(|s| s.parse::<u64>().ok())
+            .ok_or_else(|| "Invalid timeout format".into())
+    } else if timeout_str.ends_with('m') {
+        timeout_str
+            .strip_suffix('m')
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(|m| m * 60)
+            .ok_or_else(|| "Invalid timeout format".into())
+    } else {
+        // Assume seconds if no unit
+        timeout_str.parse::<u64>().map_err(|e| e.into())
+    }
 }
 
 /// Get the list of domains to check from CLI args or file
@@ -667,7 +846,7 @@ async fn get_domains_to_check(args: &Args) -> Result<Vec<String>, Box<dyn std::e
     }
 
     // Apply smart domain expansion with resolved TLDs
-    let resolved_tlds = resolve_tlds(args);
+    let resolved_tlds = resolve_tlds_with_env_support(args);
     let expanded_domains = domain_check_lib::expand_domain_inputs(&domains, &resolved_tlds);
 
     if expanded_domains.is_empty() {
@@ -982,12 +1161,13 @@ fn format_domain_info(info: &domain_check_lib::DomainInfo) -> String {
 mod tests {
     use super::*;
 
-    // UPDATED: Helper function with all required fields
+    // Helper function with all required fields
     fn create_test_args() -> Args {
         Args {
             domains: vec![], // Empty domains for testing
             tlds: None,
             file: None,
+            config: None,
             concurrency: 10,
             force: false,
             info: false,
@@ -1013,7 +1193,7 @@ mod tests {
         args.preset = Some("startup".to_string());
         args.all_tlds = true;
 
-        let result = resolve_tlds(&args);
+        let result = resolve_tlds_with_env_support(&args);
         assert_eq!(result, Some(vec!["com".to_string(), "org".to_string()]));
     }
 
@@ -1024,7 +1204,7 @@ mod tests {
         args.preset = Some("startup".to_string());
         args.all_tlds = true;
 
-        let result = resolve_tlds(&args);
+        let result = resolve_tlds_with_env_support(&args);
         assert_eq!(result, get_preset_tlds("startup"));
     }
 
@@ -1034,7 +1214,7 @@ mod tests {
         let mut args = create_test_args();
         args.all_tlds = true;
 
-        let result = resolve_tlds(&args);
+        let result = resolve_tlds_with_env_support(&args);
         assert_eq!(result, Some(get_all_known_tlds()));
     }
 
@@ -1042,7 +1222,7 @@ mod tests {
     fn test_resolve_tlds_default() {
         // Test default behavior (None)
         let args = create_test_args();
-        let result = resolve_tlds(&args);
+        let result = resolve_tlds_with_env_support(&args);
         assert_eq!(result, None);
     }
 
@@ -1052,7 +1232,7 @@ mod tests {
         let mut args = create_test_args();
         args.all_tlds = true;
 
-        let resolved_tlds = resolve_tlds(&args);
+        let resolved_tlds = resolve_tlds_with_env_support(&args);
         assert!(should_enable_bootstrap(&args, &resolved_tlds));
     }
 
@@ -1062,7 +1242,7 @@ mod tests {
         let mut args = create_test_args();
         args.bootstrap = true;
 
-        let resolved_tlds = resolve_tlds(&args);
+        let resolved_tlds = resolve_tlds_with_env_support(&args);
         assert!(should_enable_bootstrap(&args, &resolved_tlds));
     }
 
