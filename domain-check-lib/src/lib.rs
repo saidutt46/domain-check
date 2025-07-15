@@ -31,6 +31,7 @@
 // Re-export main public API types and functions
 // This makes them available as domain_check_lib::TypeName
 pub use checker::DomainChecker;
+pub use config::{ConfigManager, FileConfig};
 pub use error::DomainCheckError;
 pub use protocols::registry::{get_all_known_tlds, get_available_presets, get_preset_tlds};
 pub use types::{CheckConfig, CheckMethod, DomainInfo, DomainResult, OutputMode};
@@ -38,6 +39,7 @@ pub use utils::expand_domain_inputs;
 
 // Internal modules - these are not part of the public API
 mod checker;
+mod config;
 mod concurrent;
 mod error;
 mod protocols;

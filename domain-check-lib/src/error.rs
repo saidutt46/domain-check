@@ -228,7 +228,7 @@ impl fmt::Display for DomainCheckError {
                 write!(f, "⚠️ Unable to understand server response\n   💡 The domain registry may be experiencing issues. Please try again later")
             }
             Self::ConfigError { message } => {
-                write!(f, "⚙️ Configuration error: {}\n   💡 Please check your command line arguments", message)
+                write!(f, "⚙️ Configuration error: {}\n   💡 Please check your command line arguments or configuration file values", message)
             }
             Self::FileError { path, message } => {
                 if message.to_lowercase().contains("not found") || message.to_lowercase().contains("no such file") {
