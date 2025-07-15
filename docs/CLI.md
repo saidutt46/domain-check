@@ -284,7 +284,7 @@ domain-check --file domains.txt --all --concurrency 100
 #### Streaming Mode (Real-time Results)
 ```bash
 domain-check --file domains.txt --all --streaming
-# 🔍 Checking 42 domains with concurrency: 10
+# 🔍 Checking 42 domains with concurrency: 20
 # 🟢 example.com is AVAILABLE
 # 🔴 test.org is TAKEN
 # 🟢 startup.io is AVAILABLE

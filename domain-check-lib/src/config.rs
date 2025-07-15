@@ -363,6 +363,284 @@ impl ConfigManager {
     }
 }
 
+/// Environment variable configuration that mirrors CLI options.
+///
+/// This represents configuration values that can be set via DC_* environment variables.
+#[derive(Debug, Clone, Default)]
+pub struct EnvConfig {
+    pub concurrency: Option<usize>,
+    pub preset: Option<String>,
+    pub tlds: Option<Vec<String>>,
+    pub pretty: Option<bool>,
+    pub timeout: Option<String>,
+    pub whois_fallback: Option<bool>,
+    pub bootstrap: Option<bool>,
+    pub detailed_info: Option<bool>,
+    pub json: Option<bool>,
+    pub csv: Option<bool>,
+    pub file: Option<String>,
+    pub config: Option<String>,
+}
+
+/// Load configuration from environment variables.
+///
+/// Parses all DC_* environment variables and returns a structured configuration.
+/// Invalid values are logged as warnings and ignored.
+///
+/// # Arguments
+///
+/// * `verbose` - Whether to log environment variable usage
+///
+/// # Returns
+///
+/// Parsed environment configuration with validated values.
+pub fn load_env_config(verbose: bool) -> EnvConfig {
+    let mut env_config = EnvConfig::default();
+
+    // DC_CONCURRENCY - concurrent domain checks
+    if let Ok(val) = env::var("DC_CONCURRENCY") {
+        match val.parse::<usize>() {
+            Ok(concurrency) if concurrency > 0 && concurrency <= 100 => {
+                env_config.concurrency = Some(concurrency);
+                if verbose {
+                    println!("🔧 Using DC_CONCURRENCY={}", concurrency);
+                }
+            }
+            _ => {
+                if verbose {
+                    eprintln!("⚠️ Invalid DC_CONCURRENCY='{}', must be 1-100", val);
+                }
+            }
+        }
+    }
+
+    // DC_PRESET - TLD preset name
+    if let Ok(preset) = env::var("DC_PRESET") {
+        if !preset.trim().is_empty() {
+            env_config.preset = Some(preset.clone());
+            if verbose {
+                println!("🔧 Using DC_PRESET={}", preset);
+            }
+        }
+    }
+
+    // DC_TLD - comma-separated TLD list
+    if let Ok(tld_str) = env::var("DC_TLD") {
+        let tlds: Vec<String> = tld_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !tlds.is_empty() {
+            env_config.tlds = Some(tlds);
+            if verbose {
+                println!("🔧 Using DC_TLD={}", tld_str);
+            }
+        }
+    }
+
+    // DC_PRETTY - enable pretty output
+    if let Ok(val) = env::var("DC_PRETTY") {
+        match val.to_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => {
+                env_config.pretty = Some(true);
+                if verbose {
+                    println!("🔧 Using DC_PRETTY=true");
+                }
+            }
+            "false" | "0" | "no" | "off" => {
+                env_config.pretty = Some(false);
+                if verbose {
+                    println!("🔧 Using DC_PRETTY=false");
+                }
+            }
+            _ => {
+                if verbose {
+                    eprintln!("⚠️ Invalid DC_PRETTY='{}', use true/false", val);
+                }
+            }
+        }
+    }
+
+    // DC_TIMEOUT - timeout setting
+    if let Ok(timeout_str) = env::var("DC_TIMEOUT") {
+        // Validate timeout format
+        if parse_timeout_string(&timeout_str).is_some() {
+            env_config.timeout = Some(timeout_str.clone());
+            if verbose {
+                println!("🔧 Using DC_TIMEOUT={}", timeout_str);
+            }
+        } else if verbose {
+            eprintln!(
+                "⚠️ Invalid DC_TIMEOUT='{}', use format like '5s', '30s', '2m'",
+                timeout_str
+            );
+        }
+    }
+
+    // DC_WHOIS_FALLBACK - enable/disable WHOIS fallback
+    if let Ok(val) = env::var("DC_WHOIS_FALLBACK") {
+        match val.to_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => {
+                env_config.whois_fallback = Some(true);
+                if verbose {
+                    println!("🔧 Using DC_WHOIS_FALLBACK=true");
+                }
+            }
+            "false" | "0" | "no" | "off" => {
+                env_config.whois_fallback = Some(false);
+                if verbose {
+                    println!("🔧 Using DC_WHOIS_FALLBACK=false");
+                }
+            }
+            _ => {
+                if verbose {
+                    eprintln!("⚠️ Invalid DC_WHOIS_FALLBACK='{}', use true/false", val);
+                }
+            }
+        }
+    }
+
+    // DC_BOOTSTRAP - enable/disable IANA bootstrap
+    if let Ok(val) = env::var("DC_BOOTSTRAP") {
+        match val.to_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => {
+                env_config.bootstrap = Some(true);
+                if verbose {
+                    println!("🔧 Using DC_BOOTSTRAP=true");
+                }
+            }
+            "false" | "0" | "no" | "off" => {
+                env_config.bootstrap = Some(false);
+                if verbose {
+                    println!("🔧 Using DC_BOOTSTRAP=false");
+                }
+            }
+            _ => {
+                if verbose {
+                    eprintln!("⚠️ Invalid DC_BOOTSTRAP='{}', use true/false", val);
+                }
+            }
+        }
+    }
+
+    // DC_DETAILED_INFO - enable detailed domain info
+    if let Ok(val) = env::var("DC_DETAILED_INFO") {
+        match val.to_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => {
+                env_config.detailed_info = Some(true);
+                if verbose {
+                    println!("🔧 Using DC_DETAILED_INFO=true");
+                }
+            }
+            "false" | "0" | "no" | "off" => {
+                env_config.detailed_info = Some(false);
+                if verbose {
+                    println!("🔧 Using DC_DETAILED_INFO=false");
+                }
+            }
+            _ => {
+                if verbose {
+                    eprintln!("⚠️ Invalid DC_DETAILED_INFO='{}', use true/false", val);
+                }
+            }
+        }
+    }
+
+    // DC_JSON - enable JSON output
+    if let Ok(val) = env::var("DC_JSON") {
+        match val.to_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => {
+                env_config.json = Some(true);
+                if verbose {
+                    println!("🔧 Using DC_JSON=true");
+                }
+            }
+            "false" | "0" | "no" | "off" => {
+                env_config.json = Some(false);
+                if verbose {
+                    println!("🔧 Using DC_JSON=false");
+                }
+            }
+            _ => {
+                if verbose {
+                    eprintln!("⚠️ Invalid DC_JSON='{}', use true/false", val);
+                }
+            }
+        }
+    }
+
+    // DC_CSV - enable CSV output
+    if let Ok(val) = env::var("DC_CSV") {
+        match val.to_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => {
+                env_config.csv = Some(true);
+                if verbose {
+                    println!("🔧 Using DC_CSV=true");
+                }
+            }
+            "false" | "0" | "no" | "off" => {
+                env_config.csv = Some(false);
+                if verbose {
+                    println!("🔧 Using DC_CSV=false");
+                }
+            }
+            _ => {
+                if verbose {
+                    eprintln!("⚠️ Invalid DC_CSV='{}', use true/false", val);
+                }
+            }
+        }
+    }
+
+    // DC_FILE - default domains file
+    if let Ok(file_path) = env::var("DC_FILE") {
+        if !file_path.trim().is_empty() {
+            env_config.file = Some(file_path.clone());
+            if verbose {
+                println!("🔧 Using DC_FILE={}", file_path);
+            }
+        }
+    }
+
+    // DC_CONFIG - default config file
+    if let Ok(config_path) = env::var("DC_CONFIG") {
+        if !config_path.trim().is_empty() {
+            env_config.config = Some(config_path.clone());
+            if verbose {
+                println!("🔧 Using DC_CONFIG={}", config_path);
+            }
+        }
+    }
+
+    env_config
+}
+
+/// Convert EnvConfig to equivalent CLI arguments format for precedence handling.
+///
+/// This allows environment variables to be processed using the same logic as CLI args.
+impl EnvConfig {
+    /// Get the preset value, checking for conflicts with explicit TLD list.
+    pub fn get_effective_preset(&self) -> Option<String> {
+        // If explicit TLDs are set, preset is ignored
+        if self.tlds.is_some() {
+            None
+        } else {
+            self.preset.clone()
+        }
+    }
+
+    /// Get the effective TLD list, preferring explicit TLDs over preset.
+    pub fn get_effective_tlds(&self) -> Option<Vec<String>> {
+        self.tlds.clone()
+    }
+
+    /// Check if output format conflicts exist (JSON and CSV both set).
+    pub fn has_output_format_conflict(&self) -> bool {
+        matches!((self.json, self.csv), (Some(true), Some(true)))
+    }
+}
+
 /// Parse a timeout string like "5s", "30s", "2m" into seconds.
 ///
 /// # Arguments

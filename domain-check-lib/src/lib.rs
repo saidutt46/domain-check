@@ -31,7 +31,7 @@
 // Re-export main public API types and functions
 // This makes them available as domain_check_lib::TypeName
 pub use checker::DomainChecker;
-pub use config::{ConfigManager, FileConfig};
+pub use config::{load_env_config, ConfigManager, FileConfig};
 pub use error::DomainCheckError;
 pub use protocols::registry::{get_all_known_tlds, get_available_presets, get_preset_tlds};
 pub use types::{CheckConfig, CheckMethod, DomainInfo, DomainResult, OutputMode};

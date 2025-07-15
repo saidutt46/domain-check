@@ -160,7 +160,7 @@ impl Default for CheckConfig {
     /// while being conservative about resource usage.
     fn default() -> Self {
         Self {
-            concurrency: 10,
+            concurrency: 20,
             timeout: Duration::from_secs(5),
             enable_whois_fallback: true,
             enable_bootstrap: false,
