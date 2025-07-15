@@ -33,7 +33,7 @@
 pub use checker::DomainChecker;
 pub use config::{load_env_config, ConfigManager, FileConfig};
 pub use error::DomainCheckError;
-pub use protocols::registry::{get_all_known_tlds, get_available_presets, get_preset_tlds};
+pub use protocols::registry::{get_all_known_tlds, get_available_presets, get_preset_tlds, get_preset_tlds_with_custom};
 pub use types::{CheckConfig, CheckMethod, DomainInfo, DomainResult, OutputMode};
 pub use utils::expand_domain_inputs;
 

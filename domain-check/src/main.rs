@@ -4,7 +4,7 @@
 //! This CLI application provides a user-friendly interface to the domain-check-lib library.
 
 use clap::Parser;
-use domain_check_lib::{get_all_known_tlds, get_available_presets, get_preset_tlds};
+use domain_check_lib::{get_all_known_tlds, get_preset_tlds, get_preset_tlds_with_custom};
 use domain_check_lib::{load_env_config, ConfigManager, FileConfig};
 use domain_check_lib::{CheckConfig, DomainChecker};
 use std::process;
@@ -299,17 +299,6 @@ fn validate_args(args: &Args) -> Result<(), String> {
         return Err("Concurrency must be between 1 and 100".to_string());
     }
 
-    // Validate preset if provided
-    if let Some(preset) = &args.preset {
-        if get_preset_tlds(preset).is_none() {
-            return Err(format!(
-                "Unknown preset '{}'. Available presets: {}",
-                preset,
-                get_available_presets().join(", ")
-            ));
-        }
-    }
-
     // Check for conflicting flags
     let tld_sources = [args.tlds.is_some(), args.preset.is_some(), args.all_tlds]
         .iter()
@@ -349,7 +338,7 @@ async fn run_domain_check(args: Args) -> Result<(), Box<dyn std::error::Error>> 
 
     if use_streaming {
         // Streaming mode for multiple domains - show progress and real-time results
-        run_streaming_check(&checker, &domains, &args).await?;
+        run_streaming_check(&checker, &domains, &args, &config.tlds).await?;
     } else {
         // Batch mode for single domains or when explicitly requested
         run_batch_check(&checker, &domains, &args).await?;
@@ -384,6 +373,7 @@ async fn run_streaming_check(
     checker: &DomainChecker,
     domains: &[String],
     args: &Args,
+    tlds: &Option<Vec<String>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use futures::StreamExt;
 
@@ -405,8 +395,11 @@ async fn run_streaming_check(
                 let tld_count = get_all_known_tlds().len();
                 println!("🌐 Checking against all {} known TLDs", tld_count);
             } else if let Some(preset) = &args.preset {
-                let preset_tlds = get_preset_tlds(preset).unwrap();
-                println!("🎯 Using '{}' preset ({} TLDs)", preset, preset_tlds.len());
+                if let Some(tld_list) = tlds {
+                    println!("🎯 Using '{}' preset ({} TLDs)", preset, tld_list.len());
+                } else {
+                    println!("🎯 Using '{}' preset", preset);
+                }
             }
         }
 
@@ -723,6 +716,7 @@ fn merge_file_config_into_check_config(
             config.tlds = Some(tlds);
         } else if let Some(preset_name) = defaults.preset {
             // Convert preset name to TLD list
+            // Note: Custom presets will be applied later in the config merge process
             if let Some(preset_tlds) = get_preset_tlds(&preset_name) {
                 config.tlds = Some(preset_tlds);
             }
@@ -778,11 +772,11 @@ fn apply_environment_config(mut config: CheckConfig, verbose: bool) -> CheckConf
     if let Some(tlds) = &env_config.tlds {
         config.tlds = Some(tlds.clone());
     } else if let Some(preset) = &env_config.preset {
-        if let Some(preset_tlds) = get_preset_tlds(preset) {
+        // Use custom presets if available, fall back to built-in
+        if let Some(preset_tlds) = get_preset_tlds_with_custom(preset, Some(&config.custom_presets)) {
             config.tlds = Some(preset_tlds);
         }
     }
-    // Otherwise keep config file TLDs
 
     // Apply timeout if valid
     if let Some(timeout_str) = &env_config.timeout {
@@ -820,7 +814,8 @@ fn apply_cli_args_to_config(
     if args.tlds.is_some() {
         config.tlds = args.tlds.clone();
     } else if let Some(preset) = &args.preset {
-        config.tlds = get_preset_tlds(preset);
+        // Use custom presets if available, fall back to built-in
+        config.tlds = get_preset_tlds_with_custom(preset, Some(&config.custom_presets));
     } else if args.all_tlds {
         config.tlds = Some(get_all_known_tlds());
     }
