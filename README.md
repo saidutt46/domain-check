@@ -26,7 +26,6 @@ Perfect for developers, domain investors, startups, and anyone who works with do
 
 ### Homebrew (macOS)
 ```bash
-brew tap saidutt46/domain-check
 brew install domain-check
 ```
 
