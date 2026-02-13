@@ -16,3 +16,7 @@ target/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/.DS_Store
 .DS_Store
+
+# Local development files
+CLAUDE.md
+dev-doc.md
