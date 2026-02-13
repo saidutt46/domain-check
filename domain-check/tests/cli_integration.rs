@@ -36,7 +36,7 @@ fn test_all_flag_functionality() {
         .success()
         .stdout(predicate::str::contains("nonexistentdomain12345.com"))
         .stdout(predicate::str::contains("nonexistentdomain12345.org"))
-        .stdout(predicate::str::contains("Summary:")); // Should have multiple domains checked
+        .stdout(predicate::str::contains("available")); // Should have multiple domains checked
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn test_explicit_tld_works_alone() {
         .success()
         .stdout(predicate::str::contains("nonexistentdomain12345.com"))
         .stdout(predicate::str::contains("nonexistentdomain12345.org"))
-        .stdout(predicate::str::contains("Summary: 2")); // Only 2 domains should be checked
+        .stdout(predicate::str::contains("2 domains in")); // Only 2 domains should be checked
 }
 
 #[test]
@@ -250,9 +250,8 @@ fn test_error_aggregation_in_output() {
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Summary:").and(
-            predicate::str::contains("available"), // Look for "available" instead of "processed"
-        ));
+        .stdout(predicate::str::contains("domains in"))
+        .stdout(predicate::str::contains("available"));
 }
 
 #[test]
@@ -297,7 +296,7 @@ fn test_moderate_domain_set_no_artificial_limits() {
     // Should not fail due to artificial limits
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Summary:")); // Should complete and show summary
+        .stdout(predicate::str::contains("domains in")); // Should complete and show summary
 }
 
 #[test]

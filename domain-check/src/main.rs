@@ -83,7 +83,7 @@ pub struct Args {
     #[arg(long = "csv")]
     pub csv: bool,
 
-    /// Enable colorful, formatted output
+    /// Enable grouped, structured output with section headers
     #[arg(short = 'p', long = "pretty")]
     pub pretty: bool,
 
@@ -155,6 +155,7 @@ impl ErrorStats {
             || !self.other_errors.is_empty()
     }
 
+    #[cfg(test)]
     fn format_summary(&self, args: &Args) -> String {
         if !self.has_errors() {
             return String::new();
@@ -477,11 +478,11 @@ async fn run_streaming_check(
         completed += 1;
 
         // Show result immediately
+        let counter = if total > 1 { Some((completed, total)) } else { None };
         if args.pretty {
-            let counter = if total > 1 { Some((completed, total)) } else { None };
             ui::print_result(&domain_result, args.info, args.debug, counter);
         } else {
-            display_single_result_with_brief_errors(&domain_result, args)?;
+            ui::print_result_default(&domain_result, args.info, args.debug, counter);
         }
         results.push(domain_result);
     }
@@ -491,108 +492,10 @@ async fn run_streaming_check(
     // Show final summary for multiple domains
     if domains.len() > 1 && !args.json && !args.csv {
         println!();
-
-        if args.pretty {
-            ui::print_summary(results.len(), available_count, taken_count, unknown_count, duration);
-            if error_stats.has_errors() {
-                println!();
-                ui::print_error_summary(&error_stats, args);
-            }
-        } else {
-            println!(
-                "Summary: {} available, {} taken, {} unknown (processed in {:.1}s)",
-                available_count,
-                taken_count,
-                unknown_count,
-                duration.as_secs_f64()
-            );
-
-            if error_stats.has_errors() {
-                println!();
-                println!("{}", error_stats.format_summary(args));
-            }
-        }
-    }
-
-    Ok(())
-}
-
-// 3. ADD NEW FUNCTION for displaying results with brief error handling
-fn display_single_result_with_brief_errors(
-    result: &domain_check_lib::DomainResult,
-    args: &Args,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Don't show any errors in JSON/CSV mode - they're in the structured data
-    if args.json || args.csv {
-        return display_single_result(result, args);
-    }
-
-    match result.available {
-        Some(true) => {
-            if args.pretty {
-                println!("🟢 {} is AVAILABLE", result.domain);
-            } else {
-                println!("{} AVAILABLE", result.domain);
-            }
-        }
-        Some(false) => {
-            if let Some(info) = result.info.as_ref().filter(|_| args.info) {
-                if args.pretty {
-                    println!(
-                        "🔴 {} is TAKEN ({})",
-                        result.domain,
-                        format_domain_info(info)
-                    );
-                } else {
-                    println!("{} TAKEN ({})", result.domain, format_domain_info(info));
-                }
-            } else if args.pretty {
-                println!("🔴 {} is TAKEN", result.domain);
-            } else {
-                println!("{} TAKEN", result.domain);
-            }
-        }
-        None => {
-            // Show brief error inline for unknown status
-            if let Some(error_msg) = &result.error_message {
-                // Try to categorize the error for brief display
-                let brief_error =
-                    if error_msg.contains("timeout") || error_msg.contains("timed out") {
-                        "(timeout)"
-                    } else if error_msg.contains("network")
-                        || error_msg.contains("dns")
-                        || error_msg.contains("connect")
-                    {
-                        "(network error)"
-                    } else if error_msg.contains("parse") || error_msg.contains("JSON") {
-                        "(parsing error)"
-                    } else if error_msg.contains("unknown") || error_msg.contains("TLD") {
-                        "(unknown TLD)"
-                    } else {
-                        "(error)"
-                    };
-
-                if args.pretty {
-                    println!("⚠️ {} {}", result.domain, brief_error);
-                } else {
-                    println!("{} {}", result.domain, brief_error);
-                }
-            } else if args.pretty {
-                println!("⚠️ {} (unknown status)", result.domain);
-            } else {
-                println!("{} (unknown status)", result.domain);
-            }
-        }
-    }
-
-    // Show timing in debug mode (existing code)
-    if args.debug {
-        if let Some(duration) = result.check_duration {
-            println!(
-                "    └─ Checked in {}ms via {}",
-                duration.as_millis(),
-                result.method_used
-            );
+        ui::print_summary(results.len(), available_count, taken_count, unknown_count, duration);
+        if error_stats.has_errors() {
+            println!();
+            ui::print_error_summary(&error_stats, args);
         }
     }
 
@@ -605,10 +508,10 @@ async fn run_batch_check(
     domains: &[String],
     args: &Args,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let use_pretty = args.pretty && !args.json && !args.csv;
+    let is_structured = args.json || args.csv;
 
-    // Show header
-    if use_pretty && domains.len() > 1 {
+    // Show header (pretty only — default mode lets the spinner + summary speak)
+    if args.pretty && !is_structured && domains.len() > 1 {
         ui::print_header(domains.len(), checker.config().concurrency, args);
     } else if domains.len() > 1 && args.verbose {
         println!("🔍 Checking {} domains...", domains.len());
@@ -622,12 +525,10 @@ async fn run_batch_check(
         }
     }
 
-    // Start spinner for pretty batch mode with multiple domains
-    let spinner = if use_pretty && domains.len() > 1 {
-        Some(ui::Spinner::start(format!(
-            "Checking {} domains...",
-            domains.len()
-        )))
+    // Start spinner for batch mode with multiple domains (all text modes).
+    // Spinner::start returns None if stderr isn't a TTY.
+    let spinner = if !is_structured && domains.len() > 1 {
+        ui::Spinner::start(format!("Checking {} domains...", domains.len()))
     } else {
         None
     };
@@ -1012,66 +913,6 @@ async fn read_domains_from_file(
     Ok(domains)
 }
 
-/// Display a single domain result (for streaming mode)
-fn display_single_result(
-    result: &domain_check_lib::DomainResult,
-    args: &Args,
-) -> Result<(), Box<dyn std::error::Error>> {
-    match result.available {
-        Some(true) => {
-            if args.pretty {
-                println!("🟢 {} is AVAILABLE", result.domain);
-            } else {
-                println!("{} AVAILABLE", result.domain);
-            }
-        }
-        Some(false) => {
-            if let Some(info) = result.info.as_ref().filter(|_| args.info) {
-                if args.pretty {
-                    println!(
-                        "🔴 {} is TAKEN ({})",
-                        result.domain,
-                        format_domain_info(info)
-                    );
-                } else {
-                    println!("{} TAKEN ({})", result.domain, format_domain_info(info));
-                }
-            } else if args.pretty {
-                println!("🔴 {} is TAKEN", result.domain);
-            } else {
-                println!("{} TAKEN", result.domain);
-            }
-        }
-        None => {
-            // Handle unknown status with error message
-            if let Some(error_msg) = &result.error_message {
-                if args.pretty {
-                    println!("⚠️ {} status UNKNOWN ({})", result.domain, error_msg);
-                } else {
-                    println!("{} UNKNOWN ({})", result.domain, error_msg);
-                }
-            } else if args.pretty {
-                println!("⚠️ {} status UNKNOWN", result.domain);
-            } else {
-                println!("{} UNKNOWN", result.domain);
-            }
-        }
-    }
-
-    // Show timing in debug mode
-    if args.debug {
-        if let Some(duration) = result.check_duration {
-            println!(
-                "    └─ Checked in {}ms via {}",
-                duration.as_millis(),
-                result.method_used
-            );
-        }
-    }
-
-    Ok(())
-}
-
 fn display_results(
     results: &[domain_check_lib::DomainResult],
     args: &Args,
@@ -1143,78 +984,26 @@ fn display_text_results(
     args: &Args,
     duration: std::time::Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Pretty mode: grouped output
     if args.pretty {
+        // Pretty mode: grouped layout with section headers
         ui::print_grouped_results(results, args.info, args.debug);
-
-        if results.len() > 1 {
-            let available = results.iter().filter(|r| r.available == Some(true)).count();
-            let taken = results.iter().filter(|r| r.available == Some(false)).count();
-            let unknown = results.iter().filter(|r| r.available.is_none()).count();
-            ui::print_summary(results.len(), available, taken, unknown, duration);
-        }
-        return Ok(());
-    }
-
-    // Plain mode: simple text output
-    let mut available_count = 0;
-    let mut taken_count = 0;
-    let mut unknown_count = 0;
-
-    for result in results {
-        match result.available {
-            Some(true) => {
-                available_count += 1;
-                println!("{} AVAILABLE", result.domain);
-            }
-            Some(false) => {
-                taken_count += 1;
-                if let Some(info) = result.info.as_ref().filter(|_| args.info) {
-                    println!("{} TAKEN ({})", result.domain, format_domain_info(info));
-                } else {
-                    println!("{} TAKEN", result.domain);
-                }
-            }
-            None => {
-                unknown_count += 1;
-                println!("{} UNKNOWN", result.domain);
-            }
+    } else {
+        // Default mode: colored flat list
+        for result in results {
+            ui::print_result_default(result, args.info, args.debug, None);
         }
     }
 
-    // Show summary for multiple domains
+    // Shared summary for both modes
     if results.len() > 1 {
+        let available = results.iter().filter(|r| r.available == Some(true)).count();
+        let taken = results.iter().filter(|r| r.available == Some(false)).count();
+        let unknown = results.iter().filter(|r| r.available.is_none()).count();
         println!();
-        println!(
-            "Summary: {} available, {} taken, {} unknown",
-            available_count, taken_count, unknown_count
-        );
+        ui::print_summary(results.len(), available, taken, unknown, duration);
     }
 
     Ok(())
-}
-
-/// Format domain info for display
-fn format_domain_info(info: &domain_check_lib::DomainInfo) -> String {
-    let mut parts = Vec::new();
-
-    if let Some(registrar) = &info.registrar {
-        parts.push(format!("Registrar: {}", registrar));
-    }
-
-    if let Some(created) = &info.creation_date {
-        parts.push(format!("Created: {}", created));
-    }
-
-    if let Some(expires) = &info.expiration_date {
-        parts.push(format!("Expires: {}", expires));
-    }
-
-    if parts.is_empty() {
-        "No info available".to_string()
-    } else {
-        parts.join(", ")
-    }
 }
 
 // domain-check/src/main.rs tests module

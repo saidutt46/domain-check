@@ -1,8 +1,11 @@
-//! Pretty-mode display logic for domain-check CLI.
+//! Display logic for domain-check CLI.
 //!
-//! This module handles all `--pretty` output: colored result lines,
-//! grouped batch output, spinner animation, progress counters,
+//! This module handles all styled terminal output: colored result lines,
+//! grouped batch output (--pretty), spinner animation, progress counters,
 //! headers, and summaries. Uses only the `console` crate (already a dependency).
+//!
+//! Default mode: colored status words, progress counter, spinner, colored summary.
+//! Pretty mode: everything above plus grouped layout, column alignment, styled header.
 
 use console::{pad_str, style, Alignment, Term};
 use domain_check_lib::{DomainInfo, DomainResult};
@@ -24,12 +27,25 @@ pub struct Spinner {
 
 impl Spinner {
     /// Start a new spinner with the given message (e.g. "Checking 8 domains...").
-    pub fn start(message: String) -> Self {
+    ///
+    /// Returns `None` if stderr is not a TTY (piped output, CI, etc.) to avoid
+    /// polluting non-interactive streams with escape codes.
+    /// Waits 500ms before showing to avoid a flash on fast operations.
+    pub fn start(message: String) -> Option<Self> {
+        let term = Term::stderr();
+        if !term.is_term() {
+            return None;
+        }
+
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = running.clone();
 
         let handle = tokio::spawn(async move {
             let term = Term::stderr();
+
+            // Wait before showing — avoids spinner flash on fast operations
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
             let mut idx = 0usize;
             while running_clone.load(Ordering::Relaxed) {
                 let frame = SPINNER_FRAMES[idx % SPINNER_FRAMES.len()];
@@ -41,16 +57,16 @@ impl Spinner {
             let _ = term.clear_line();
         });
 
-        Self {
+        Some(Self {
             running,
             handle: Some(handle),
-        }
+        })
     }
 
     /// Stop the spinner and clear the line.
-    pub async fn stop(mut self) {
+    pub async fn stop(self) {
         self.running.store(false, Ordering::Relaxed);
-        if let Some(h) = self.handle.take() {
+        if let Some(h) = self.handle {
             let _ = h.await;
         }
     }
@@ -136,6 +152,74 @@ pub fn print_result(
                 "  {}{}  {}  {}",
                 prefix,
                 style(&padded_domain).white(),
+                style("UNKNOWN").yellow(),
+                style(reason).dim(),
+            );
+        }
+    }
+
+    if debug {
+        if let Some(duration) = result.check_duration {
+            println!(
+                "    {} Checked in {}ms via {}",
+                style("└─").dim(),
+                duration.as_millis(),
+                result.method_used,
+            );
+        }
+    }
+}
+
+// ── Default result line (colored, flat) ───────────────────────────────────────
+
+/// Print a single domain result with colored status words but flat layout.
+/// No padding or column alignment — just `domain STATUS` with color.
+///
+/// If `counter` is Some((current, total)), a progress prefix like `[3/8]` is shown.
+pub fn print_result_default(
+    result: &DomainResult,
+    show_info: bool,
+    debug: bool,
+    counter: Option<(usize, usize)>,
+) {
+    let prefix = match counter {
+        Some((cur, total)) => format!("{} ", style(format!("[{}/{}]", cur, total)).dim()),
+        None => String::new(),
+    };
+
+    match result.available {
+        Some(true) => {
+            println!(
+                "{}{} {}",
+                prefix,
+                result.domain,
+                style("AVAILABLE").green().bold(),
+            );
+        }
+        Some(false) => {
+            let info_str = if show_info {
+                result
+                    .info
+                    .as_ref()
+                    .map(|i| format!(" ({})", style(format_domain_info(i)).dim()))
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            println!(
+                "{}{} {}{}",
+                prefix,
+                result.domain,
+                style("TAKEN").red().bold(),
+                info_str,
+            );
+        }
+        None => {
+            let reason = brief_error(result);
+            println!(
+                "{}{} {} {}",
+                prefix,
+                result.domain,
                 style("UNKNOWN").yellow(),
                 style(reason).dim(),
             );
