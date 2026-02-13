@@ -3,6 +3,8 @@
 //! A command-line interface for checking domain availability using RDAP and WHOIS protocols.
 //! This CLI application provides a user-friendly interface to the domain-check-lib library.
 
+mod ui;
+
 use clap::Parser;
 use domain_check_lib::{get_all_known_tlds, get_preset_tlds, get_preset_tlds_with_custom};
 use domain_check_lib::{load_env_config, ConfigManager, FileConfig};
@@ -110,12 +112,12 @@ pub struct Args {
 
 /// Error statistics for aggregated reporting
 #[derive(Debug, Default)]
-struct ErrorStats {
-    timeouts: Vec<String>,
-    network_errors: Vec<String>,
-    parsing_errors: Vec<String>,
-    unknown_tld_errors: Vec<String>,
-    other_errors: Vec<String>,
+pub(crate) struct ErrorStats {
+    pub(crate) timeouts: Vec<String>,
+    pub(crate) network_errors: Vec<String>,
+    pub(crate) parsing_errors: Vec<String>,
+    pub(crate) unknown_tld_errors: Vec<String>,
+    pub(crate) other_errors: Vec<String>,
 }
 
 impl ErrorStats {
@@ -393,7 +395,9 @@ async fn run_streaming_check(
     use futures::StreamExt;
 
     // Show initial progress message
-    if args.verbose || args.pretty {
+    if args.pretty {
+        ui::print_header(domains.len(), checker.config().concurrency, args);
+    } else if args.verbose {
         println!(
             "🔍 Checking {} domains with concurrency: {}",
             domains.len(),
@@ -427,28 +431,26 @@ async fn run_streaming_check(
     let mut unknown_count = 0;
     let mut results = Vec::new();
     let mut error_stats = ErrorStats::default();
+    let mut completed = 0usize;
+    let total = domains.len();
 
     let start_time = std::time::Instant::now();
 
-    // NEW APPROACH: Process each domain individually to preserve context
-    // Instead of using the stream directly, we'll create our own stream with domain context
+    // Process each domain individually to preserve context
     let domain_futures = domains.iter().map(|domain| {
         let domain = domain.clone();
-        let checker = checker.clone(); // DomainChecker implements Clone
+        let checker = checker.clone();
         async move {
             match checker.check_domain(&domain).await {
                 Ok(result) => result,
-                Err(e) => {
-                    // Convert error to DomainResult with domain context preserved
-                    domain_check_lib::DomainResult {
-                        domain: domain.clone(),
-                        available: None,
-                        info: None,
-                        check_duration: None,
-                        method_used: domain_check_lib::CheckMethod::Unknown,
-                        error_message: Some(e.to_string()),
-                    }
-                }
+                Err(e) => domain_check_lib::DomainResult {
+                    domain: domain.clone(),
+                    available: None,
+                    info: None,
+                    check_duration: None,
+                    method_used: domain_check_lib::CheckMethod::Unknown,
+                    error_message: Some(e.to_string()),
+                },
             }
         }
     });
@@ -465,17 +467,22 @@ async fn run_streaming_check(
             Some(false) => taken_count += 1,
             None => {
                 unknown_count += 1;
-                // Track error with proper domain context
                 if let Some(error_msg) = &domain_result.error_message {
-                    // Create a mock error for categorization (this is a bit hacky but works)
                     let mock_error = categorize_error_from_message(error_msg);
                     error_stats.add_error(&domain_result.domain, &mock_error);
                 }
             }
         }
 
+        completed += 1;
+
         // Show result immediately
-        display_single_result_with_brief_errors(&domain_result, args)?;
+        if args.pretty {
+            let counter = if total > 1 { Some((completed, total)) } else { None };
+            ui::print_result(&domain_result, args.info, args.debug, counter);
+        } else {
+            display_single_result_with_brief_errors(&domain_result, args)?;
+        }
         results.push(domain_result);
     }
 
@@ -483,17 +490,14 @@ async fn run_streaming_check(
 
     // Show final summary for multiple domains
     if domains.len() > 1 && !args.json && !args.csv {
-        println!(); // Empty line before summary
+        println!();
 
         if args.pretty {
-            println!(
-                "✅ {} domains processed in {:.1}s: 🟢 {} available, 🔴 {} taken, ⚠️ {} unknown",
-                results.len(),
-                duration.as_secs_f64(),
-                available_count,
-                taken_count,
-                unknown_count
-            );
+            ui::print_summary(results.len(), available_count, taken_count, unknown_count, duration);
+            if error_stats.has_errors() {
+                println!();
+                ui::print_error_summary(&error_stats, args);
+            }
         } else {
             println!(
                 "Summary: {} available, {} taken, {} unknown (processed in {:.1}s)",
@@ -502,12 +506,11 @@ async fn run_streaming_check(
                 unknown_count,
                 duration.as_secs_f64()
             );
-        }
 
-        // Show error summary if there were errors
-        if error_stats.has_errors() {
-            println!();
-            println!("{}", error_stats.format_summary(args));
+            if error_stats.has_errors() {
+                println!();
+                println!("{}", error_stats.format_summary(args));
+            }
         }
     }
 
@@ -602,27 +605,47 @@ async fn run_batch_check(
     domains: &[String],
     args: &Args,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Show processing message for longer operations (existing code)
-    if domains.len() > 1 && (args.verbose || args.pretty) {
-        println!("🔍 Checking {} domains...", domains.len());
+    let use_pretty = args.pretty && !args.json && !args.csv;
 
-        // Show TLD information for batch mode too (existing code)
-        if !args.json && !args.csv {
-            if args.all_tlds {
-                let tld_count = get_all_known_tlds().len();
-                println!("🌐 Checking against all {} known TLDs", tld_count);
-            } else if let Some(preset) = &args.preset {
-                let preset_tlds = get_preset_tlds(preset).unwrap();
+    // Show header
+    if use_pretty && domains.len() > 1 {
+        ui::print_header(domains.len(), checker.config().concurrency, args);
+    } else if domains.len() > 1 && args.verbose {
+        println!("🔍 Checking {} domains...", domains.len());
+        if args.all_tlds {
+            let tld_count = get_all_known_tlds().len();
+            println!("🌐 Checking against all {} known TLDs", tld_count);
+        } else if let Some(preset) = &args.preset {
+            if let Some(preset_tlds) = get_preset_tlds(preset) {
                 println!("🎯 Using '{}' preset ({} TLDs)", preset, preset_tlds.len());
             }
         }
     }
 
+    // Start spinner for pretty batch mode with multiple domains
+    let spinner = if use_pretty && domains.len() > 1 {
+        Some(ui::Spinner::start(format!(
+            "Checking {} domains...",
+            domains.len()
+        )))
+    } else {
+        None
+    };
+
+    let start_time = std::time::Instant::now();
+
     // Check all domains (concurrent under the hood)
     let results = checker.check_domains(domains).await?;
 
+    let duration = start_time.elapsed();
+
+    // Stop spinner before printing results
+    if let Some(s) = spinner {
+        s.stop().await;
+    }
+
     // Display results based on format
-    display_results(&results, args)?;
+    display_results(&results, args, duration)?;
 
     Ok(())
 }
@@ -1052,13 +1075,14 @@ fn display_single_result(
 fn display_results(
     results: &[domain_check_lib::DomainResult],
     args: &Args,
+    duration: std::time::Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if args.json {
         display_json_results(results)?;
     } else if args.csv {
         display_csv_results(results)?;
     } else {
-        display_text_results(results, args)?;
+        display_text_results(results, args, duration)?;
     }
 
     Ok(())
@@ -1117,7 +1141,22 @@ fn display_csv_results(
 fn display_text_results(
     results: &[domain_check_lib::DomainResult],
     args: &Args,
+    duration: std::time::Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Pretty mode: grouped output
+    if args.pretty {
+        ui::print_grouped_results(results, args.info, args.debug);
+
+        if results.len() > 1 {
+            let available = results.iter().filter(|r| r.available == Some(true)).count();
+            let taken = results.iter().filter(|r| r.available == Some(false)).count();
+            let unknown = results.iter().filter(|r| r.available.is_none()).count();
+            ui::print_summary(results.len(), available, taken, unknown, duration);
+        }
+        return Ok(());
+    }
+
+    // Plain mode: simple text output
     let mut available_count = 0;
     let mut taken_count = 0;
     let mut unknown_count = 0;
@@ -1126,37 +1165,19 @@ fn display_text_results(
         match result.available {
             Some(true) => {
                 available_count += 1;
-                if args.pretty {
-                    println!("🟢 {} is AVAILABLE", result.domain);
-                } else {
-                    println!("{} AVAILABLE", result.domain);
-                }
+                println!("{} AVAILABLE", result.domain);
             }
             Some(false) => {
                 taken_count += 1;
                 if let Some(info) = result.info.as_ref().filter(|_| args.info) {
-                    if args.pretty {
-                        println!(
-                            "🔴 {} is TAKEN ({})",
-                            result.domain,
-                            format_domain_info(info)
-                        );
-                    } else {
-                        println!("{} TAKEN ({})", result.domain, format_domain_info(info));
-                    }
-                } else if args.pretty {
-                    println!("🔴 {} is TAKEN", result.domain);
+                    println!("{} TAKEN ({})", result.domain, format_domain_info(info));
                 } else {
                     println!("{} TAKEN", result.domain);
                 }
             }
             None => {
                 unknown_count += 1;
-                if args.pretty {
-                    println!("⚠️ {} status UNKNOWN", result.domain);
-                } else {
-                    println!("{} UNKNOWN", result.domain);
-                }
+                println!("{} UNKNOWN", result.domain);
             }
         }
     }
@@ -1164,20 +1185,10 @@ fn display_text_results(
     // Show summary for multiple domains
     if results.len() > 1 {
         println!();
-        if args.pretty {
-            println!(
-                "✅ {} domains processed: 🟢 {} available, 🔴 {} taken, ⚠️ {} unknown",
-                results.len(),
-                available_count,
-                taken_count,
-                unknown_count
-            );
-        } else {
-            println!(
-                "Summary: {} available, {} taken, {} unknown",
-                available_count, taken_count, unknown_count
-            );
-        }
+        println!(
+            "Summary: {} available, {} taken, {} unknown",
+            available_count, taken_count, unknown_count
+        );
     }
 
     Ok(())

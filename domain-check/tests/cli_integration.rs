@@ -47,8 +47,8 @@ fn test_all_flag_shows_info_message() {
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Checking against all"))
-        .stdout(predicate::str::contains("known TLDs"));
+        .stdout(predicate::str::contains("All"))
+        .stdout(predicate::str::contains("TLDs"));
 }
 
 // #[test]
@@ -214,7 +214,7 @@ fn test_file_input_with_preset_shows_message() {
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Using 'startup' preset"));
+        .stdout(predicate::str::contains("Preset: startup"));
 }
 
 #[test]
