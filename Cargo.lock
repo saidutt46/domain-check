@@ -291,7 +291,7 @@ checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
 
 [[package]]
 name = "domain-check"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -310,7 +310,7 @@ dependencies = [
 
 [[package]]
 name = "domain-check-lib"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "futures",
  "lazy_static",

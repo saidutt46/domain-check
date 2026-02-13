@@ -235,7 +235,7 @@ domain-check [OPTIONS] [DOMAINS]...
 **Building a Rust app?** Use our library: 
 ```toml
 [dependencies]
-domain-check-lib = "0.6.1"
+domain-check-lib = "0.7.0"
 ```
 See the [Library Documentation](https://docs.rs/domain-check-lib) for integration examples.
 

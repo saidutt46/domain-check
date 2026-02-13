@@ -29,7 +29,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Our core library (local dependency)
-domain-check-lib = { path = "../domain-check-lib", version = "0.6.1" }
+domain-check-lib = { path = "../domain-check-lib", version = "0.7.0" }
 
 # CLI argument parsing
 clap = { workspace = true }
