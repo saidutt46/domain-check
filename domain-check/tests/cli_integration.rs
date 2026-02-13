@@ -419,3 +419,64 @@ pretty = true
         .success()
         .stdout(predicate::str::contains("Discovering config files"));
 }
+
+#[test]
+fn test_streaming_with_json_rejected() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["test", "--streaming", "--json"]);
+
+    cmd.assert().failure().stderr(predicate::str::contains(
+        "Cannot use --streaming with --json or --csv",
+    ));
+}
+
+#[test]
+fn test_streaming_with_csv_rejected() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["test", "--streaming", "--csv"]);
+
+    cmd.assert().failure().stderr(predicate::str::contains(
+        "Cannot use --streaming with --json or --csv",
+    ));
+}
+
+#[test]
+fn test_config_detailed_info_respected_without_flag() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("test-config.toml");
+
+    // Config enables detailed_info
+    let config_content = r#"
+[defaults]
+detailed_info = true
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    // Run WITHOUT --info flag; config should still enable detailed info
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args([
+        "--config",
+        config_path.to_str().unwrap(),
+        "google.com",
+        "--batch",
+    ]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Registrar:"));
+}
+
+#[test]
+fn test_env_detailed_info_respected_without_flag() {
+    // DC_DETAILED_INFO=true should enable detailed info even without --info
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.env("DC_DETAILED_INFO", "true")
+        .args(["google.com", "--batch"]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Registrar:"));
+}

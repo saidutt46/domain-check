@@ -297,6 +297,14 @@ fn validate_args(args: &Args) -> Result<(), String> {
         return Err("Cannot specify multiple output formats (--json, --csv)".to_string());
     }
 
+    // Streaming mode doesn't support structured output formats
+    if args.streaming && (args.json || args.csv) {
+        return Err(
+            "Cannot use --streaming with --json or --csv. Use --batch for structured output"
+                .to_string(),
+        );
+    }
+
     // Validate concurrency
     if args.concurrency == 0 || args.concurrency > 100 {
         return Err("Concurrency must be between 1 and 100".to_string());
@@ -326,9 +334,13 @@ fn should_enable_bootstrap(args: &Args, resolved_tlds: &Option<Vec<String>>) -> 
 }
 
 /// Main domain checking logic
-async fn run_domain_check(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
     // Build configuration from CLI args
     let config = build_config(&args)?;
+
+    // Propagate resolved config values back to args for display logic.
+    // This ensures config/env settings for --info are respected in output formatting.
+    args.info = config.detailed_info;
 
     // Create domain checker
     let checker = DomainChecker::with_config(config.clone());
@@ -809,9 +821,15 @@ fn apply_cli_args_to_config(
         // 20 is the clap default
         config.concurrency = args.concurrency;
     }
-    // Otherwise keep the value from environment/config file
-    config.enable_whois_fallback = !args.no_whois;
-    config.detailed_info = args.info;
+
+    // Only override boolean settings when the user explicitly passes the flag.
+    // Without this guard, the default (false) would always overwrite config/env values.
+    if args.no_whois {
+        config.enable_whois_fallback = false;
+    }
+    if args.info {
+        config.detailed_info = true;
+    }
 
     // Handle TLD precedence: CLI explicit > CLI preset > CLI all > env vars > config file
     if args.tlds.is_some() {
@@ -1388,5 +1406,106 @@ mod tests {
 
         let result = validate_args(&args);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_args_streaming_with_json_rejected() {
+        let mut args = create_test_args();
+        args.domains = vec!["test".to_string()];
+        args.streaming = true;
+        args.json = true;
+
+        let result = validate_args(&args);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("--streaming"));
+    }
+
+    #[test]
+    fn test_validate_args_streaming_with_csv_rejected() {
+        let mut args = create_test_args();
+        args.domains = vec!["test".to_string()];
+        args.streaming = true;
+        args.csv = true;
+
+        let result = validate_args(&args);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("--streaming"));
+    }
+
+    #[test]
+    fn test_validate_args_batch_with_json_allowed() {
+        let mut args = create_test_args();
+        args.domains = vec!["test".to_string()];
+        args.batch = true;
+        args.json = true;
+
+        let result = validate_args(&args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_no_whois_flag_only_disables() {
+        // When --no-whois is NOT passed, config/env values should be preserved
+        let args = create_test_args(); // no_whois defaults to false
+        let config = CheckConfig {
+            enable_whois_fallback: false, // Simulates config setting
+            ..CheckConfig::default()
+        };
+
+        let result = apply_cli_args_to_config(config, &args).unwrap();
+        assert!(
+            !result.enable_whois_fallback,
+            "Config whois_fallback=false should be preserved when --no-whois is not passed"
+        );
+    }
+
+    #[test]
+    fn test_no_whois_flag_overrides_config() {
+        // When --no-whois IS passed, it should disable whois regardless of config
+        let mut args = create_test_args();
+        args.no_whois = true;
+        let config = CheckConfig {
+            enable_whois_fallback: true,
+            ..CheckConfig::default()
+        };
+
+        let result = apply_cli_args_to_config(config, &args).unwrap();
+        assert!(
+            !result.enable_whois_fallback,
+            "--no-whois should disable whois fallback"
+        );
+    }
+
+    #[test]
+    fn test_info_flag_only_enables() {
+        // When --info is NOT passed, config/env values should be preserved
+        let args = create_test_args(); // info defaults to false
+        let config = CheckConfig {
+            detailed_info: true, // Simulates config setting
+            ..CheckConfig::default()
+        };
+
+        let result = apply_cli_args_to_config(config, &args).unwrap();
+        assert!(
+            result.detailed_info,
+            "Config detailed_info=true should be preserved when --info is not passed"
+        );
+    }
+
+    #[test]
+    fn test_info_flag_overrides_config() {
+        // When --info IS passed, it should enable info regardless of config
+        let mut args = create_test_args();
+        args.info = true;
+        let config = CheckConfig {
+            detailed_info: false,
+            ..CheckConfig::default()
+        };
+
+        let result = apply_cli_args_to_config(config, &args).unwrap();
+        assert!(
+            result.detailed_info,
+            "--info should enable detailed info"
+        );
     }
 }
