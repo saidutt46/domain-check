@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.7.0] - 2026-02-13
+
+### 🎨 Revamped CLI Output (Issue #17)
+
+This release transforms domain-check's terminal experience. Default output now includes colored status words, a loading spinner, progress counters, and a summary bar. Pretty mode (`--pretty`) adds grouped results by status with styled section headers.
+
+### 🎉 Added
+
+#### **New `ui` module (`domain-check/src/ui.rs`)**
+- Extracted all display logic into a dedicated module for cleaner separation from CLI orchestration
+- `Spinner` — async braille-dot spinner on stderr for batch operations, with TTY detection (skipped when piped) and 500ms startup delay to avoid flash on fast checks
+- `print_header` — styled header showing version, domain count, preset, and concurrency
+- `print_result` / `print_result_default` — colored result lines for pretty and default modes
+- `print_grouped_results` — groups batch results into Available/Taken/Unknown sections (the core of Issue #17)
+- `print_summary` — colored summary bar: `8 domains in 0.8s | 3 available | 5 taken | 0 unknown`
+- `print_error_summary` — categorized error report (timeouts, network, parsing, unknown TLD)
+
+#### **Default mode improvements (no flags needed)**
+- Status words are now colored: green `AVAILABLE`, red `TAKEN`, yellow `UNKNOWN`
+- Progress counter `[3/8]` shown during streaming multi-domain checks
+- Loading spinner displayed during batch operations (stderr, TTY-only)
+- Colored summary bar shown after multi-domain checks
+
+#### **Pretty mode (`--pretty`) improvements**
+- Results grouped by status with section headers: `── Available (3) ──────`
+- Styled header with version, domain count, preset info, and concurrency
+- Column-aligned domain names with `console::pad_str()`
+- Empty sections (e.g. no unknowns) are omitted entirely
+
+#### **Demo recording pipeline**
+- Added `scripts/record-demo.sh` — reproducible demo recording using asciinema (v2 format) + svg-term-cli
+- Scripted scenario with realistic typing speed, blue comment annotations, and cyan prompt
+- Supports `main` (scripted), `live` (interactive), and `rerender` (re-convert existing cast) modes
+- New `assets/demo.svg` replacing the old `demov0.5.1.svg`
+
+### 🔄 Changed
+- `--pretty` help text updated from "Colorful output with emojis" to "Enable grouped, structured output with section headers"
+- Removed ~250 lines of dead display code from `main.rs` (`display_single_result`, `display_single_result_with_brief_errors`, `format_domain_info`)
+- `ErrorStats` fields changed to `pub(crate)` for access from `ui` module
+
+### 📖 Documentation
+- Updated README hero image to new `demo.svg` showing colored output, presets, and grouped pretty mode
+- Updated all Quick Start examples to reflect new output format (no more emoji-prefixed lines)
+- Updated `docs/CLI.md`: new default/pretty output examples, processing mode descriptions, fixed Table of Contents
+- Corrected TLD count from "42+" to "32" across all docs
+- Fixed country preset reference: `.nl` not `.jp`
+
+### 🧪 Testing
+- Added 6 unit tests for `ui` module (brief_error classification, format_domain_info variants)
+- Updated CLI integration test assertions to match new output format
+- Total test count: 91 → 97
+
+### 📊 Impact
+- Zero new dependencies — uses only existing `console` 0.15 + `tokio`
+- JSON and CSV output completely untouched
+- Non-pretty default mode is backward compatible (same data, now with colors)
+- Spinner writes to stderr — stdout stays clean for piping
+
 ## [0.6.1] - 2026-02-12
 
 ### 🐛 Fixed

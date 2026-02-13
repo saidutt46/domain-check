@@ -323,7 +323,7 @@ a progress counter for multi-domain checks, and a colored summary bar.
 ### Pretty Output
 ```bash
 domain-check rustcloud --preset startup --pretty --batch
-# domain-check v0.6.1 — Checking 8 domains
+# domain-check v0.7.0 — Checking 8 domains
 # Preset: startup | Concurrency: 20
 #
 # ── Available (3) ──────────────────────────────
