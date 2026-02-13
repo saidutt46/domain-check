@@ -18,16 +18,10 @@ publish = false
 shared-version = true
 
 # Pre-release hooks
-pre-release-replacements = [
-  { file = "README.md", search = "domain-check-lib = \"[^\"]*\"", replace = "domain-check-lib = \"{{version}}\"" },
-  { file = "domain-check-lib/README.md", search = "domain-check-lib = \"[^\"]*\"", replace = "domain-check-lib = \"{{version}}\"" },
-]
+# Note: domain-check/src/main.rs uses env!("CARGO_PKG_VERSION") so no replacement needed
+# Note: Per-package replacements are in domain-check-lib/release.toml
+#       (workspace-level replacements resolve paths per-package and fail if a file doesn't exist in every crate)
 
-# Package-specific configurations
-[[package]]
-name = "domain-check-lib"
-# Library gets released first in CI/CD
-
-[[package]]
-name = "domain-check"
-# CLI gets released second, depends on library
+# Package release order:
+# 1. domain-check-lib (library, released first in CI/CD)
+# 2. domain-check (CLI, depends on library)

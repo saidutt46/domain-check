@@ -1,6 +1,6 @@
 // domain-check-lib/tests/integration.rs
 
-//! Integration tests for domain-check-lib new exports
+//! Integration tests for domain-check-lib exports and core functionality
 
 use domain_check_lib::{get_all_known_tlds, get_available_presets, get_preset_tlds};
 
@@ -67,4 +67,19 @@ fn test_preset_tlds_invalid_returns_none() {
     assert!(get_preset_tlds("nonexistent").is_none());
     assert!(get_preset_tlds("").is_none());
     assert!(get_preset_tlds("invalid_preset_name").is_none());
+}
+
+/// Smoke test: google.com must always be reported as taken.
+/// This is the single most critical invariant for a domain availability checker.
+#[tokio::test]
+async fn test_known_taken_domain_google_com() {
+    use domain_check_lib::DomainChecker;
+
+    let checker = DomainChecker::new();
+    let result = checker.check_domain("google.com").await.unwrap();
+    assert_eq!(
+        result.available,
+        Some(false),
+        "google.com must be reported as TAKEN"
+    );
 }

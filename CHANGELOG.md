@@ -1,6 +1,37 @@
 # Changelog
 
-## [0.6.0] - 2025-01-XX
+## [0.6.1] - 2026-02-12
+
+### 🐛 Fixed
+
+#### **Critical: Stale RDAP Endpoints (Issue #15)**
+- Updated 20 stale RDAP endpoint URLs verified against IANA bootstrap registry
+- Key fix: Google TLDs (app, dev, page, how, soy, new) now use correct `pubapi.registry.google` endpoint
+- Removed 6 defunct ccTLD endpoints (co, eu, it, jp, es, cn) that had no working RDAP alternatives — these now correctly fall through to WHOIS
+- Domains like `google.dev` are no longer incorrectly reported as available
+
+#### **CLI Argument Parsing**
+- Fixed `--json` and `--csv` being silently ignored when combined with `--streaming` — now returns a clear error with guidance to use `--batch`
+- Fixed `--no-whois` flag unconditionally overriding config file and environment variable settings
+- Fixed `--info` flag unconditionally overriding `detailed_info` from config files and `DC_DETAILED_INFO` env var
+- Config/env settings for `whois_fallback` and `detailed_info` are now properly respected when CLI flags are not passed
+
+#### **Misc**
+- Fixed hardcoded version string in verbose output — now uses `CARGO_PKG_VERSION`
+- Fixed 3 clippy warnings (`clippy::unnecessary_unwrap`) for Rust 1.93+ compatibility
+- Updated country preset: replaced defunct `.jp` with `.nl`
+
+### 🧪 Testing
+- Added RDAP endpoint URL format validation test (all endpoints must be `https://` and end with `/domain/`)
+- Added `google.com` smoke test — the single most critical invariant for a domain availability checker
+- Added 11 new CLI argument parsing tests (7 unit + 4 integration) covering streaming+format conflicts, config precedence for `--no-whois` and `--info`, and env var propagation
+- Total test count: 78 → 91
+
+### 📊 Impact
+- RDAP endpoint coverage: 38 → 32 TLDs (removed 6 dead, all remaining verified working)
+- All 3 presets updated and verified: startup (8 TLDs), enterprise (6 TLDs), country (9 TLDs)
+
+## [0.6.0] - 2025-07-01
 
 ### 🚀 Major Release: Configuration Files & Environment Variables
 
