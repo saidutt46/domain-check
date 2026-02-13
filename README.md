@@ -9,7 +9,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 <p align="center">
-  <img src="./assets/demov0.5.1.svg" alt="Basic Usage" width="700"/>
+  <img src="./assets/demo.svg" alt="domain-check demo" width="700"/>
 </p>
 
 ---
@@ -44,29 +44,24 @@ Pre-built binaries available for macOS, Linux, and Windows: [GitHub Releases](ht
 ### Check a single domain
 ```bash
 domain-check example.com
-# 🔴 example.com is TAKEN
+# example.com TAKEN
 ```
 
 ### Check multiple TLD variations
 ```bash
-domain-check mystartup -t com,io,ai,dev
-# 🔍 Checking 4 domains...
-# 🔴 mystartup.com is TAKEN
-# 🟢 mystartup.io is AVAILABLE
-# 🟢 mystartup.ai is AVAILABLE  
-# 🟢 mystartup.dev is AVAILABLE
+domain-check mystartup -t com,org,net,dev --batch
+# mystartup.com TAKEN
+# mystartup.org TAKEN
+# mystartup.net TAKEN
+# mystartup.dev AVAILABLE
+#
+# 4 domains in 0.1s  |  1 available  |  3 taken  |  0 unknown
 ```
 
 ### Check ALL TLDs at once
 ```bash
-# Check against ALL 35+ known TLDs in seconds
-domain-check myapp --all
-# 🔍 Checking 35+ domains across all TLDs...
-# 🟢 myapp.com is AVAILABLE
-# 🔴 myapp.io is TAKEN  
-# 🟢 myapp.ai is AVAILABLE
-# 🟢 myapp.dev is AVAILABLE
-# ... (38 more results in ~2 seconds)
+# Check against all 32 known TLDs in seconds
+domain-check myapp --all --batch
 ```
 
 ### Use smart presets
@@ -76,6 +71,27 @@ domain-check myapp --preset startup
 
 # Enterprise-focused TLDs (6 TLDs)
 domain-check mybrand --preset enterprise
+```
+
+### Pretty mode — grouped results
+```bash
+domain-check rustcloud --preset startup --pretty --batch
+# domain-check v0.6.1 — Checking 8 domains
+# Preset: startup | Concurrency: 20
+#
+# ── Available (3) ──────────────────────────────
+#   rustcloud.org
+#   rustcloud.ai
+#   rustcloud.app
+#
+# ── Taken (5) ──────────────────────────────────
+#   rustcloud.com
+#   rustcloud.io
+#   rustcloud.tech
+#   rustcloud.dev
+#   rustcloud.xyz
+#
+# 8 domains in 0.8s  |  3 available  |  5 taken  |  0 unknown
 ```
 
 ### Bulk check from file
@@ -163,7 +179,7 @@ domain-check [OPTIONS] [DOMAINS]...
 | Option | Description | Example |
 |--------|-------------|---------|
 | `-t, --tld <TLD>` | Specify TLDs for base names | `-t com,org,io` |
-| `--all` | Check against all 42+ known TLDs | `--all` |
+| `--all` | Check against all 32 known TLDs | `--all` |
 | `--preset <NAME>` | Use TLD preset (startup/enterprise/country) | `--preset startup` |
 | `-f, --file <FILE>` | Read domains from file | `-f domains.txt` |
 | `--config <FILE>` | Use specific config file | `--config my-config.toml` |
@@ -179,7 +195,7 @@ domain-check [OPTIONS] [DOMAINS]...
 ### Output Options
 | Option | Description | Example |
 |--------|-------------|---------|
-| `-p, --pretty` | Colorful output with emojis | `--pretty` |
+| `-p, --pretty` | Grouped, structured output with section headers | `--pretty` |
 | `-j, --json` | Output in JSON format | `--json` |
 | `--csv` | Output in CSV format | `--csv` |
 | `-i, --info` | Show detailed domain information | `--info` |
@@ -229,13 +245,14 @@ See the [Library Documentation](https://docs.rs/domain-check-lib) for integratio
 
 ## ✨ Key Features
 
-🌐 **Universal Coverage** - Check against ALL 35+ TLDs with `--all` or use smart presets  
-⚡ **Lightning Fast** - Concurrent processing up to 100 domains simultaneously  
-📊 **Rich Output Options** - Beautiful terminal display, JSON/CSV for automation, detailed info mode  
-📁 **Bulk Processing** - Process thousands of domains from files with real-time streaming results  
-⚙️ **Configuration Files** - Persistent settings with TOML configuration files  
-🔧 **Environment Variables** - Full DC_* environment variable support for automation  
-🎯 **Custom Presets** - Define your own TLD combinations for repeated use  
+🌐 **Universal Coverage** - Check against all 32 TLDs with `--all` or use smart presets
+⚡ **Lightning Fast** - Concurrent processing up to 100 domains simultaneously
+🎨 **Beautiful Output** - Colored results, progress counters, loading spinner, grouped pretty mode
+📊 **Multiple Formats** - Pretty terminal display, JSON, CSV for automation, detailed info mode
+📁 **Bulk Processing** - Process thousands of domains from files with real-time streaming results
+⚙️ **Configuration Files** - Persistent settings with TOML configuration files
+🔧 **Environment Variables** - Full DC_* environment variable support for automation
+🎯 **Custom Presets** - Define your own TLD combinations for repeated use
 
 ---
 

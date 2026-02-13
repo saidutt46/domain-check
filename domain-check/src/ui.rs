@@ -80,7 +80,12 @@ pub fn print_header(domain_count: usize, concurrency: usize, args: &Args) {
         "{} {} {}",
         style("domain-check").bold(),
         style(format!("v{}", env!("CARGO_PKG_VERSION"))).dim(),
-        style(format!("— Checking {} domain{}", domain_count, if domain_count == 1 { "" } else { "s" })).dim(),
+        style(format!(
+            "— Checking {} domain{}",
+            domain_count,
+            if domain_count == 1 { "" } else { "s" }
+        ))
+        .dim(),
     );
 
     let mut meta_parts: Vec<String> = Vec::new();
@@ -371,10 +376,7 @@ pub fn print_error_summary(error_stats: &ErrorStats, args: &Args) {
         return;
     }
 
-    println!(
-        "  {}",
-        style("Some domains could not be checked:").yellow()
-    );
+    println!("  {}", style("Some domains could not be checked:").yellow());
 
     let format_list = |domains: &[String], max_show: usize| -> String {
         if domains.len() <= max_show {
@@ -391,7 +393,11 @@ pub fn print_error_summary(error_stats: &ErrorStats, args: &Args) {
             "  {} {} timeout{}: {}",
             style("•").dim(),
             error_stats.timeouts.len(),
-            if error_stats.timeouts.len() == 1 { "" } else { "s" },
+            if error_stats.timeouts.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
             format_list(&error_stats.timeouts, 5),
         );
     }
@@ -400,7 +406,11 @@ pub fn print_error_summary(error_stats: &ErrorStats, args: &Args) {
             "  {} {} network error{}: {}",
             style("•").dim(),
             error_stats.network_errors.len(),
-            if error_stats.network_errors.len() == 1 { "" } else { "s" },
+            if error_stats.network_errors.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
             format_list(&error_stats.network_errors, 5),
         );
     }
@@ -409,7 +419,11 @@ pub fn print_error_summary(error_stats: &ErrorStats, args: &Args) {
             "  {} {} parsing error{}: {}",
             style("•").dim(),
             error_stats.parsing_errors.len(),
-            if error_stats.parsing_errors.len() == 1 { "" } else { "s" },
+            if error_stats.parsing_errors.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
             format_list(&error_stats.parsing_errors, 5),
         );
     }
@@ -418,7 +432,11 @@ pub fn print_error_summary(error_stats: &ErrorStats, args: &Args) {
             "  {} {} unknown TLD error{}: {}",
             style("•").dim(),
             error_stats.unknown_tld_errors.len(),
-            if error_stats.unknown_tld_errors.len() == 1 { "" } else { "s" },
+            if error_stats.unknown_tld_errors.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
             format_list(&error_stats.unknown_tld_errors, 5),
         );
     }
@@ -427,7 +445,11 @@ pub fn print_error_summary(error_stats: &ErrorStats, args: &Args) {
             "  {} {} other error{}: {}",
             style("•").dim(),
             error_stats.other_errors.len(),
-            if error_stats.other_errors.len() == 1 { "" } else { "s" },
+            if error_stats.other_errors.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
             format_list(&error_stats.other_errors, 5),
         );
     }

@@ -20,3 +20,7 @@ target/
 # Local development files
 CLAUDE.md
 dev-doc.md
+
+# Demo recording artifacts (keep .svg, ignore .cast)
+assets/*.cast
+assets/.demo-scenario.sh

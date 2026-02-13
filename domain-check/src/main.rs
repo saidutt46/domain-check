@@ -478,7 +478,11 @@ async fn run_streaming_check(
         completed += 1;
 
         // Show result immediately
-        let counter = if total > 1 { Some((completed, total)) } else { None };
+        let counter = if total > 1 {
+            Some((completed, total))
+        } else {
+            None
+        };
         if args.pretty {
             ui::print_result(&domain_result, args.info, args.debug, counter);
         } else {
@@ -492,7 +496,13 @@ async fn run_streaming_check(
     // Show final summary for multiple domains
     if domains.len() > 1 && !args.json && !args.csv {
         println!();
-        ui::print_summary(results.len(), available_count, taken_count, unknown_count, duration);
+        ui::print_summary(
+            results.len(),
+            available_count,
+            taken_count,
+            unknown_count,
+            duration,
+        );
         if error_stats.has_errors() {
             println!();
             ui::print_error_summary(&error_stats, args);
@@ -997,7 +1007,10 @@ fn display_text_results(
     // Shared summary for both modes
     if results.len() > 1 {
         let available = results.iter().filter(|r| r.available == Some(true)).count();
-        let taken = results.iter().filter(|r| r.available == Some(false)).count();
+        let taken = results
+            .iter()
+            .filter(|r| r.available == Some(false))
+            .count();
         let unknown = results.iter().filter(|r| r.available.is_none()).count();
         println!();
         ui::print_summary(results.len(), available, taken, unknown, duration);

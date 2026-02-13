@@ -5,13 +5,17 @@ Complete guide to using the `domain-check` command-line tool.
 ## Table of Contents
 
 - [Basic Usage](#basic-usage)
+- [Configuration Files](#%EF%B8%8F-configuration-files)
+- [Environment Variables](#-environment-variables)
 - [Command Reference](#command-reference)
 - [TLD Options](#tld-options)
+- [Custom Presets](#-custom-presets)
 - [Output Formats](#output-formats)
 - [File Processing](#file-processing)
 - [Performance & Concurrency](#performance--concurrency)
 - [Advanced Features](#advanced-features)
 - [Tips & Tricks](#tips--tricks)
+- [Example Workflows](#example-workflows)
 
 ---
 
@@ -19,13 +23,13 @@ Complete guide to using the `domain-check` command-line tool.
 
 ### Single Domain Check
 ```bash
-# Basic check (plain output)
+# Default output — colored status
 domain-check example.com
 # example.com TAKEN
 
-# Pretty output with colors and emojis
+# Pretty mode — grouped layout with sections
 domain-check example.com --pretty
-# 🔴 example.com is TAKEN
+#   example.com                    TAKEN
 ```
 
 ### Multiple Domain Arguments
@@ -33,8 +37,10 @@ domain-check example.com --pretty
 # Check multiple domains at once
 domain-check example.com google.com startup.org
 # example.com TAKEN
-# google.com TAKEN  
+# google.com TAKEN
 # startup.org AVAILABLE
+#
+# 3 domains in 0.2s  |  1 available  |  2 taken  |  0 unknown
 ```
 
 ---
@@ -149,7 +155,7 @@ DC_CONFIG=team-config.toml domain-check mystartup
 |------|-------------|---------|
 | `<DOMAINS>...` | Domain names to check | `domain-check example.com google.com` |
 | `-t, --tld <TLD>` | Specify TLDs for base names | `domain-check startup -t com,org,io` |
-| `--all` | Check against all 42+ known TLDs | `domain-check myapp --all` |
+| `--all` | Check against all 32 known TLDs | `domain-check myapp --all` |
 | `--preset <NAME>` | Use TLD preset or custom preset | `domain-check myapp --preset startup` |
 | `-f, --file <FILE>` | Read domains from file | `domain-check --file domains.txt` |
 | `--config <FILE>` | Use specific config file | `domain-check --config my-config.toml` |
@@ -161,7 +167,7 @@ DC_CONFIG=team-config.toml domain-check mystartup
 | Flag | Description | Example |
 |------|-------------|---------|
 | `-t, --tld <TLD>` | Specify TLDs for base names | `domain-check startup -t com,org,io` |
-| `--all` | Check against all 42+ known TLDs | `domain-check myapp --all` |
+| `--all` | Check against all 32 known TLDs | `domain-check myapp --all` |
 | `--preset <NAME>` | Use TLD preset (startup/enterprise/country) | `domain-check myapp --preset startup` |
 
 ### Input Sources
@@ -176,7 +182,7 @@ DC_CONFIG=team-config.toml domain-check mystartup
 |------|-------------|---------|
 | `-j, --json` | Output in JSON format | `domain-check example.com --json` |
 | `--csv` | Output in CSV format | `domain-check example.com --csv` |
-| `-p, --pretty` | Colorful output with emojis | `domain-check example.com --pretty` |
+| `-p, --pretty` | Grouped, structured output with section headers | `domain-check example.com --pretty` |
 | `-i, --info` | Show detailed domain information | `domain-check example.com --info` |
 
 ### Processing Modes
@@ -192,10 +198,8 @@ DC_CONFIG=team-config.toml domain-check mystartup
 |------|-------------|---------|
 | `-c, --concurrency <N>` | Max concurrent checks (1-100) | `domain-check --file domains.txt -c 50` |
 | `--force` | Override safety limits | `domain-check --file huge.txt --force` |
-| `--streaming` | Show results as they complete | `domain-check --file large.txt --streaming` |
-| `--batch` | Collect all results before showing | `domain-check --file domains.txt --batch` |
 
-**Default concurrency:** 20 (increased from 10 for better performance)
+**Default concurrency:** 20
 
 ### Protocol Options
 
@@ -250,14 +254,14 @@ domain-check mybrand --preset enterprise
 #### Country Preset (9 TLDs)
 ```bash
 domain-check mysite --preset country
-# Checks: .us, .uk, .de, .fr, .ca, .au, .jp, .br, .in
+# Checks: .us, .uk, .de, .fr, .ca, .au, .br, .in, .nl
 ```
 
 ### Universal TLD Checking
 ```bash
-# Check against ALL known TLDs
+# Check against all 32 known TLDs
 domain-check myapp --all
-# Checks 42+ TLDs automatically
+# Checks all TLDs with RDAP endpoints
 
 # With streaming for real-time results
 domain-check myapp --all --streaming
@@ -309,19 +313,41 @@ domain-check mystartup --preset startup  # Uses your custom 'startup' if defined
 domain-check example.com google.com
 # example.com TAKEN
 # google.com TAKEN
+#
+# 2 domains in 0.1s  |  0 available  |  2 taken  |  0 unknown
 ```
+
+Default mode includes colored status words (green AVAILABLE, red TAKEN, yellow UNKNOWN),
+a progress counter for multi-domain checks, and a colored summary bar.
 
 ### Pretty Output
 ```bash
-domain-check example.com google.com --pretty
-# 🔴 example.com is TAKEN
-# 🔴 google.com is TAKEN
+domain-check rustcloud --preset startup --pretty --batch
+# domain-check v0.6.1 — Checking 8 domains
+# Preset: startup | Concurrency: 20
+#
+# ── Available (3) ──────────────────────────────
+#   rustcloud.org
+#   rustcloud.ai
+#   rustcloud.app
+#
+# ── Taken (5) ──────────────────────────────────
+#   rustcloud.com
+#   rustcloud.io
+#   rustcloud.tech
+#   rustcloud.dev
+#   rustcloud.xyz
+#
+# 8 domains in 0.8s  |  3 available  |  5 taken  |  0 unknown
 ```
+
+Pretty mode groups results by status (Available/Taken/Unknown), adds a styled header,
+column-aligned domain names, and section separators. Empty sections are omitted.
 
 ### Detailed Information
 ```bash
-domain-check google.com --info --pretty
-# 🔴 google.com is TAKEN (Registrar: MarkMonitor Inc., Created: 1997-09-15, Expires: 2028-09-14)
+domain-check google.com --info
+# google.com TAKEN (Registrar: MarkMonitor Inc., Created: 1997-09-15, Expires: 2028-09-14)
 ```
 
 ### JSON Output
@@ -416,7 +442,7 @@ domain-check --file massive-list.txt --force --streaming
 
 ### Concurrency Settings
 ```bash
-# Default concurrency (10)
+# Default concurrency (20)
 domain-check --file domains.txt -t com,org
 
 # High concurrency for faster processing
@@ -431,23 +457,25 @@ domain-check --file domains.txt --all --concurrency 100
 #### Streaming Mode (Real-time Results)
 ```bash
 domain-check --file domains.txt --all --streaming
-# 🔍 Checking 42 domains with concurrency: 20
-# 🟢 example.com is AVAILABLE
-# 🔴 test.org is TAKEN
-# 🟢 startup.io is AVAILABLE
-# ... (results appear as they complete)
+# [1/32] example.com TAKEN
+# [2/32] example.org AVAILABLE
+# [3/32] example.io TAKEN
+# ... (results appear as they complete with progress counter)
 ```
 
 #### Batch Mode (Collected Results)
 ```bash
 domain-check --file domains.txt --preset startup --batch
-# 🔍 Checking 8 domains...
-# (waits for all results)
-# 🟢 example.com is AVAILABLE
-# 🔴 example.org is TAKEN
-# 🟢 example.io is AVAILABLE
-# ... (all results at once)
+# (spinner shown while checking...)
+# example.com TAKEN
+# example.org AVAILABLE
+# example.io TAKEN
+# ...
+# 8 domains in 0.8s  |  3 available  |  5 taken  |  0 unknown
 ```
+
+Both modes include colored output and a summary bar. Batch mode shows a loading
+spinner while waiting for results. In pretty mode, batch results are grouped by status.
 
 ---
 
@@ -457,9 +485,9 @@ domain-check --file domains.txt --preset startup --batch
 ```bash
 # For unknown or new TLDs
 domain-check example.restaurant --bootstrap --debug
-# 🔍 No known RDAP endpoint for .restaurant, trying bootstrap registry...
-# 🔍 Found endpoint: https://rdap.donuts.co/domain/
-# 🔴 example.restaurant is TAKEN
+# Trying IANA bootstrap for .restaurant...
+# Found endpoint: https://rdap.donuts.co/domain/
+# example.restaurant TAKEN
 ```
 
 ### Protocol Control
@@ -602,7 +630,7 @@ domain-check mystartup --verbose
 domain-check --config test-config.toml mystartup --verbose
 
 # Override everything with CLI
-domain-check mystartup --concurrency 1 --preset enterprise --no-pretty
+domain-check mystartup --concurrency 1 --preset enterprise --batch
 ```
 
 ---
