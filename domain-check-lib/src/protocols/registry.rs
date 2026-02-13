@@ -61,44 +61,46 @@ pub fn get_rdap_registry_map() -> HashMap<&'static str, &'static str> {
         ),
         ("info", "https://rdap.identitydigital.services/rdap/domain/"),
         ("biz", "https://rdap.nic.biz/domain/"),
-        // Google TLDs
-        ("app", "https://rdap.nic.google/domain/"),
-        ("dev", "https://rdap.nic.google/domain/"),
-        ("page", "https://rdap.nic.google/domain/"),
+        // Google TLDs (updated: rdap.nic.google no longer exists)
+        ("app", "https://pubapi.registry.google/rdap/domain/"),
+        ("dev", "https://pubapi.registry.google/rdap/domain/"),
+        ("page", "https://pubapi.registry.google/rdap/domain/"),
+        // CentralNic managed gTLDs
+        ("xyz", "https://rdap.centralnic.com/xyz/domain/"),
+        ("tech", "https://rdap.centralnic.com/tech/domain/"),
+        ("online", "https://rdap.centralnic.com/online/domain/"),
+        ("site", "https://rdap.centralnic.com/site/domain/"),
+        ("website", "https://rdap.centralnic.com/website/domain/"),
         // Other popular gTLDs
-        ("blog", "https://rdap.nic.blog/domain/"),
-        ("shop", "https://rdap.nic.shop/domain/"),
-        ("xyz", "https://rdap.nic.xyz/domain/"),
-        ("tech", "https://rdap.nic.tech/domain/"),
-        ("online", "https://rdap.nic.online/domain/"),
-        ("site", "https://rdap.nic.site/domain/"),
-        ("website", "https://rdap.nic.website/domain/"),
-        // Country Code TLDs (ccTLDs)
+        ("blog", "https://rdap.blog.fury.ca/rdap/domain/"),
+        ("shop", "https://rdap.gmoregistry.net/rdap/domain/"),
+        // Identity Digital managed TLDs
+        ("ai", "https://rdap.identitydigital.services/rdap/domain/"), // Anguilla
         ("io", "https://rdap.identitydigital.services/rdap/domain/"), // British Indian Ocean Territory
-        ("ai", "https://rdap.nic.ai/domain/"),                        // Anguilla
-        ("co", "https://rdap.nic.co/domain/"),                        // Colombia
-        ("me", "https://rdap.nic.me/domain/"),                        // Montenegro
-        ("us", "https://rdap.nic.us/domain/"),                        // United States
-        ("uk", "https://rdap.nominet.uk/domain/"),                    // United Kingdom
-        ("eu", "https://rdap.eu.org/domain/"),                        // European Union
-        ("de", "https://rdap.denic.de/domain/"),                      // Germany
-        ("ca", "https://rdap.cira.ca/domain/"),                       // Canada
-        ("au", "https://rdap.auda.org.au/domain/"),                   // Australia
-        ("fr", "https://rdap.nic.fr/domain/"),                        // France
-        ("es", "https://rdap.nic.es/domain/"),                        // Spain
-        ("it", "https://rdap.nic.it/domain/"),                        // Italy
-        ("nl", "https://rdap.domain-registry.nl/domain/"),            // Netherlands
-        ("jp", "https://rdap.jprs.jp/domain/"),                       // Japan
-        ("br", "https://rdap.registro.br/domain/"),                   // Brazil
-        ("in", "https://rdap.registry.in/domain/"),                   // India
-        ("cn", "https://rdap.cnnic.cn/domain/"),                      // China
+        ("me", "https://rdap.identitydigital.services/rdap/domain/"), // Montenegro
+        ("zone", "https://rdap.identitydigital.services/rdap/domain/"),
+        (
+            "digital",
+            "https://rdap.identitydigital.services/rdap/domain/",
+        ),
+        // Country Code TLDs (ccTLDs) with working RDAP endpoints
+        ("us", "https://rdap.nic.us/domain/"), // United States
+        ("uk", "https://rdap.nominet.uk/domain/"), // United Kingdom
+        ("de", "https://rdap.denic.de/domain/"), // Germany
+        ("ca", "https://rdap.ca.fury.ca/rdap/domain/"), // Canada
+        ("au", "https://rdap.cctld.au/rdap/domain/"), // Australia
+        ("fr", "https://rdap.nic.fr/domain/"), // France
+        ("nl", "https://rdap.sidn.nl/domain/"), // Netherlands
+        ("br", "https://rdap.registro.br/domain/"), // Brazil
+        ("in", "https://rdap.nixiregistry.in/rdap/domain/"), // India
         // Verisign managed ccTLDs
-        ("tv", "https://rdap.verisign.com/tv/v1/domain/"), // Tuvalu
-        ("cc", "https://rdap.verisign.com/cc/v1/domain/"), // Cocos Islands
+        ("tv", "https://rdap.nic.tv/domain/"), // Tuvalu
+        ("cc", "https://tld-rdap.verisign.com/cc/v1/domain/"), // Cocos Islands
         // Specialty TLDs
-        ("zone", "https://rdap.nic.zone/domain/"),
-        ("cloud", "https://rdap.nic.cloud/domain/"),
-        ("digital", "https://rdap.nic.digital/domain/"),
+        ("cloud", "https://rdap.registry.cloud/rdap/domain/"),
+        // NOTE: co, eu, it, jp, es, cn removed — their RDAP endpoints are
+        // defunct and no working alternatives found. These TLDs will fall
+        // through to WHOIS fallback, which handles them correctly.
     ])
 }
 
@@ -167,9 +169,9 @@ pub fn get_preset_tlds(preset: &str) -> Option<Vec<String>> {
             "fr".to_string(),
             "ca".to_string(),
             "au".to_string(),
-            "jp".to_string(),
             "br".to_string(),
             "in".to_string(),
+            "nl".to_string(),
         ]),
         _ => None,
     }
@@ -467,6 +469,25 @@ mod tests {
         let result = get_rdap_endpoint("unknowntld123", false).await;
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_all_endpoints_are_valid_https_urls() {
+        let registry = get_rdap_registry_map();
+        for (tld, endpoint) in &registry {
+            assert!(
+                endpoint.starts_with("https://"),
+                "Endpoint for '{}' must use HTTPS: {}",
+                tld,
+                endpoint
+            );
+            assert!(
+                endpoint.ends_with("/domain/"),
+                "Endpoint for '{}' must end with /domain/: {}",
+                tld,
+                endpoint
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -522,6 +543,7 @@ mod preset_tests {
         assert!(tlds.contains(&"us".to_string()));
         assert!(tlds.contains(&"uk".to_string()));
         assert!(tlds.contains(&"de".to_string()));
+        assert!(tlds.contains(&"nl".to_string()));
     }
 
     #[test]

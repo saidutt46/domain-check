@@ -29,7 +29,7 @@ pub struct Args {
     #[arg(short = 't', long = "tld", value_name = "TLD", value_delimiter = ',', action = clap::ArgAction::Append)]
     pub tlds: Option<Vec<String>>,
 
-    /// Check against all known TLDs (~42 TLDs)
+    /// Check against all known TLDs
     #[arg(long = "all", help = "Check against all known TLDs")]
     pub all_tlds: bool,
 
@@ -37,7 +37,7 @@ pub struct Args {
     #[arg(
         long = "preset",
         value_name = "NAME",
-        help = "Use TLD preset:\n  startup (8): com, org, io, ai, tech, app, dev, xyz\n  enterprise (6): com, org, net, info, biz, us\n  country (9): us, uk, de, fr, ca, au, jp, br, in"
+        help = "Use TLD preset:\n  startup (8): com, org, io, ai, tech, app, dev, xyz\n  enterprise (6): com, org, net, info, biz, us\n  country (9): us, uk, de, fr, ca, au, br, in, nl"
     )]
     pub preset: Option<String>,
 
@@ -266,7 +266,10 @@ async fn main() {
 
     // Set up logging if verbose
     if args.verbose {
-        println!("🔧 Domain Check CLI v0.4.0 starting...");
+        println!(
+            "🔧 Domain Check CLI v{} starting...",
+            env!("CARGO_PKG_VERSION")
+        );
     }
 
     // Run the domain checking
@@ -518,8 +521,7 @@ fn display_single_result_with_brief_errors(
             }
         }
         Some(false) => {
-            if args.info && result.info.is_some() {
-                let info = result.info.as_ref().unwrap();
+            if let Some(info) = result.info.as_ref().filter(|_| args.info) {
                 if args.pretty {
                     println!(
                         "🔴 {} is TAKEN ({})",
@@ -983,8 +985,7 @@ fn display_single_result(
             }
         }
         Some(false) => {
-            if args.info && result.info.is_some() {
-                let info = result.info.as_ref().unwrap();
+            if let Some(info) = result.info.as_ref().filter(|_| args.info) {
                 if args.pretty {
                     println!(
                         "🔴 {} is TAKEN ({})",
@@ -1115,8 +1116,7 @@ fn display_text_results(
             }
             Some(false) => {
                 taken_count += 1;
-                if args.info && result.info.is_some() {
-                    let info = result.info.as_ref().unwrap();
+                if let Some(info) = result.info.as_ref().filter(|_| args.info) {
                     if args.pretty {
                         println!(
                             "🔴 {} is TAKEN ({})",
