@@ -12,7 +12,7 @@ use std::process;
 /// CLI arguments for domain-check
 #[derive(Parser, Debug)]
 #[command(name = "domain-check")]
-#[command(version = "0.6.0")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(author = "Sai Dutt G.V <gvs46@protonmail.com>")]
 #[command(about = "Check domain availability using RDAP with WHOIS fallback")]
 #[command(
@@ -1503,9 +1503,6 @@ mod tests {
         };
 
         let result = apply_cli_args_to_config(config, &args).unwrap();
-        assert!(
-            result.detailed_info,
-            "--info should enable detailed info"
-        );
+        assert!(result.detailed_info, "--info should enable detailed info");
     }
 }

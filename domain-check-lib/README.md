@@ -15,7 +15,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-domain-check-lib = "0.5.0"
+domain-check-lib = "0.6.0"
 tokio = { version = "1", features = ["full"] }
 ```
 

@@ -1,0 +1,7 @@
+# Per-package release config for domain-check-lib
+# Updates version references in both README files
+
+pre-release-replacements = [
+  { file = "README.md", search = "domain-check-lib = \"[^\"]*\"", replace = "domain-check-lib = \"{{version}}\"" },
+  { file = "../README.md", search = "domain-check-lib = \"[^\"]*\"", replace = "domain-check-lib = \"{{version}}\"" },
+]
