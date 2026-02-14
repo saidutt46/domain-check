@@ -1,10 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.9.0] - 2026-02-14
 
-### Universal TLD Coverage
+### Universal TLD Coverage & CLI Help UX Overhaul
 
-This release transforms domain-check from supporting 32 hardcoded TLDs to covering 1,300+ TLDs across the entire internet — with zero manual maintenance. RDAP endpoints are discovered automatically via the IANA bootstrap registry, and TLDs without RDAP are handled through intelligent WHOIS server discovery.
+This release transforms domain-check from supporting 32 hardcoded TLDs to covering 1,300+ TLDs across the entire internet — with zero manual maintenance. RDAP endpoints are discovered automatically via the IANA bootstrap registry, and TLDs without RDAP are handled through intelligent WHOIS server discovery. The CLI help output is now colored and grouped by category for easy scanning.
 
 ### Added
 
@@ -32,10 +32,18 @@ This release transforms domain-check from supporting 32 hardcoded TLDs to coveri
 - `trendy` — fast-growing new gTLDs: xyz, online, site, top, icu, fun, space, click, website, life, world, live, today
 - Previously limited to 3 presets (startup, enterprise, country) because only 32 hardcoded TLDs were available — bootstrap removes this constraint
 
+#### **CLI: `--list-presets` Flag**
+- New `--list-presets` flag prints all 11 built-in presets with TLD counts and names, then exits
+- Works without any domain arguments — useful for quick discovery of available presets
+
+#### **CLI: Colored, Grouped `--help` Output**
+- `--help` now uses colored output: yellow headers, green flags, cyan placeholders
+- All flags organized into 6 logical groups: Domain Selection, Domain Generation, Output Format, Performance, Protocol, Configuration
+- Much easier to scan than the previous flat wall of 25+ flags
+
 #### **CLI: `--no-bootstrap` Flag**
 - New `--no-bootstrap` flag to disable bootstrap and restrict to 32 hardcoded TLDs
 - Useful for offline environments, CI with network restrictions, or faster deterministic checks
-- `-b`/`--bootstrap` flag retained for backward compatibility (now a no-op since bootstrap is default)
 
 #### **`--all` with Bootstrap Pre-warming**
 - `--all` now pre-warms the bootstrap cache before checking, giving access to 1,300+ TLDs
@@ -50,10 +58,18 @@ This release transforms domain-check from supporting 32 hardcoded TLDs to coveri
 - `get_all_known_tlds()` returns the union of hardcoded + bootstrapped TLDs (deduplicated, sorted)
 - WHOIS fallback now discovers the authoritative server before querying, improving accuracy for ccTLDs
 - `--all` mode checks 1,300+ TLDs (up from 32) when bootstrap is enabled
+- `--preset` help text now says "use --list-presets to see all" instead of listing 3 stale presets inline
+
+### Removed
+- **`-b`/`--bootstrap` CLI flag** — was a no-op since bootstrap became the default. Use `--no-bootstrap` to disable.
+
+### Fixed
+- **Batch `check_domains` bug**: all error results were mapped to `domains[0]` instead of their actual domain name — errors now correctly report the domain that failed
 
 ### Testing
 - 19 new tests covering bootstrap cache, WHOIS discovery, IANA response parsing, and CLI flags
 - 6 network-dependent integration tests (`#[ignore]`): bulk bootstrap fetch, WHOIS discovery, end-to-end non-hardcoded TLD checks
+- 2 new CLI integration tests for `--list-presets` output and grouped help headings
 - All existing tests pass unchanged — zero regressions
 
 ### Impact
