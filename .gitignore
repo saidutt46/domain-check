@@ -25,3 +25,6 @@ dev-doc.md
 # Demo recording artifacts (keep .svg, ignore .cast)
 assets/*.cast
 assets/.demo-scenario.sh
+
+# Coverage reports
+coverage-report/
