@@ -22,9 +22,43 @@ fn test_help_shows_new_flags() {
         .success()
         .stdout(predicate::str::contains("--all"))
         .stdout(predicate::str::contains("--preset"))
-        .stdout(predicate::str::contains("startup (8)"))
-        .stdout(predicate::str::contains("enterprise (6)"))
-        .stdout(predicate::str::contains("country (9)"));
+        .stdout(predicate::str::contains("--list-presets"))
+        .stdout(predicate::str::contains("Domain Selection"))
+        .stdout(predicate::str::contains("Domain Generation"))
+        .stdout(predicate::str::contains("Output Format"))
+        .stdout(predicate::str::contains("Performance"))
+        .stdout(predicate::str::contains("Protocol"))
+        .stdout(predicate::str::contains("Configuration"));
+}
+
+#[test]
+fn test_list_presets_output() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.arg("--list-presets");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Available TLD Presets"))
+        .stdout(predicate::str::contains("startup"))
+        .stdout(predicate::str::contains("enterprise"))
+        .stdout(predicate::str::contains("country"))
+        .stdout(predicate::str::contains("popular"))
+        .stdout(predicate::str::contains("tech"))
+        .stdout(predicate::str::contains("creative"))
+        .stdout(predicate::str::contains("ecommerce"))
+        .stdout(predicate::str::contains("finance"))
+        .stdout(predicate::str::contains("web"))
+        .stdout(predicate::str::contains("trendy"))
+        .stdout(predicate::str::contains("classic"));
+}
+
+#[test]
+fn test_list_presets_no_domains_required() {
+    // --list-presets should work without any domain arguments
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.arg("--list-presets");
+
+    cmd.assert().success();
 }
 
 #[test]

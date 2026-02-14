@@ -122,7 +122,7 @@ All CLI options can be set via environment variables using the `DC_*` prefix:
 | `DC_TLD` | `--tld` | `DC_TLD=com,io,dev` | Default TLD list |
 | `DC_PRETTY` | `--pretty` | `DC_PRETTY=true` | Enable pretty output |
 | `DC_TIMEOUT` | N/A | `DC_TIMEOUT=10s` | Request timeout |
-| `DC_BOOTSTRAP` | `--bootstrap` | `DC_BOOTSTRAP=true` | Enable IANA bootstrap |
+| `DC_BOOTSTRAP` | (enabled by default) | `DC_BOOTSTRAP=false` | Enable/disable IANA bootstrap |
 | `DC_WHOIS_FALLBACK` | `--no-whois` | `DC_WHOIS_FALLBACK=false` | WHOIS fallback |
 | `DC_DETAILED_INFO` | `--info` | `DC_DETAILED_INFO=true` | Detailed domain info |
 | `DC_JSON` | `--json` | `DC_JSON=true` | JSON output format |
@@ -163,6 +163,7 @@ DC_CONFIG=team-config.toml domain-check mystartup
 | `-t, --tld <TLD>` | Specify TLDs for base names | `domain-check startup -t com,org,io` |
 | `--all` | Check against all known TLDs (1,300+ with bootstrap) | `domain-check myapp --all` |
 | `--preset <NAME>` | Use TLD preset (11 built-in or custom) | `domain-check myapp --preset startup` |
+| `--list-presets` | List all available TLD presets and exit | `domain-check --list-presets` |
 | `-f, --file <FILE>` | Read domains from file | `domain-check --file domains.txt` |
 | `--config <FILE>` | Use specific config file | `domain-check --config my-config.toml` |
 | `-h, --help` | Show help information | `domain-check --help` |
@@ -807,7 +808,7 @@ domain-check problematic-domain.com --verbose --debug
 
 # Check specific protocols
 domain-check example.com --no-whois     # RDAP only
-domain-check example.com --bootstrap    # Enable discovery
+domain-check example.com --debug        # Show protocol discovery details
 ```
 
 ### Automation Scripts

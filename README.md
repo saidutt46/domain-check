@@ -101,6 +101,7 @@ domain-check [OPTIONS] [DOMAINS]...
 | `-t, --tld <TLD>` | Specify TLDs for base names | `-t com,org,io` |
 | `--all` | Check against all known TLDs (1,300+ with bootstrap) | `--all` |
 | `--preset <NAME>` | Use TLD preset (see [presets](#smart-presets)) | `--preset startup` |
+| `--list-presets` | List all available TLD presets and exit | `--list-presets` |
 | `-f, --file <FILE>` | Read domains from file | `-f domains.txt` |
 | `--config <FILE>` | Use specific config file | `--config my-config.toml` |
 
