@@ -385,10 +385,10 @@ impl DomainChecker {
         // Extract results, converting errors to DomainResult with error info
         let results = indexed_results
             .into_iter()
-            .map(|(_, result)| match result {
+            .map(|(index, result)| match result {
                 Ok(domain_result) => domain_result,
                 Err(e) => DomainResult {
-                    domain: domains[0].clone(), // We'll fix this in the concurrent function
+                    domain: domains[index].clone(),
                     available: None,
                     info: None,
                     check_duration: None,

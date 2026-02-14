@@ -292,3 +292,62 @@ fn test_new_exports_accessible() {
     let _ = domain_check_lib::initialize_bootstrap;
     let _ = domain_check_lib::get_whois_server;
 }
+
+/// Regression test: batch check_domains must preserve correct domain names in
+/// error results. Previously, all error results were mapped to domains[0]
+/// (the first domain in the input list) instead of the actual domain that failed.
+#[tokio::test]
+async fn test_batch_check_preserves_domain_names_in_errors() {
+    use domain_check_lib::{CheckConfig, DomainChecker};
+
+    let config = CheckConfig::default()
+        .with_bootstrap(false)
+        .with_whois_fallback(false);
+    let checker = DomainChecker::with_config(config);
+
+    // Use domains on TLDs that will fail without bootstrap/WHOIS —
+    // this forces error results so we can verify domain names are correct
+    let domains = vec![
+        "testdomain.invalidtld1".to_string(),
+        "testdomain.invalidtld2".to_string(),
+        "testdomain.invalidtld3".to_string(),
+    ];
+
+    let results = checker.check_domains(&domains).await.unwrap();
+    assert_eq!(results.len(), 3);
+
+    // Each result must have the correct domain name, not all domains[0]
+    assert_eq!(results[0].domain, "testdomain.invalidtld1");
+    assert_eq!(results[1].domain, "testdomain.invalidtld2");
+    assert_eq!(results[2].domain, "testdomain.invalidtld3");
+
+    // They should all be different — the old bug made them all the same
+    let unique_domains: std::collections::HashSet<&str> =
+        results.iter().map(|r| r.domain.as_str()).collect();
+    assert_eq!(
+        unique_domains.len(),
+        3,
+        "Each error result must have a unique domain name, not all mapped to domains[0]"
+    );
+}
+
+/// Test that batch check_domains preserves domain names for a mix of
+/// successful and failed results.
+#[tokio::test]
+async fn test_batch_check_preserves_names_mixed_results() {
+    use domain_check_lib::DomainChecker;
+
+    let checker = DomainChecker::new();
+
+    // google.com will succeed (taken), the fake TLD will fail
+    let domains = vec![
+        "google.com".to_string(),
+        "testxyz.invalidtld999".to_string(),
+    ];
+
+    let results = checker.check_domains(&domains).await.unwrap();
+    assert_eq!(results.len(), 2);
+
+    assert_eq!(results[0].domain, "google.com");
+    assert_eq!(results[1].domain, "testxyz.invalidtld999");
+}
