@@ -39,6 +39,13 @@ pub use protocols::registry::{
 pub use types::{CheckConfig, CheckMethod, DomainInfo, DomainResult, OutputMode};
 pub use utils::expand_domain_inputs;
 
+// Public modules
+pub mod generate;
+
+// Re-export generation types for convenience
+pub use generate::{apply_affixes, estimate_pattern_count, expand_pattern, generate_names};
+pub use types::{GenerateConfig, GenerationResult};
+
 // Internal modules - these are not part of the public API
 mod checker;
 mod concurrent;

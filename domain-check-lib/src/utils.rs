@@ -121,7 +121,7 @@ pub fn expand_domain_inputs(domains: &[String], tlds: &Option<Vec<String>>) -> V
 }
 
 /// Validate that a base domain name (without TLD) is acceptable.
-fn is_valid_base_name(domain: &str) -> bool {
+pub(crate) fn is_valid_base_name(domain: &str) -> bool {
     // Minimum length check
     if domain.len() < 2 {
         return false;

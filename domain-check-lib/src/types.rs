@@ -213,6 +213,60 @@ impl CheckConfig {
     }
 }
 
+/// Configuration for domain name generation.
+///
+/// Controls pattern expansion, prefix/suffix permutation, and the generation pipeline.
+/// Used by the `generate` module to produce base domain names before TLD expansion.
+#[derive(Debug, Clone, Default)]
+pub struct GenerateConfig {
+    /// Patterns to expand (e.g., "test\d\d", "app?")
+    /// Supports: \w (a-z + hyphen), \d (0-9), ? (alphanumeric + hyphen), literals
+    pub patterns: Vec<String>,
+
+    /// Prefixes to prepend to base names (e.g., ["get", "my", "try"])
+    pub prefixes: Vec<String>,
+
+    /// Suffixes to append to base names (e.g., ["hub", "ly", "ify"])
+    pub suffixes: Vec<String>,
+
+    /// Whether to include the bare base name when prefixes/suffixes are provided.
+    /// Default: true. When false, only affixed variants are generated.
+    pub include_bare: bool,
+}
+
+/// Result of the domain name generation pipeline.
+#[derive(Debug, Clone)]
+pub struct GenerationResult {
+    /// Generated base names (validated, ready for TLD expansion)
+    pub names: Vec<String>,
+
+    /// Pre-filter estimate of how many names the patterns would produce.
+    /// May be higher than `names.len()` due to validation filtering.
+    pub estimated_count: usize,
+}
+
+impl GenerateConfig {
+    /// Create a new GenerateConfig with default settings.
+    pub fn new() -> Self {
+        Self {
+            patterns: Vec::new(),
+            prefixes: Vec::new(),
+            suffixes: Vec::new(),
+            include_bare: true,
+        }
+    }
+
+    /// Returns true if this config would actually generate anything.
+    pub fn has_generation(&self) -> bool {
+        !self.patterns.is_empty()
+    }
+
+    /// Returns true if affixes are configured.
+    pub fn has_affixes(&self) -> bool {
+        !self.prefixes.is_empty() || !self.suffixes.is_empty()
+    }
+}
+
 impl std::fmt::Display for CheckMethod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
