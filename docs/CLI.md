@@ -66,7 +66,7 @@ concurrency = 25
 preset = "startup"
 pretty = true
 timeout = "8s"
-bootstrap = true
+bootstrap = true        # enabled by default; set false to disable
 
 [custom_presets]
 my_startup = ["com", "io", "ai", "dev", "app"]
@@ -176,6 +176,7 @@ DC_CONFIG=team-config.toml domain-check mystartup
 | `-t, --tld <TLD>` | Specify TLDs for base names | `domain-check startup -t com,org,io` |
 | `--all` | Check against all known TLDs (1,300+ with bootstrap) | `domain-check myapp --all` |
 | `--preset <NAME>` | Use TLD preset (11 built-in or custom) | `domain-check myapp --preset startup` |
+| `--list-presets` | List all available TLD presets and exit | `domain-check --list-presets` |
 
 ### Input Sources
 
@@ -253,7 +254,7 @@ domain-check startup -t com -t org -t io
 
 ### Smart TLD Presets
 
-11 built-in presets for common domain search scenarios. All presets work with bootstrap (enabled by default), which resolves TLDs not in the hardcoded registry via IANA.
+11 built-in presets for common domain search scenarios. Use `--list-presets` to see all available presets from the CLI. All presets work with bootstrap (enabled by default), which resolves TLDs not in the hardcoded registry via IANA.
 
 | Preset | Count | TLDs |
 |--------|-------|------|

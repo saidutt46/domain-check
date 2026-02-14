@@ -172,7 +172,7 @@ DC_PRESET=startup       # Default preset
 DC_TLD=com,io,dev       # Default TLD list
 DC_PRETTY=true          # Enable pretty output
 DC_TIMEOUT=10s          # Request timeout
-DC_BOOTSTRAP=true       # Enable IANA bootstrap
+DC_BOOTSTRAP=true       # IANA bootstrap (enabled by default)
 DC_CONFIG=config.toml   # Config file path
 DC_FILE=domains.txt     # Domains file path
 DC_PREFIX=get,my        # Default prefixes for generation
@@ -251,6 +251,9 @@ See [Advanced Examples](./docs/EXAMPLES.md) for more enterprise workflows.
 | `country` | us, uk, de, fr, ca, au, br, in, nl | Major country codes |
 
 ```bash
+# List all available presets
+domain-check --list-presets
+
 domain-check mybrand --preset creative --pretty
 domain-check myshop --preset ecommerce --batch --json
 ```

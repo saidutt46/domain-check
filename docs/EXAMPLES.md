@@ -624,8 +624,6 @@ done
 
 ---
 
----
-
 ## Universal TLD Coverage
 
 With bootstrap enabled by default, domain-check can check domains across 1,300+ TLDs — virtually every TLD on the internet.
