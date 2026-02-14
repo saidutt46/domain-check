@@ -479,3 +479,436 @@ fn test_env_detailed_info_respected_without_flag() {
         .success()
         .stdout(predicate::str::contains("Registrar:"));
 }
+
+// ── Domain Generation Tests ──────────────────────────────────────────
+
+#[test]
+fn test_pattern_as_sole_input() {
+    // --pattern should be accepted without positional domains
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["--pattern", "test\\d", "-t", "com", "--dry-run"]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("test0.com"))
+        .stdout(predicate::str::contains("test9.com"));
+}
+
+#[test]
+fn test_invalid_pattern_error_exit() {
+    // Invalid escape sequence should produce error and exit non-zero
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["--pattern", "test\\x", "-t", "com", "--dry-run"]);
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("Invalid pattern"));
+}
+
+#[test]
+fn test_dry_run_prints_domains_exits_zero() {
+    // --dry-run should print FQDNs to stdout and count to stderr, exit 0
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["--pattern", "go\\d", "-t", "com", "--dry-run"]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("go0.com"))
+        .stdout(predicate::str::contains("go9.com"))
+        .stderr(predicate::str::contains("10 domains would be checked"));
+}
+
+#[test]
+fn test_dry_run_json_output() {
+    // --dry-run --json should output a valid JSON array
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["--pattern", "ab\\d", "-t", "com", "--dry-run", "--json"]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    let arr = parsed.as_array().expect("should be JSON array");
+    assert_eq!(arr.len(), 10); // ab0.com through ab9.com
+    assert!(arr.contains(&serde_json::Value::String("ab0.com".to_string())));
+}
+
+#[test]
+fn test_pattern_with_preset_orthogonal() {
+    // --pattern and --preset should work together (patterns generate names, preset expands TLDs)
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["--pattern", "zz\\d", "--preset", "startup", "--dry-run"]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // 10 names × 8 TLDs = 80 domains
+    assert!(stderr.contains("80 domains would be checked"));
+    // Should have .com and .io variants
+    assert!(stdout.contains("zz0.com"));
+    assert!(stdout.contains("zz0.io"));
+}
+
+#[test]
+fn test_no_input_error() {
+    // No domains, no file, no pattern → error
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args::<[&str; 0], &str>([]);
+
+    cmd.assert().failure().stderr(predicate::str::contains(
+        "You must specify domain names, a file with --file, or patterns with --pattern",
+    ));
+}
+
+#[test]
+fn test_help_shows_generation_flags() {
+    // --help should list all new generation flags
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.arg("--help");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("--pattern"))
+        .stdout(predicate::str::contains("--prefix"))
+        .stdout(predicate::str::contains("--suffix"))
+        .stdout(predicate::str::contains("--dry-run"))
+        .stdout(predicate::str::contains("--yes"));
+}
+
+#[test]
+fn test_dc_prefix_env_var() {
+    // DC_PREFIX should apply prefixes when CLI --prefix is not set
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.env("DC_PREFIX", "cool,hot")
+        .args(["app", "-t", "com", "--dry-run"]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("coolapp.com"))
+        .stdout(predicate::str::contains("hotapp.com"))
+        .stdout(predicate::str::contains("app.com")); // bare included
+}
+
+#[test]
+fn test_dc_suffix_env_var() {
+    // DC_SUFFIX should apply suffixes when CLI --suffix is not set
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.env("DC_SUFFIX", "hub,ly")
+        .args(["cloud", "-t", "com", "--dry-run"]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("cloudhub.com"))
+        .stdout(predicate::str::contains("cloudly.com"))
+        .stdout(predicate::str::contains("cloud.com")); // bare included
+}
+
+#[test]
+fn test_cli_prefix_overrides_dc_prefix() {
+    // CLI --prefix should override DC_PREFIX env var
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.env("DC_PREFIX", "old,stale")
+        .args(["app", "--prefix", "new", "-t", "com", "--dry-run"]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("newapp.com"));
+    assert!(stdout.contains("app.com")); // bare included
+    assert!(!stdout.contains("oldapp.com")); // env var overridden
+    assert!(!stdout.contains("staleapp.com"));
+}
+
+#[test]
+fn test_pattern_all_filtered_error() {
+    // Pattern "\d" produces single-char names → all filtered → no valid domains → error
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["--pattern", "\\d", "-t", "com", "--dry-run"]);
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("No valid domains"));
+}
+
+#[test]
+fn test_dry_run_with_prefix_and_suffix() {
+    // Combined prefix + suffix + dry-run
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args([
+        "app",
+        "--prefix",
+        "get,my",
+        "--suffix",
+        "hub",
+        "-t",
+        "com",
+        "--dry-run",
+    ]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Expect: getapphub, getapp, myapphub, myapp, apphub, app = 6 names × 1 TLD = 6
+    assert!(stdout.contains("getapphub.com"));
+    assert!(stdout.contains("getapp.com"));
+    assert!(stdout.contains("myapphub.com"));
+    assert!(stdout.contains("myapp.com"));
+    assert!(stdout.contains("apphub.com"));
+    assert!(stdout.contains("app.com"));
+    assert!(stderr.contains("6 domains would be checked"));
+}
+
+#[test]
+fn test_dry_run_no_network_requests() {
+    // --dry-run should complete instantly (no network) even with a domain that would require lookup
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["--pattern", "zztest\\d\\d", "-t", "com", "--dry-run"])
+        .timeout(std::time::Duration::from_secs(5)); // Should finish in <1s
+
+    cmd.assert()
+        .success()
+        .stderr(predicate::str::contains("100 domains would be checked"));
+}
+
+#[test]
+fn test_pattern_with_file_input() {
+    // Patterns + file input should combine
+    let file = create_test_domains_file(&["mysite", "coolapp"]);
+
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args([
+        "--file",
+        file.path().to_str().unwrap(),
+        "--pattern",
+        "zz\\d",
+        "-t",
+        "com",
+        "--dry-run",
+    ]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // 2 from file + 10 from pattern = 12 base names × 1 TLD = 12
+    assert!(stdout.contains("mysite.com"));
+    assert!(stdout.contains("coolapp.com"));
+    assert!(stdout.contains("zz0.com"));
+    assert!(stdout.contains("zz9.com"));
+    assert!(stderr.contains("12 domains would be checked"));
+}
+
+#[test]
+fn test_multiple_patterns() {
+    // Multiple comma-separated patterns
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["--pattern", "aa\\d,bb\\d", "-t", "com", "--dry-run"]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // 10 from aa\d + 10 from bb\d = 20 domains
+    assert!(stdout.contains("aa0.com"));
+    assert!(stdout.contains("bb9.com"));
+    assert!(stderr.contains("20 domains would be checked"));
+}
+
+#[test]
+fn test_dry_run_csv_not_supported() {
+    // --dry-run only supports plain text or --json, not --csv
+    // It should still work but only prints plain domain list (csv flag is for checking output)
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["--pattern", "ab\\d", "-t", "com", "--dry-run"]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("ab0.com"));
+}
+
+#[test]
+fn test_yes_flag_exists() {
+    // --yes should be accepted without error
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["--pattern", "ab\\d", "-t", "com", "--dry-run", "--yes"]);
+
+    cmd.assert().success();
+}
+
+#[test]
+fn test_force_flag_exists() {
+    // --force should be accepted without error (same as --yes for confirmation skip)
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["--pattern", "ab\\d", "-t", "com", "--dry-run", "--force"]);
+
+    cmd.assert().success();
+}
+
+#[test]
+fn test_pattern_with_positional_domains() {
+    // --pattern + positional domains should combine
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["myapp", "--pattern", "zz\\d", "-t", "com", "--dry-run"]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // 1 positional + 10 from pattern = 11 base names
+    assert!(stdout.contains("myapp.com"));
+    assert!(stdout.contains("zz0.com"));
+    assert!(stderr.contains("11 domains would be checked"));
+}
+
+#[test]
+fn test_prefix_only_no_pattern() {
+    // --prefix without --pattern, just with positional domains
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["app", "--prefix", "get,my", "-t", "com", "--dry-run"]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("getapp.com"));
+    assert!(stdout.contains("myapp.com"));
+    assert!(stdout.contains("app.com"));
+}
+
+#[test]
+fn test_suffix_only_no_pattern() {
+    // --suffix without --pattern, just with positional domains
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["cloud", "--suffix", "hub,ly", "-t", "com", "--dry-run"]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("cloudhub.com"));
+    assert!(stdout.contains("cloudly.com"));
+    assert!(stdout.contains("cloud.com"));
+}
+
+#[test]
+fn test_generation_config_from_config_file() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("test-config.toml");
+
+    let config_content = r#"
+[generation]
+prefixes = ["super", "mega"]
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args([
+        "--config",
+        config_path.to_str().unwrap(),
+        "app",
+        "-t",
+        "com",
+        "--dry-run",
+    ]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("superapp.com"));
+    assert!(stdout.contains("megaapp.com"));
+    assert!(stdout.contains("app.com")); // bare included
+}
+
+#[test]
+fn test_cli_prefix_overrides_config_prefix() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("test-config.toml");
+
+    let config_content = r#"
+[generation]
+prefixes = ["old", "stale"]
+"#;
+    fs::write(&config_path, config_content).unwrap();
+
+    // CLI --prefix should override config prefixes
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args([
+        "--config",
+        config_path.to_str().unwrap(),
+        "app",
+        "--prefix",
+        "new",
+        "-t",
+        "com",
+        "--dry-run",
+    ]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("newapp.com"));
+    assert!(!stdout.contains("oldapp.com")); // config overridden
+    assert!(!stdout.contains("staleapp.com"));
+}
+
+#[test]
+fn test_empty_pattern_string_error() {
+    // Empty string pattern should produce error
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["--pattern", "", "-t", "com", "--dry-run"]);
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("Invalid pattern"));
+}
+
+#[test]
+fn test_dry_run_with_all_flag() {
+    // --dry-run + --all should produce many domains
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["testname", "--all", "--dry-run"]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stdout.contains("testname.com"));
+    assert!(stdout.contains("testname.org"));
+    assert!(stderr.contains("32 domains would be checked"));
+}
+
+#[test]
+fn test_backward_compat_no_generation_flags() {
+    // Existing usage without any generation flags should work unchanged
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["google.com", "--batch"]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("google.com"))
+        .stdout(predicate::str::contains("TAKEN"));
+}

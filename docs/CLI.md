@@ -54,7 +54,7 @@ Domain-check supports persistent configuration through TOML files. This eliminat
 #### Configuration File Locations (checked in order)
 
 1. `./domain-check.toml` (project-specific)
-2. `~/.domain-check.toml` (user global)  
+2. `~/.domain-check.toml` (user global)
 3. `~/.config/domain-check/config.toml` (XDG standard)
 
 #### Basic Configuration Example
@@ -71,6 +71,10 @@ bootstrap = true
 [custom_presets]
 my_startup = ["com", "io", "ai", "dev", "app"]
 my_enterprise = ["com", "org", "net", "biz", "info"]
+
+[generation]
+prefixes = ["get", "my"]
+suffixes = ["hub", "ly"]
 
 [output]
 default_format = "pretty"
@@ -125,6 +129,8 @@ All CLI options can be set via environment variables using the `DC_*` prefix:
 | `DC_CSV` | `--csv` | `DC_CSV=true` | CSV output format |
 | `DC_FILE` | `--file` | `DC_FILE=domains.txt` | Default domains file |
 | `DC_CONFIG` | `--config` | `DC_CONFIG=my-config.toml` | Default config file |
+| `DC_PREFIX` | `--prefix` | `DC_PREFIX=get,my` | Default prefixes |
+| `DC_SUFFIX` | `--suffix` | `DC_SUFFIX=hub,ly` | Default suffixes |
 
 ### Environment Variable Examples
 
@@ -175,6 +181,11 @@ DC_CONFIG=team-config.toml domain-check mystartup
 | Flag | Description | Example |
 |------|-------------|---------|
 | `-f, --file <FILE>` | Read domains from file | `domain-check --file domains.txt` |
+| `--pattern <PAT>` | Generate names from pattern | `domain-check --pattern "test\d"` |
+| `--prefix <LIST>` | Prepend prefixes to names | `domain-check app --prefix get,my` |
+| `--suffix <LIST>` | Append suffixes to names | `domain-check app --suffix hub,ly` |
+| `--dry-run` | Preview domains without checking | `domain-check --pattern "x\d" --dry-run` |
+| `-y, --yes` | Skip confirmation prompts | `domain-check --pattern "x\d\d" --yes` |
 
 ### Output Control
 
@@ -479,6 +490,160 @@ spinner while waiting for results. In pretty mode, batch results are grouped by 
 
 ---
 
+## Domain Generation
+
+Generate domain name candidates using patterns, prefixes, and suffixes. Generation produces base names that are then expanded with TLDs just like regular domain inputs.
+
+### Pattern Expansion
+
+Use `--pattern` to generate names from wildcard patterns:
+
+| Token | Expands to | Count |
+|-------|-----------|-------|
+| `\d` | 0-9 | 10 |
+| `\w` | a-z + hyphen (not at start/end) | 27 |
+| `?` | a-z + 0-9 + hyphen (not at start/end) | 37 |
+| Literal | Itself | 1 |
+
+```bash
+# Generate test0.com through test9.com
+domain-check --pattern "test\d" -t com --dry-run
+# test0.com
+# test1.com
+# ...
+# test9.com
+# 10 domains would be checked
+
+# Two-digit patterns: app00 through app99
+domain-check --pattern "app\d\d" -t com --dry-run
+# 100 domains would be checked
+
+# Letter patterns: a-z prefix
+domain-check --pattern "\wapp" -t com --dry-run
+# 27 domains would be checked (aapp, bapp, ..., zapp, -app filtered)
+
+# Mixed: alphanumeric wildcard
+domain-check --pattern "go?" -t com --dry-run
+# 37 domains would be checked
+```
+
+### Prefix & Suffix Permutations
+
+Use `--prefix` and `--suffix` to generate name combinations:
+
+```bash
+# Prefixes only
+domain-check app --prefix get,my,try -t com --dry-run
+# getapp.com
+# myapp.com
+# tryapp.com
+# app.com          (bare name included by default)
+# 4 domains would be checked
+
+# Suffixes only
+domain-check cloud --suffix hub,ly,io -t com --dry-run
+# cloudhub.com
+# cloudly.com
+# cloudio.com
+# cloud.com
+# 4 domains would be checked
+
+# Both prefixes and suffixes
+domain-check app --prefix get,my --suffix hub,ly -t com --dry-run
+# getapphub.com
+# getapply.com
+# getapp.com
+# myapphub.com
+# myapply.com
+# myapp.com
+# apphub.com
+# apply.com
+# app.com
+# 9 domains would be checked
+```
+
+### Combining Patterns with Affixes
+
+Patterns and affixes compose naturally:
+
+```bash
+# Generate test0-test9, then prepend "get" and "my"
+domain-check --pattern "test\d" --prefix get,my -t com --dry-run
+# 30 domains would be checked (10 names × 3 variants × 1 TLD)
+
+# Pattern + suffix + multiple TLDs
+domain-check --pattern "app\d" --suffix hub -t com,org --dry-run
+# 40 domains would be checked (10 names × 2 variants × 2 TLDs)
+```
+
+### Dry Run
+
+Preview what would be checked without making any network requests:
+
+```bash
+# Plain text list
+domain-check --pattern "test\d" -t com --dry-run
+
+# JSON output for piping
+domain-check --pattern "test\d" -t com --dry-run --json
+
+# Count domains in a complex generation
+domain-check --pattern "app\d\d" --prefix get,my --preset startup --dry-run 2>&1 | tail -1
+# 2400 domains would be checked
+```
+
+### Interactive Confirmation
+
+For large generations (>500 domains), domain-check asks for confirmation in interactive terminals:
+
+```bash
+# This will prompt before checking
+domain-check --pattern "test\d\d" --preset startup
+# Will check 800 domains (~40s at concurrency 20). Proceed? [Y/n]
+
+# Skip the prompt for automation
+domain-check --pattern "test\d\d" --preset startup --yes
+
+# Also skipped with --force
+domain-check --pattern "test\d\d" --preset startup --force
+
+# Non-TTY (piped) never prompts — safe for agents and scripts
+domain-check --pattern "test\d" -t com --json | jq '.'
+```
+
+### Generation CLI Flags
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--pattern <PAT>` | Pattern for name generation | `--pattern "test\d"` |
+| `--prefix <LIST>` | Comma-separated prefixes | `--prefix get,my,try` |
+| `--suffix <LIST>` | Comma-separated suffixes | `--suffix hub,ly,app` |
+| `--dry-run` | Preview domains without checking | `--dry-run` |
+| `-y, --yes` | Skip confirmation prompts | `--yes` |
+
+### Config File & Env Var Defaults
+
+Prefixes and suffixes can be set as persistent defaults:
+
+```toml
+# .domain-check.toml
+[generation]
+prefixes = ["get", "my"]
+suffixes = ["hub", "ly"]
+```
+
+```bash
+# Environment variables
+DC_PREFIX=get,my domain-check app -t com --dry-run
+DC_SUFFIX=hub,ly domain-check app -t com --dry-run
+```
+
+CLI flags override env vars, which override config file values.
+
+**Note:** `--pattern` is intentionally excluded from config/env — patterns are per-invocation exploratory inputs, not persistent defaults.
+
+---
+
 ## Advanced Features
 
 ### Bootstrap Registry Discovery
@@ -535,6 +700,26 @@ domain-check --file list.txt --preset startup --csv | grep ",true," | cut -d',' 
 
 # Filter for specific registrars  
 domain-check --file domains.txt --info --json | jq '.[] | select(.info.registrar | contains("GoDaddy"))'
+```
+
+### Domain Generation Workflows
+```bash
+# Explore 3-letter .com domains
+domain-check --pattern "\w\w\w" -t com --dry-run | wc -l
+# 19683 names (27^3) — preview before committing
+
+# Find available "get*" startup domains
+domain-check --pattern "get\w\w\w" --preset startup --batch --json > get-domains.json
+
+# AI agent integration: generate + check + filter (non-interactive)
+domain-check --pattern "app\d" --prefix get,my -t com --yes --json | \
+  jq -r '.[] | select(.available==true) | .domain'
+
+# Brand variations with prefixes/suffixes
+domain-check mybrand --prefix get,try,use --suffix app,hub,io -t com --dry-run
+
+# Config-driven generation (uses .domain-check.toml prefixes/suffixes)
+domain-check myapp -t com,io
 ```
 
 ### Performance Optimization
@@ -607,10 +792,16 @@ cat > ~/.domain-check.toml << 'EOF'
 concurrency = 30
 pretty = true
 preset = "startup"
+
+[generation]
+prefixes = ["get", "my", "try"]
+suffixes = ["hub", "app"]
 EOF
 
 # Now all commands use your preferences
 domain-check mystartup  # Automatic startup preset, pretty output, 30 concurrency
+# Prefixes/suffixes auto-applied from config:
+domain-check myapp -t com  # → getmyapp, mymyapp, trymyapp, myapphub, myappapp, myapp
 
 # Environment-Specific Settings
 # Development
