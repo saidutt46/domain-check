@@ -7,7 +7,9 @@ mod ui;
 
 use clap::Parser;
 use console::Term;
-use domain_check_lib::{get_all_known_tlds, get_preset_tlds, get_preset_tlds_with_custom};
+use domain_check_lib::{
+    get_all_known_tlds, get_preset_tlds, get_preset_tlds_with_custom, initialize_bootstrap,
+};
 use domain_check_lib::{load_env_config, ConfigManager, FileConfig};
 use domain_check_lib::{CheckConfig, DomainChecker};
 use std::io::BufRead;
@@ -61,7 +63,7 @@ pub struct Args {
     #[arg(short = 'c', long = "concurrency", default_value = "20")]
     pub concurrency: usize,
 
-    /// Override the 500 domain limit for bulk operations
+    /// Override the 5000 domain limit for bulk operations
     #[arg(long = "force")]
     pub force: bool,
 
@@ -76,6 +78,10 @@ pub struct Args {
     /// Disable automatic WHOIS fallback
     #[arg(long = "no-whois")]
     pub no_whois: bool,
+
+    /// Disable IANA bootstrap (use only hardcoded 32 TLDs for RDAP)
+    #[arg(long = "no-bootstrap")]
+    pub no_bootstrap: bool,
 
     /// Output results in JSON format
     #[arg(short = 'j', long = "json")]
@@ -354,15 +360,36 @@ fn validate_args(args: &Args) -> Result<(), String> {
     Ok(())
 }
 
-/// Determine if bootstrap should be auto-enabled
-fn should_enable_bootstrap(args: &Args, resolved_tlds: &Option<Vec<String>>) -> bool {
-    // --all needs bootstrap for comprehensive coverage
-    args.bootstrap || args.all_tlds || resolved_tlds.as_ref().is_some_and(|tlds| tlds.len() > 20)
-    // Large sets likely need bootstrap
+/// Determine if bootstrap should be enabled.
+///
+/// Bootstrap is now enabled by default. It can be disabled with `--no-bootstrap`.
+fn should_enable_bootstrap(args: &Args, _resolved_tlds: &Option<Vec<String>>) -> bool {
+    if args.no_bootstrap {
+        return false;
+    }
+    // Bootstrap is enabled by default; --bootstrap flag is now a no-op
+    true
 }
 
 /// Main domain checking logic
 async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    // Pre-warm bootstrap cache if --all mode is requested (so get_all_known_tlds()
+    // returns the full ~1,180 TLDs from IANA, not just the 32 hardcoded ones)
+    if args.all_tlds && !args.no_bootstrap {
+        if args.verbose {
+            println!("Fetching IANA bootstrap registry for full TLD coverage...");
+        }
+        if let Err(e) = initialize_bootstrap().await {
+            if args.verbose {
+                eprintln!(
+                    "Warning: Bootstrap fetch failed ({}), using hardcoded TLDs",
+                    e
+                );
+            }
+            // Graceful degradation: continue with hardcoded 32 TLDs
+        }
+    }
+
     // Build configuration from CLI args
     let config = build_config(&args)?;
 
@@ -387,7 +414,7 @@ async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Erro
     }
 
     // Interactive confirmation for large runs (TTY only)
-    if domains.len() > 500 && !args.force && !args.yes {
+    if domains.len() > 5000 && !args.force && !args.yes {
         let term = Term::stderr();
         if term.is_term() {
             let estimated_secs = (domains.len() as f64 / config.concurrency as f64) * 1.0;
@@ -1187,6 +1214,7 @@ mod tests {
             info: false,
             bootstrap: false,
             no_whois: false,
+            no_bootstrap: false,
             json: false,
             csv: false,
             pretty: false,
@@ -1205,21 +1233,20 @@ mod tests {
     }
 
     #[test]
-    fn test_should_enable_bootstrap_large_tld_set() {
-        // Test auto-bootstrap with large TLD sets
+    fn test_should_enable_bootstrap_default() {
+        // Bootstrap is now enabled by default
         let args = create_test_args();
-        let large_tld_set = Some((0..25).map(|i| format!("tld{}", i)).collect());
-
-        assert!(should_enable_bootstrap(&args, &large_tld_set));
+        let tlds = Some(vec!["com".to_string(), "org".to_string()]);
+        assert!(should_enable_bootstrap(&args, &tlds));
     }
 
     #[test]
-    fn test_should_enable_bootstrap_small_set() {
-        // Test no auto-bootstrap with small TLD sets
-        let args = create_test_args();
-        let small_tld_set = Some(vec!["com".to_string(), "org".to_string()]);
-
-        assert!(!should_enable_bootstrap(&args, &small_tld_set));
+    fn test_should_disable_bootstrap_with_flag() {
+        // --no-bootstrap disables it
+        let mut args = create_test_args();
+        args.no_bootstrap = true;
+        let tlds = Some(vec!["com".to_string(), "org".to_string()]);
+        assert!(!should_enable_bootstrap(&args, &tlds));
     }
 
     #[test]

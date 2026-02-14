@@ -76,6 +76,47 @@ impl WhoisClient {
         }
     }
 
+    /// Check domain availability using WHOIS with a specific server.
+    ///
+    /// This method uses `whois -h <server> <domain>` for a targeted query,
+    /// falling back to bare `whois <domain>` if the `-h` flag fails.
+    ///
+    /// # Arguments
+    ///
+    /// * `domain` - The domain name to check (e.g., "example.com")
+    /// * `server` - The WHOIS server hostname (e.g., "whois.verisign-grs.com")
+    pub async fn check_domain_with_server(
+        &self,
+        domain: &str,
+        server: &str,
+    ) -> Result<DomainResult, DomainCheckError> {
+        let start_time = Instant::now();
+
+        let result = tokio::time::timeout(
+            self.timeout,
+            self.execute_whois_command_with_server(domain, server),
+        )
+        .await;
+
+        let check_duration = start_time.elapsed();
+
+        match result {
+            Ok(Ok(available)) => Ok(DomainResult {
+                domain: domain.to_string(),
+                available: Some(available),
+                info: None,
+                check_duration: Some(check_duration),
+                method_used: CheckMethod::Whois,
+                error_message: None,
+            }),
+            Ok(Err(_)) => {
+                // Targeted query failed, fall back to bare whois
+                self.check_domain(domain).await
+            }
+            Err(_) => Err(DomainCheckError::timeout("WHOIS query", self.timeout)),
+        }
+    }
+
     /// Execute the system whois command and parse the result.
     async fn execute_whois_command(&self, domain: &str) -> Result<bool, DomainCheckError> {
         // First attempt
@@ -101,6 +142,47 @@ impl WhoisClient {
             tokio::time::sleep(Duration::from_millis(1000)).await;
 
             let retry_output = Command::new("whois")
+                .arg(domain)
+                .output()
+                .await
+                .map_err(|e| {
+                    DomainCheckError::whois(domain, format!("Failed to execute whois retry: {}", e))
+                })?;
+
+            let retry_text = String::from_utf8_lossy(&retry_output.stdout).to_lowercase();
+            self.parse_whois_availability(&retry_text)
+        } else {
+            self.parse_whois_availability(&output_text)
+        }
+    }
+
+    /// Execute whois command with a specific server (-h flag).
+    async fn execute_whois_command_with_server(
+        &self,
+        domain: &str,
+        server: &str,
+    ) -> Result<bool, DomainCheckError> {
+        let output = Command::new("whois")
+            .arg("-h")
+            .arg(server)
+            .arg(domain)
+            .output()
+            .await
+            .map_err(|e| {
+                DomainCheckError::whois(
+                    domain,
+                    format!("Failed to execute whois -h {} command: {}", server, e),
+                )
+            })?;
+
+        let output_text = String::from_utf8_lossy(&output.stdout).to_lowercase();
+
+        if self.is_rate_limited(&output_text) {
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+
+            let retry_output = Command::new("whois")
+                .arg("-h")
+                .arg(server)
                 .arg(domain)
                 .output()
                 .await
@@ -227,7 +309,7 @@ impl WhoisClient {
             "throttled",
             "blocked",
             "rate-limited",
-            "too many requests from your ip", // Add this pattern
+            "too many requests from your ip",
         ];
 
         rate_limit_patterns
@@ -240,6 +322,70 @@ impl Default for WhoisClient {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Discover the authoritative WHOIS server for a TLD via IANA referral.
+///
+/// Uses the system `whois` command to query `whois.iana.org` for the TLD,
+/// then parses the response for a `refer:` line containing the authoritative
+/// WHOIS server hostname.
+///
+/// # Arguments
+///
+/// * `tld` - The TLD to look up (e.g., "com", "co", "museum")
+///
+/// # Returns
+///
+/// The WHOIS server hostname (e.g., "whois.verisign-grs.com"), or None if
+/// no referral was found or the query failed.
+pub async fn discover_whois_server(tld: &str) -> Option<String> {
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
+        let output = Command::new("whois")
+            .arg("-h")
+            .arg("whois.iana.org")
+            .arg(tld)
+            .output()
+            .await
+            .ok()?;
+
+        let response = String::from_utf8_lossy(&output.stdout);
+        parse_iana_refer_response(&response)
+    })
+    .await;
+
+    result.unwrap_or(None)
+}
+
+/// Parse an IANA WHOIS response for the authoritative WHOIS server.
+///
+/// The IANA WHOIS response may use either `refer:` or `whois:` to indicate
+/// the authoritative WHOIS server for a TLD. We check both fields, preferring
+/// `refer:` when present.
+///
+/// ```text
+/// whois:        whois.verisign-grs.com
+/// refer:        whois.verisign-grs.com
+/// ```
+fn parse_iana_refer_response(response: &str) -> Option<String> {
+    let mut whois_server = None;
+
+    for line in response.lines() {
+        let line_trimmed = line.trim();
+        if let Some(server) = line_trimmed.strip_prefix("refer:") {
+            let server = server.trim();
+            if !server.is_empty() {
+                // `refer:` is the canonical field — return immediately
+                return Some(server.to_string());
+            }
+        } else if let Some(server) = line_trimmed.strip_prefix("whois:") {
+            let server = server.trim();
+            if !server.is_empty() {
+                whois_server = Some(server.to_string());
+            }
+        }
+    }
+
+    whois_server
 }
 
 /// Check if the system has a working whois command.
@@ -317,6 +463,42 @@ mod tests {
 
         let custom_client = WhoisClient::with_timeout(Duration::from_secs(10));
         assert_eq!(custom_client.timeout, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_parse_iana_refer_response() {
+        // Standard IANA response with refer line
+        let response = "% IANA WHOIS server\n% for more information on IANA, visit http://www.iana.org\n\nrefer:        whois.verisign-grs.com\n\ndomain:       COM\n";
+        assert_eq!(
+            parse_iana_refer_response(response),
+            Some("whois.verisign-grs.com".to_string())
+        );
+
+        // Response without refer line
+        let no_refer = "% IANA WHOIS server\ndomain: TEST\nstatus: ACTIVE\n";
+        assert_eq!(parse_iana_refer_response(no_refer), None);
+
+        // Empty refer line
+        let empty_refer = "refer:        \ndomain: COM\n";
+        assert_eq!(parse_iana_refer_response(empty_refer), None);
+
+        // Response with whois: field instead of refer: (common in real IANA responses)
+        let whois_field = "% IANA WHOIS server\n\nwhois:        whois.verisign-grs.com\n\ndomain:       COM\nstatus:       ACTIVE\n";
+        assert_eq!(
+            parse_iana_refer_response(whois_field),
+            Some("whois.verisign-grs.com".to_string())
+        );
+
+        // Response with both refer: and whois: — refer: should take precedence
+        let both_fields = "whois:        whois.old-server.com\nrefer:        whois.correct-server.com\ndomain:       COM\n";
+        assert_eq!(
+            parse_iana_refer_response(both_fields),
+            Some("whois.correct-server.com".to_string())
+        );
+
+        // Empty whois: line should return None
+        let empty_whois = "whois:        \ndomain: COM\n";
+        assert_eq!(parse_iana_refer_response(empty_whois), None);
     }
 
     #[tokio::test]

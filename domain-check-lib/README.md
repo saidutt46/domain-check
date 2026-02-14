@@ -38,13 +38,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Key Features
 
 - **Pure Async Rust** — built with tokio for high performance
-- **Dual Protocol** — RDAP-first with WHOIS fallback
+- **Dual Protocol** — RDAP-first with intelligent WHOIS fallback via IANA server discovery
+- **1,300+ TLDs** — universal coverage via IANA bootstrap, with 32 hardcoded TLDs as offline fallback
 - **Concurrent Processing** — check multiple domains simultaneously
-- **32 TLD Mappings** — accurate results across major registries
 - **Robust Error Handling** — comprehensive error types with recovery
 - **Detailed Information** — extract registrar, dates, and status codes
 - **Streaming Support** — real-time results for bulk operations
-- **TLD Management** — access preset groups and expand domain inputs
+- **TLD Management** — access preset groups, bootstrap initialization, and domain expansion
 
 ---
 
@@ -129,16 +129,23 @@ let checker = DomainChecker::with_config(config);
 ### TLD Management & Domain Expansion
 
 ```rust
-use domain_check_lib::{DomainChecker, get_all_known_tlds, get_preset_tlds, expand_domain_inputs};
+use domain_check_lib::{
+    DomainChecker, get_all_known_tlds, get_preset_tlds,
+    initialize_bootstrap, expand_domain_inputs,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let checker = DomainChecker::new();
 
-    // Get all 32 TLDs with RDAP endpoints
-    let all_tlds = get_all_known_tlds();
+    // Pre-warm the IANA bootstrap cache for full TLD coverage
+    initialize_bootstrap().await?;
 
-    // Or use curated presets: "startup", "enterprise", "country"
+    // Get all known TLDs (1,300+ after bootstrap, 32 hardcoded offline)
+    let all_tlds = get_all_known_tlds();
+    println!("Loaded {} TLDs", all_tlds.len());
+
+    // Or use curated presets (11 built-in: startup, popular, tech, creative, etc.)
     let startup_tlds = get_preset_tlds("startup");
 
     // Expand base names with TLDs
@@ -212,13 +219,34 @@ match checker.check_domain("invalid-domain").await {
 
 ---
 
+### Bootstrap & WHOIS Discovery
+
+```rust
+use domain_check_lib::{initialize_bootstrap, get_whois_server};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load 1,300+ TLDs from the IANA RDAP bootstrap registry
+    initialize_bootstrap().await?;
+
+    // Discover authoritative WHOIS servers for any TLD via IANA referral
+    if let Some(server) = get_whois_server("com").await {
+        println!(".com WHOIS server: {}", server); // → whois.verisign-grs.com
+    }
+
+    Ok(())
+}
+```
+
+---
+
 ## Protocol Support
 
 | Protocol | Role | Details |
 |----------|------|---------|
-| **RDAP** | Primary | Structured JSON responses, 32 TLD mappings, rich data |
-| **WHOIS** | Fallback | Universal coverage, smart parsing, rate limiting |
-| **Bootstrap** | Discovery | IANA registry for unknown TLDs, future-proof |
+| **RDAP** | Primary | Structured JSON responses, 1,180+ TLDs via IANA bootstrap, rich data |
+| **WHOIS** | Fallback | Targeted queries via IANA server discovery, smart parsing, rate limiting |
+| **Bootstrap** | Discovery | Bulk IANA registry fetch (enabled by default), 24h cache, zero maintenance |
 
 ---
 
@@ -233,4 +261,4 @@ Apache License, Version 2.0 — see the [LICENSE](../LICENSE) file for details.
 
 ## Contributing
 
-Contributions welcome! See the [Contributing Guide](../CONTRIBUTING.md) for details.
+Contributions welcome! Open an issue or pull request on [GitHub](https://github.com/saidutt46/domain-check).

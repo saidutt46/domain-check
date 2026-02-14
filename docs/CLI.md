@@ -161,8 +161,8 @@ DC_CONFIG=team-config.toml domain-check mystartup
 |------|-------------|---------|
 | `<DOMAINS>...` | Domain names to check | `domain-check example.com google.com` |
 | `-t, --tld <TLD>` | Specify TLDs for base names | `domain-check startup -t com,org,io` |
-| `--all` | Check against all 32 known TLDs | `domain-check myapp --all` |
-| `--preset <NAME>` | Use TLD preset or custom preset | `domain-check myapp --preset startup` |
+| `--all` | Check against all known TLDs (1,300+ with bootstrap) | `domain-check myapp --all` |
+| `--preset <NAME>` | Use TLD preset (11 built-in or custom) | `domain-check myapp --preset startup` |
 | `-f, --file <FILE>` | Read domains from file | `domain-check --file domains.txt` |
 | `--config <FILE>` | Use specific config file | `domain-check --config my-config.toml` |
 | `-h, --help` | Show help information | `domain-check --help` |
@@ -173,8 +173,8 @@ DC_CONFIG=team-config.toml domain-check mystartup
 | Flag | Description | Example |
 |------|-------------|---------|
 | `-t, --tld <TLD>` | Specify TLDs for base names | `domain-check startup -t com,org,io` |
-| `--all` | Check against all 32 known TLDs | `domain-check myapp --all` |
-| `--preset <NAME>` | Use TLD preset (startup/enterprise/country) | `domain-check myapp --preset startup` |
+| `--all` | Check against all known TLDs (1,300+ with bootstrap) | `domain-check myapp --all` |
+| `--preset <NAME>` | Use TLD preset (11 built-in or custom) | `domain-check myapp --preset startup` |
 
 ### Input Sources
 
@@ -216,8 +216,10 @@ DC_CONFIG=team-config.toml domain-check mystartup
 
 | Flag | Description | Example |
 |------|-------------|---------|
-| `-b, --bootstrap` | Use IANA bootstrap for unknown TLDs | `domain-check example.rare --bootstrap` |
+| `--no-bootstrap` | Disable IANA bootstrap (use only 32 hardcoded TLDs) | `domain-check myapp --all --no-bootstrap` |
 | `--no-whois` | Disable WHOIS fallback | `domain-check example.com --no-whois` |
+
+Bootstrap is enabled by default. It fetches the full IANA RDAP registry (~1,180 TLDs) on first use and caches it for 24 hours. For TLDs without RDAP, the WHOIS fallback automatically discovers the authoritative WHOIS server via IANA referral.
 
 ### Debugging
 
@@ -250,33 +252,68 @@ domain-check startup -t com -t org -t io
 
 ### Smart TLD Presets
 
-#### Startup Preset (8 TLDs)
+11 built-in presets for common domain search scenarios. All presets work with bootstrap (enabled by default), which resolves TLDs not in the hardcoded registry via IANA.
+
+| Preset | Count | TLDs |
+|--------|-------|------|
+| `startup` | 8 | com, org, io, ai, tech, app, dev, xyz |
+| `popular` | 11 | com, net, org, io, ai, app, dev, tech, me, co, xyz |
+| `classic` | 5 | com, net, org, info, biz |
+| `enterprise` | 6 | com, org, net, info, biz, us |
+| `tech` | 12 | io, ai, app, dev, tech, cloud, software, digital, codes, systems, network, solutions |
+| `creative` | 10 | design, art, studio, media, photography, film, music, gallery, graphics, ink |
+| `ecommerce` | 8 | shop, store, market, sale, deals, shopping, buy, bargains |
+| `finance` | 9 | finance, capital, fund, money, investments, insurance, tax, exchange, trading |
+| `web` | 9 | web, site, website, online, blog, page, wiki, host, email |
+| `trendy` | 13 | xyz, online, site, top, icu, fun, space, click, website, life, world, live, today |
+| `country` | 9 | us, uk, de, fr, ca, au, br, in, nl |
+
 ```bash
+# Tech startup
 domain-check myapp --preset startup
 # Checks: .com, .org, .io, .ai, .tech, .app, .dev, .xyz
-```
 
-#### Enterprise Preset (6 TLDs)
-```bash
-domain-check mybrand --preset enterprise  
+# All-rounder
+domain-check mybrand --preset popular
+# Checks: .com, .net, .org, .io, .ai, .app, .dev, .tech, .me, .co, .xyz
+
+# Corporate
+domain-check mybrand --preset enterprise
 # Checks: .com, .org, .net, .info, .biz, .us
-```
 
-#### Country Preset (9 TLDs)
-```bash
+# Online store
+domain-check myshop --preset ecommerce
+# Checks: .shop, .store, .market, .sale, .deals, .shopping, .buy, .bargains
+
+# Creative agency
+domain-check mystudio --preset creative
+# Checks: .design, .art, .studio, .media, .photography, .film, .music, .gallery, .graphics, .ink
+
+# Country codes
 domain-check mysite --preset country
 # Checks: .us, .uk, .de, .fr, .ca, .au, .br, .in, .nl
 ```
 
 ### Universal TLD Checking
+
+With bootstrap enabled (the default), `--all` checks against 1,300+ TLDs — virtually every TLD on the internet.
+
 ```bash
-# Check against all 32 known TLDs
+# Check against all known TLDs (1,300+ with bootstrap)
 domain-check myapp --all
-# Checks all TLDs with RDAP endpoints
+# Fetches the IANA RDAP registry, then checks across all discovered TLDs
 
 # With streaming for real-time results
 domain-check myapp --all --streaming
 # Shows results as they complete
+
+# Restrict to the 32 hardcoded TLDs (no network bootstrap fetch)
+domain-check myapp --all --no-bootstrap
+# Faster, offline-capable, but limited to hardcoded TLDs
+
+# Check a TLD not in the hardcoded list (bootstrap handles it automatically)
+domain-check example.museum
+# Bootstrap discovers the RDAP endpoint for .museum via IANA
 ```
 
 ---
@@ -313,7 +350,7 @@ domain-check mystartup --preset startup  # Uses your custom 'startup' if defined
 
 1. **Custom presets** (from config files) override built-in presets
 2. **Built-in presets** used if no custom preset with same name exists
-3. **Available built-in presets**: startup, enterprise, country
+3. **Available built-in presets**: startup, popular, classic, enterprise, tech, creative, ecommerce, finance, web, trendy, country
 
 ---
 
@@ -594,7 +631,7 @@ domain-check --pattern "app\d\d" --prefix get,my --preset startup --dry-run 2>&1
 
 ### Interactive Confirmation
 
-For large generations (>500 domains), domain-check asks for confirmation in interactive terminals:
+For large runs (>5,000 domains), domain-check asks for confirmation in interactive terminals:
 
 ```bash
 # This will prompt before checking
@@ -646,13 +683,22 @@ CLI flags override env vars, which override config file values.
 
 ## Advanced Features
 
-### Bootstrap Registry Discovery
+### Bootstrap & Protocol Discovery
 ```bash
-# For unknown or new TLDs
-domain-check example.restaurant --bootstrap --debug
-# Trying IANA bootstrap for .restaurant...
+# Bootstrap is enabled by default — any TLD works out of the box
+domain-check example.restaurant --debug
+# Bootstrap: loaded 1,180 TLDs from IANA RDAP registry
 # Found endpoint: https://rdap.donuts.co/domain/
 # example.restaurant TAKEN
+
+# For TLDs without RDAP, WHOIS server is discovered automatically
+domain-check example.es --debug
+# No RDAP endpoint for .es
+# WHOIS: discovered whois.nic.es via IANA referral
+# example.es TAKEN
+
+# Disable bootstrap for offline/faster operation (32 hardcoded TLDs only)
+domain-check example.com --no-bootstrap
 ```
 
 ### Protocol Control
@@ -662,7 +708,7 @@ domain-check example.com --no-whois
 
 # Enable debug output
 domain-check example.com --debug
-# Shows detailed protocol information and timing
+# Shows detailed protocol information, discovery steps, and timing
 ```
 
 ### Complex Queries

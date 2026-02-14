@@ -624,6 +624,65 @@ done
 
 ---
 
+---
+
+## Universal TLD Coverage
+
+With bootstrap enabled by default, domain-check can check domains across 1,300+ TLDs — virtually every TLD on the internet.
+
+### Full TLD Scan
+
+```bash
+# Scan a brand across every known TLD
+domain-check mybrand --all --json > full-scan.json
+
+# How many TLDs are available?
+jq '[.[] | select(.available==true)] | length' full-scan.json
+
+# Group results by availability
+jq -r '.[] | select(.available==true) | .domain' full-scan.json | wc -l
+jq -r '.[] | select(.available==false) | .domain' full-scan.json | wc -l
+```
+
+### Checking Uncommon TLDs
+
+Bootstrap handles TLDs that aren't in the hardcoded list — no special flags needed.
+
+```bash
+# These all work automatically via IANA bootstrap + WHOIS discovery
+domain-check example.museum
+domain-check example.photography
+domain-check example.restaurant
+domain-check mybrand -t com,io,dev,restaurant,photography,museum
+
+# For TLDs without RDAP, WHOIS server is discovered via IANA referral
+domain-check example.es    # .es has no RDAP — uses WHOIS automatically
+domain-check example.co    # .co WHOIS discovered via whois.iana.org
+```
+
+### Offline / Restricted Mode
+
+```bash
+# Disable bootstrap for deterministic, offline-capable checks
+# (limited to 32 hardcoded TLDs with known RDAP endpoints)
+domain-check myapp --all --no-bootstrap
+
+# Useful for CI environments with network restrictions
+DC_BOOTSTRAP=false domain-check --file domains.txt --preset startup --json
+```
+
+### Pre-warming the Bootstrap Cache
+
+```bash
+# The bootstrap cache is fetched on first use and cached for 24 hours.
+# For latency-sensitive workflows, the --all flag pre-warms the cache
+# before checking, so subsequent calls are instant.
+domain-check mybrand --all --json > /dev/null   # warms cache
+domain-check otherbrand --all --json             # uses cached data
+```
+
+---
+
 These examples showcase domain-check's versatility in enterprise environments, from simple automation to complex integration patterns. Each workflow can be adapted to specific organizational needs and integrated with existing tools and processes.
 
 *For more library integration examples, see the [Library Documentation](https://docs.rs/domain-check-lib).*

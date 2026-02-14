@@ -4,6 +4,7 @@
 //! domain availability checking using RDAP, WHOIS, and bootstrap protocols.
 
 use crate::error::DomainCheckError;
+use crate::protocols::registry::{extract_tld, get_whois_server};
 use crate::protocols::{RdapClient, WhoisClient};
 use crate::types::{CheckConfig, CheckMethod, DomainResult};
 use crate::utils::validate_domain;
@@ -38,7 +39,10 @@ async fn check_single_domain_concurrent(
         Err(rdap_error) => {
             // RDAP failed, try WHOIS fallback if enabled
             if config.enable_whois_fallback {
-                match whois_client.check_domain(domain).await {
+                // Discover WHOIS server for targeted query
+                let whois_result = whois_with_discovery(domain, whois_client).await;
+
+                match whois_result {
                     Ok(whois_result) => {
                         let mut filtered_result = whois_result;
                         if !config.detailed_info {
@@ -92,6 +96,29 @@ async fn check_single_domain_concurrent(
     }
 }
 
+/// Perform WHOIS check with server discovery for targeted queries.
+///
+/// If the TLD's authoritative WHOIS server can be discovered via IANA referral,
+/// uses `whois -h <server> <domain>` for a more reliable query. Falls back to
+/// bare `whois <domain>` otherwise.
+async fn whois_with_discovery(
+    domain: &str,
+    whois_client: &WhoisClient,
+) -> Result<DomainResult, DomainCheckError> {
+    let tld = extract_tld(domain).ok();
+    let whois_server = if let Some(ref t) = tld {
+        get_whois_server(t).await
+    } else {
+        None
+    };
+
+    if let Some(server) = whois_server {
+        whois_client.check_domain_with_server(domain, &server).await
+    } else {
+        whois_client.check_domain(domain).await
+    }
+}
+
 /// Main domain checker that coordinates availability checking operations.
 ///
 /// The `DomainChecker` handles all aspects of domain checking including:
@@ -127,10 +154,10 @@ impl DomainChecker {
     /// Create a new domain checker with default configuration.
     ///
     /// Default settings:
-    /// - Concurrency: 10
+    /// - Concurrency: 20
     /// - Timeout: 5 seconds
     /// - WHOIS fallback: enabled
-    /// - Bootstrap: disabled
+    /// - Bootstrap: enabled
     /// - Detailed info: disabled
     pub fn new() -> Self {
         let config = CheckConfig::default();
@@ -210,7 +237,8 @@ impl DomainChecker {
             Err(rdap_error) => {
                 // RDAP failed, try WHOIS fallback if enabled
                 if self.config.enable_whois_fallback {
-                    match self.whois_client.check_domain(domain).await {
+                    // Use WHOIS with server discovery for targeted queries
+                    match whois_with_discovery(domain, &self.whois_client).await {
                         Ok(whois_result) => Ok(self.filter_result_info(whois_result)),
                         Err(whois_error) => {
                             // Both RDAP and WHOIS failed, determine best response

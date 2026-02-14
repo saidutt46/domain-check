@@ -35,6 +35,7 @@ pub use config::{load_env_config, ConfigManager, FileConfig, GenerationConfig};
 pub use error::DomainCheckError;
 pub use protocols::registry::{
     get_all_known_tlds, get_available_presets, get_preset_tlds, get_preset_tlds_with_custom,
+    get_whois_server, initialize_bootstrap,
 };
 pub use types::{CheckConfig, CheckMethod, DomainInfo, DomainResult, OutputMode};
 pub use utils::expand_domain_inputs;
