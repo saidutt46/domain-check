@@ -6,9 +6,11 @@
 mod ui;
 
 use clap::Parser;
+use console::Term;
 use domain_check_lib::{get_all_known_tlds, get_preset_tlds, get_preset_tlds_with_custom};
 use domain_check_lib::{load_env_config, ConfigManager, FileConfig};
 use domain_check_lib::{CheckConfig, DomainChecker};
+use std::io::BufRead;
 use std::process;
 
 /// CLI arguments for domain-check
@@ -108,6 +110,26 @@ pub struct Args {
     /// Verbose logging
     #[arg(short = 'v', long = "verbose")]
     pub verbose: bool,
+
+    /// Pattern for domain name generation (\w=letter, \d=digit, ?=either)
+    #[arg(long = "pattern", value_name = "PATTERN", value_delimiter = ',')]
+    pub patterns: Option<Vec<String>>,
+
+    /// Prefixes to prepend to domain names (comma-separated)
+    #[arg(long = "prefix", value_name = "PREFIX", value_delimiter = ',')]
+    pub prefixes: Option<Vec<String>>,
+
+    /// Suffixes to append to domain names (comma-separated)
+    #[arg(long = "suffix", value_name = "SUFFIX", value_delimiter = ',')]
+    pub suffixes: Option<Vec<String>>,
+
+    /// Preview generated domains without checking availability
+    #[arg(long = "dry-run")]
+    pub dry_run: bool,
+
+    /// Skip confirmation prompts (for automation/agents)
+    #[arg(long = "yes", short = 'y')]
+    pub yes: bool,
 }
 
 /// Error statistics for aggregated reporting
@@ -284,9 +306,12 @@ async fn main() {
 
 /// Validate command line arguments
 fn validate_args(args: &Args) -> Result<(), String> {
-    // Must have either domains or file
-    if args.domains.is_empty() && args.file.is_none() {
-        return Err("You must specify either domain names or a file with --file".to_string());
+    // Must have either domains, file, or patterns
+    if args.domains.is_empty() && args.file.is_none() && args.patterns.is_none() {
+        return Err(
+            "You must specify domain names, a file with --file, or patterns with --pattern"
+                .to_string(),
+        );
     }
 
     // Can't have conflicting output modes
@@ -345,11 +370,45 @@ async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Erro
     // This ensures config/env settings for --info are respected in output formatting.
     args.info = config.detailed_info;
 
-    // Create domain checker
-    let checker = DomainChecker::with_config(config.clone());
-
     // Determine domains to check (pass the config instead of rebuilding)
     let domains = get_domains_to_check(&args, &config).await?;
+
+    // Dry-run: print domains and exit without checking
+    if args.dry_run {
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&domains)?);
+        } else {
+            for d in &domains {
+                println!("{}", d);
+            }
+        }
+        eprintln!("{} domains would be checked", domains.len());
+        return Ok(());
+    }
+
+    // Interactive confirmation for large runs (TTY only)
+    if domains.len() > 500 && !args.force && !args.yes {
+        let term = Term::stderr();
+        if term.is_term() {
+            let estimated_secs = (domains.len() as f64 / config.concurrency as f64) * 1.0;
+            eprint!(
+                "Will check {} domains (~{:.0}s at concurrency {}). Proceed? [Y/n] ",
+                domains.len(),
+                estimated_secs,
+                config.concurrency
+            );
+            let mut input = String::new();
+            std::io::stdin().lock().read_line(&mut input)?;
+            let answer = input.trim().to_lowercase();
+            if answer == "n" || answer == "no" {
+                eprintln!("Aborted.");
+                return Ok(());
+            }
+        }
+    }
+
+    // Create domain checker
+    let checker = DomainChecker::with_config(config.clone());
 
     // Decide on processing mode based on domain count and user preferences
     let use_streaming = should_use_streaming(&args, domains.len());
@@ -808,35 +867,61 @@ async fn get_domains_to_check(
     args: &Args,
     config: &CheckConfig,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let mut domains = Vec::new();
+    let mut base_names = Vec::new();
 
-    // Add domains from command line
-    domains.extend(args.domains.clone());
+    // Step 1: Collect raw inputs from args and file
+    base_names.extend(args.domains.clone());
 
-    // Add domains from file (CLI --file or DC_FILE env var)
     if let Some(cli_file) = &args.file {
-        // CLI --file flag provided
         if args.verbose {
             println!("🔧 Reading domains from file (CLI --file): {}", cli_file);
         }
-
         let file_domains = read_domains_from_file(cli_file).await?;
-        domains.extend(file_domains);
+        base_names.extend(file_domains);
     } else if let Ok(env_file_path) = std::env::var("DC_FILE") {
-        // DC_FILE environment variable provided
         if args.verbose {
             println!(
                 "🔧 Reading domains from file (DC_FILE env var): {}",
                 env_file_path
             );
         }
-
         let file_domains = read_domains_from_file(&env_file_path).await?;
-        domains.extend(file_domains);
+        base_names.extend(file_domains);
     }
 
-    // Use the passed config for TLD expansion (includes env vars and config file TLDs)
-    let expanded_domains = domain_check_lib::expand_domain_inputs(&domains, &config.tlds);
+    // Step 2: Expand patterns into base names
+    if let Some(patterns) = &args.patterns {
+        for pattern in patterns {
+            if args.verbose {
+                let estimate = domain_check_lib::estimate_pattern_count(pattern)?;
+                eprintln!("🔧 Pattern '{}' → ~{} names", pattern, estimate);
+            }
+            let expanded = domain_check_lib::expand_pattern(pattern)?;
+            base_names.extend(expanded);
+        }
+    }
+
+    // Step 3: Apply prefix/suffix permutations
+    if args.prefixes.is_some() || args.suffixes.is_some() {
+        let empty: Vec<String> = Vec::new();
+        let prefixes = args.prefixes.as_deref().unwrap_or(&empty);
+        let suffixes = args.suffixes.as_deref().unwrap_or(&empty);
+
+        if args.verbose {
+            if !prefixes.is_empty() {
+                eprintln!("🔧 Prefixes: {}", prefixes.join(", "));
+            }
+            if !suffixes.is_empty() {
+                eprintln!("🔧 Suffixes: {}", suffixes.join(", "));
+            }
+        }
+
+        base_names =
+            domain_check_lib::apply_affixes(&base_names, prefixes, suffixes, true).collect();
+    }
+
+    // Step 4: TLD expansion (existing, untouched)
+    let expanded_domains = domain_check_lib::expand_domain_inputs(&base_names, &config.tlds);
 
     if expanded_domains.is_empty() {
         return Err("No valid domains found to check".into());
@@ -1046,6 +1131,11 @@ mod tests {
             verbose: false,
             all_tlds: false,
             preset: None,
+            patterns: None,
+            prefixes: None,
+            suffixes: None,
+            dry_run: false,
+            yes: false,
         }
     }
 
