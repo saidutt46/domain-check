@@ -934,6 +934,21 @@ async fn get_domains_to_check(
     Ok(expanded_domains)
 }
 
+/// Load the generation config from config file, respecting --config flag
+fn load_generation_config(args: &Args) -> Option<domain_check_lib::GenerationConfig> {
+    let config_manager = ConfigManager::new(false);
+
+    let file_config = if let Some(explicit_path) = &args.config {
+        config_manager.load_file(explicit_path).ok()
+    } else if let Ok(env_path) = std::env::var("DC_CONFIG") {
+        config_manager.load_file(&env_path).ok()
+    } else {
+        config_manager.discover_and_load().ok()
+    };
+
+    file_config.and_then(|fc| fc.generation)
+}
+
 /// Get effective prefixes: CLI > env var (DC_PREFIX) > config file
 fn get_generation_prefixes(args: &Args) -> Option<Vec<String>> {
     // CLI flags take highest priority
@@ -948,12 +963,9 @@ fn get_generation_prefixes(args: &Args) -> Option<Vec<String>> {
     }
 
     // Fall back to config file
-    let config_manager = ConfigManager::new(false);
-    if let Ok(file_config) = config_manager.discover_and_load() {
-        if let Some(gen) = file_config.generation {
-            if gen.prefixes.is_some() {
-                return gen.prefixes;
-            }
+    if let Some(gen) = load_generation_config(args) {
+        if gen.prefixes.is_some() {
+            return gen.prefixes;
         }
     }
 
@@ -974,12 +986,9 @@ fn get_generation_suffixes(args: &Args) -> Option<Vec<String>> {
     }
 
     // Fall back to config file
-    let config_manager = ConfigManager::new(false);
-    if let Ok(file_config) = config_manager.discover_and_load() {
-        if let Some(gen) = file_config.generation {
-            if gen.suffixes.is_some() {
-                return gen.suffixes;
-            }
+    if let Some(gen) = load_generation_config(args) {
+        if gen.suffixes.is_some() {
+            return gen.suffixes;
         }
     }
 
