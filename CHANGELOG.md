@@ -1,5 +1,73 @@
 # Changelog
 
+## [Unreleased]
+
+### Domain Name Generation Engine (Issue #13)
+
+This release adds pattern-based domain generation, prefix/suffix permutations, and a dry-run preview mode — transforming domain-check's input layer from "check these specific domains" into a self-contained domain lookup primitive. Generation is fast (pure string math), composable with all existing flags, and designed to be agent-friendly.
+
+### Added
+
+#### **Pattern Expansion (`--pattern`)**
+- Wildcard patterns generate base names: `\d` (0-9), `\w` (a-z + hyphen), `?` (alphanumeric + hyphen)
+- Literal characters pass through unchanged
+- Odometer-style expansion: O(1) memory per name, handles large patterns efficiently
+- Invalid patterns produce clear error messages with syntax hints
+
+#### **Prefix/Suffix Permutations (`--prefix`, `--suffix`)**
+- Comma-separated prefixes/suffixes generate all name combinations
+- Bare name included by default (e.g., `app --prefix get` → `getapp`, `app`)
+- Works with patterns, file inputs, and direct domain arguments
+- Invalid combinations (too short, leading/trailing hyphen) automatically filtered
+
+#### **Dry Run (`--dry-run`)**
+- Preview all generated FQDNs without making network requests
+- Supports `--json` for structured output (pipe to `jq`, etc.)
+- Prints domain count to stderr: `"N domains would be checked"`
+
+#### **Interactive Confirmation**
+- Runs of >500 domains prompt for confirmation in interactive terminals
+- `--yes` / `--force` skip the prompt for automation and agents
+- Non-TTY (piped) environments never prompt — agents and scripts are never blocked
+
+#### **Config & Environment Variable Defaults**
+- `[generation]` section in config files: set default `prefixes` and `suffixes`
+- `DC_PREFIX` and `DC_SUFFIX` environment variables for per-session defaults
+- Standard precedence: CLI flags > env vars > config file
+- `--pattern` intentionally excluded from config/env (exploratory, per-invocation input)
+
+#### **Library API (`domain-check-lib`)**
+- New `generate` module with public API: `expand_pattern()`, `apply_affixes()`, `generate_names()`, `estimate_pattern_count()`
+- `GenerateConfig` and `GenerationResult` types for structured generation
+- `GenerationConfig` added to `FileConfig` for config file parsing
+- `InvalidPattern` error variant with user-friendly messages
+
+### Changed
+- `validate_args()` now accepts `--pattern` as an alternative to positional domains
+- `get_domains_to_check()` pipeline: collect → patterns → affixes → TLD expansion
+- `--force` now has real purpose: skips interactive confirmation (same as `--yes`)
+- `EnvConfig` extended with `prefixes` and `suffixes` fields
+
+### Documentation
+- Added "Domain Generation" section to CLI.md with pattern syntax, examples, and config reference
+- Added generation examples to EXAMPLES.md (pattern discovery, AI agent integration, team workflows)
+- Updated README.md: new Key Features, Quick Start examples, Command Reference, and config examples
+- Added `DC_PREFIX` and `DC_SUFFIX` to environment variable reference tables
+
+### Testing
+- 34 new unit tests for generation engine (patterns, affixes, estimates, pipeline, edge cases)
+- 2 new config tests (generation config loading, merge precedence)
+- All existing tests unchanged — zero regressions
+- Total test count: 97 → 132
+
+### Impact
+- Zero new dependencies — pure string manipulation
+- Generation is orthogonal to all existing flags (`--preset`, `--all`, `-t`, `--json`, etc.)
+- Existing commands work unchanged — generation only activates when `--pattern`, `--prefix`, or `--suffix` are used
+- Non-TTY environments (piped, agents, CI) are never blocked by confirmation prompts
+
+---
+
 ## [0.7.0] - 2026-02-13
 
 ### 🎨 Revamped CLI Output (Issue #17)

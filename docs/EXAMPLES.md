@@ -11,6 +11,93 @@ Real-world examples and automation patterns for domain-check in professional env
 - [Data Processing](#data-processing)
 - [Advanced Enterprise Scenarios](#advanced-enterprise-scenarios)
 
+- [Domain Generation](#domain-generation)
+
+---
+
+## Domain Generation
+
+### Pattern-Based Domain Discovery
+
+Find available domains using wildcard patterns — no external tools needed.
+
+```bash
+# Explore all 3-letter .com domains (dry run first to see count)
+domain-check --pattern "\w\w\w" -t com --dry-run 2>&1 | tail -1
+# 19683 domains would be checked
+
+# Actually check a smaller pattern
+domain-check --pattern "go\d" -t com,io --batch --json > go-domains.json
+
+# Find available 4-letter domains starting with "ai"
+domain-check --pattern "ai\w\w" -t com --yes --json | \
+  jq -r '.[] | select(.available==true) | .domain'
+```
+
+### Prefix/Suffix Brand Exploration
+
+```bash
+# Explore branding options for "cloud"
+domain-check cloud --prefix get,my,try,use --suffix hub,ly,app -t com --dry-run
+# 16 domains would be checked
+
+# Check them for real
+domain-check cloud --prefix get,my,try --suffix hub,ly -t com,io --pretty --batch
+```
+
+### AI Agent / Automation Integration
+
+domain-check is designed to be composable with AI agents and automation pipelines:
+
+```bash
+# Non-interactive: --yes skips confirmation, --json gives structured output
+domain-check --pattern "app\d" --prefix get -t com --yes --json | \
+  jq -r '.[] | select(.available==true) | .domain'
+
+# Piped output never prompts (non-TTY detection)
+domain-check --pattern "test\d\d" -t com --json | jq length
+
+# Dry-run for cost estimation before committing
+COUNT=$(domain-check --pattern "x\d\d" --prefix get,my --preset startup --dry-run 2>&1 | \
+  grep "domains would" | grep -o '[0-9]*')
+echo "Would check $COUNT domains"
+
+# Combine with file input + generation
+echo -e "myapp\ncoolsite" > names.txt
+domain-check --file names.txt --prefix get,try --suffix hub -t com --dry-run
+```
+
+### Team Workflow with Config Defaults
+
+Set up persistent generation defaults for your team:
+
+```toml
+# .domain-check.toml (commit to repo)
+[defaults]
+concurrency = 30
+preset = "startup"
+pretty = true
+
+[generation]
+prefixes = ["get", "my", "try"]
+suffixes = ["hub", "app", "ly"]
+```
+
+```bash
+# Every team member automatically gets prefix/suffix expansion
+domain-check newfeature -t com
+# → getnewfeature.com, mynewfeature.com, trynewfeature.com,
+#   newfeaturehub.com, newfeatureapp.com, newfeaturely.com,
+#   newfeature.com
+
+# Override with CLI flags when needed
+domain-check newfeature --prefix super --suffix ai -t com
+# → supernewfeature.com, supernewfeatureai.com, newfeatureai.com, newfeature.com
+
+# Environment variables work too
+DC_PREFIX=cool,hot domain-check mysite -t com --dry-run
+```
+
 ---
 
 ## Developer Workflows

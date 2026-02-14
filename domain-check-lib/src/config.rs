@@ -31,6 +31,10 @@ pub struct FileConfig {
     /// Output formatting preferences
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<OutputConfig>,
+
+    /// Domain generation defaults (prefixes/suffixes)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation: Option<GenerationConfig>,
 }
 
 /// Default configuration values that map to CLI options.
@@ -79,6 +83,18 @@ pub struct MonitoringConfig {
     /// Command to run on changes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notify_command: Option<String>,
+}
+
+/// Domain generation configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GenerationConfig {
+    /// Default prefixes to prepend to domain names
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefixes: Option<Vec<String>>,
+
+    /// Default suffixes to append to domain names
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suffixes: Option<Vec<String>>,
 }
 
 /// Output formatting configuration.
@@ -298,6 +314,20 @@ impl ConfigManager {
             },
             monitoring: higher.monitoring.or(lower.monitoring),
             output: higher.output.or(lower.output),
+            generation: match (lower.generation, higher.generation) {
+                (Some(mut lower_gen), Some(higher_gen)) => {
+                    if higher_gen.prefixes.is_some() {
+                        lower_gen.prefixes = higher_gen.prefixes;
+                    }
+                    if higher_gen.suffixes.is_some() {
+                        lower_gen.suffixes = higher_gen.suffixes;
+                    }
+                    Some(lower_gen)
+                }
+                (None, Some(higher_gen)) => Some(higher_gen),
+                (Some(lower_gen), None) => Some(lower_gen),
+                (None, None) => None,
+            },
         }
     }
 
@@ -380,6 +410,8 @@ pub struct EnvConfig {
     pub csv: Option<bool>,
     pub file: Option<String>,
     pub config: Option<String>,
+    pub prefixes: Option<Vec<String>>,
+    pub suffixes: Option<Vec<String>>,
 }
 
 /// Load configuration from environment variables.
@@ -613,6 +645,36 @@ pub fn load_env_config(verbose: bool) -> EnvConfig {
         }
     }
 
+    // DC_PREFIX - comma-separated prefixes for domain generation
+    if let Ok(prefix_str) = env::var("DC_PREFIX") {
+        let prefixes: Vec<String> = prefix_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !prefixes.is_empty() {
+            env_config.prefixes = Some(prefixes);
+            if verbose {
+                println!("🔧 Using DC_PREFIX={}", prefix_str);
+            }
+        }
+    }
+
+    // DC_SUFFIX - comma-separated suffixes for domain generation
+    if let Ok(suffix_str) = env::var("DC_SUFFIX") {
+        let suffixes: Vec<String> = suffix_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !suffixes.is_empty() {
+            env_config.suffixes = Some(suffixes);
+            if verbose {
+                println!("🔧 Using DC_SUFFIX={}", suffix_str);
+            }
+        }
+    }
+
     env_config
 }
 
@@ -765,5 +827,67 @@ concurrency = 0
         assert_eq!(defaults.concurrency, Some(25)); // Higher wins
         assert_eq!(defaults.preset, Some("startup".to_string())); // Lower preserved
         assert_eq!(defaults.pretty, Some(true)); // Higher wins
+    }
+
+    #[test]
+    fn test_load_generation_config() {
+        let config_content = r#"
+[defaults]
+concurrency = 20
+
+[generation]
+prefixes = ["get", "my"]
+suffixes = ["hub", "ly"]
+"#;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(config_content.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let manager = ConfigManager::new(false);
+        let config = manager.load_file(temp_file.path()).unwrap();
+
+        assert!(config.generation.is_some());
+        let gen = config.generation.unwrap();
+        assert_eq!(
+            gen.prefixes,
+            Some(vec!["get".to_string(), "my".to_string()])
+        );
+        assert_eq!(
+            gen.suffixes,
+            Some(vec!["hub".to_string(), "ly".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_merge_generation_configs() {
+        let manager = ConfigManager::new(false);
+
+        let lower = FileConfig {
+            generation: Some(GenerationConfig {
+                prefixes: Some(vec!["get".to_string()]),
+                suffixes: Some(vec!["hub".to_string()]),
+            }),
+            ..Default::default()
+        };
+
+        let higher = FileConfig {
+            generation: Some(GenerationConfig {
+                prefixes: Some(vec!["my".to_string(), "the".to_string()]),
+                suffixes: None,
+            }),
+            ..Default::default()
+        };
+
+        let merged = manager.merge_configs(lower, higher);
+        let gen = merged.generation.unwrap();
+
+        // Higher prefixes win
+        assert_eq!(
+            gen.prefixes,
+            Some(vec!["my".to_string(), "the".to_string()])
+        );
+        // Lower suffixes preserved (higher didn't set)
+        assert_eq!(gen.suffixes, Some(vec!["hub".to_string()]));
     }
 }

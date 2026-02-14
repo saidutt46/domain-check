@@ -311,3 +311,68 @@ impl From<regex::Error> for DomainCheckError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_invalid_pattern_display() {
+        let err = DomainCheckError::invalid_pattern("test\\x", "unknown escape sequence '\\x'");
+        let msg = format!("{}", err);
+        assert!(msg.contains("test\\x"));
+        assert!(msg.contains("unknown escape sequence"));
+        assert!(msg.contains("\\w")); // hint
+        assert!(msg.contains("\\d")); // hint
+    }
+
+    #[test]
+    fn test_invalid_pattern_not_retryable() {
+        let err = DomainCheckError::invalid_pattern("bad", "reason");
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn test_invalid_pattern_not_available() {
+        let err = DomainCheckError::invalid_pattern("bad", "reason");
+        assert!(!err.indicates_available());
+    }
+
+    #[test]
+    fn test_rdap_404_indicates_available() {
+        let err = DomainCheckError::rdap_with_status("test.com", "not found", 404);
+        assert!(err.indicates_available());
+    }
+
+    #[test]
+    fn test_network_error_is_retryable() {
+        let err = DomainCheckError::network("connection refused");
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn test_timeout_is_retryable() {
+        let err = DomainCheckError::timeout("test", std::time::Duration::from_secs(5));
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn test_config_error_not_retryable() {
+        let err = DomainCheckError::ConfigError {
+            message: "bad config".to_string(),
+        };
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn test_rdap_500_is_retryable() {
+        let err = DomainCheckError::rdap_with_status("test.com", "server error", 500);
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn test_rdap_403_not_retryable() {
+        let err = DomainCheckError::rdap_with_status("test.com", "forbidden", 403);
+        assert!(!err.is_retryable());
+    }
+}

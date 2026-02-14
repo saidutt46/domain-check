@@ -14,11 +14,13 @@
 
 ## Key Features
 
+- **Domain Generation** — pattern expansion (`\w`, `\d`, `?`), prefix/suffix permutations, dry-run preview
 - **Universal Coverage** — check against all 32 TLDs with `--all` or use smart presets
 - **Lightning Fast** — concurrent processing up to 100 domains simultaneously
 - **Beautiful Output** — colored results, progress counters, loading spinner, grouped pretty mode
 - **Multiple Formats** — pretty terminal display, JSON, CSV for automation, detailed info mode
 - **Bulk Processing** — process thousands of domains from files with real-time streaming
+- **Agent-Friendly** — `--yes` skips prompts, non-TTY never blocks, `--dry-run` for previews
 - **Configuration Files** — persistent settings with TOML configs, env vars, and custom presets
 - **Dual Protocol** — RDAP-first with automatic WHOIS fallback for maximum accuracy
 
@@ -50,8 +52,13 @@ domain-check example.com
 # Check multiple TLD variations
 domain-check mystartup -t com,org,net,dev --batch
 
-# Check against ALL 32 known TLDs
-domain-check myapp --all --batch
+# Generate domains with patterns (dry-run to preview)
+domain-check --pattern "app\d" -t com --dry-run
+# app0.com, app1.com, ..., app9.com (10 domains)
+
+# Prefix/suffix permutations
+domain-check myapp --prefix get,try --suffix hub -t com --dry-run
+# getmyapphub.com, getmyapp.com, trymyapphub.com, trymyapp.com, myapphub.com, myapp.com
 
 # Use smart presets (startup, enterprise, country)
 domain-check myapp --preset startup
@@ -97,6 +104,15 @@ domain-check [OPTIONS] [DOMAINS]...
 | `-f, --file <FILE>` | Read domains from file | `-f domains.txt` |
 | `--config <FILE>` | Use specific config file | `--config my-config.toml` |
 
+### Domain Generation
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--pattern <PAT>` | Generate from pattern (`\w`=letter, `\d`=digit, `?`=either) | `--pattern "app\d"` |
+| `--prefix <LIST>` | Prepend prefixes to names | `--prefix get,my,try` |
+| `--suffix <LIST>` | Append suffixes to names | `--suffix hub,ly,app` |
+| `--dry-run` | Preview generated domains, no network | `--dry-run` |
+| `-y, --yes` | Skip confirmation prompts | `--yes` |
+
 ### Output Options
 | Option | Description |
 |--------|-------------|
@@ -136,6 +152,10 @@ bootstrap = true
 [custom_presets]
 my_startup = ["com", "io", "ai", "dev", "app"]
 my_enterprise = ["com", "org", "net", "biz", "info"]
+
+[generation]
+prefixes = ["get", "my"]
+suffixes = ["hub", "ly"]
 ```
 
 Config file locations (checked in order):
@@ -152,11 +172,28 @@ DC_TIMEOUT=10s          # Request timeout
 DC_BOOTSTRAP=true       # Enable IANA bootstrap
 DC_CONFIG=config.toml   # Config file path
 DC_FILE=domains.txt     # Domains file path
+DC_PREFIX=get,my        # Default prefixes for generation
+DC_SUFFIX=hub,ly        # Default suffixes for generation
 ```
 
 ---
 
 ## Examples
+
+### Domain Generation
+```bash
+# Pattern-based: check all "go0" through "go9" domains
+domain-check --pattern "go\d" -t com,io --batch --json
+
+# Prefix/suffix: explore brand variations
+domain-check myapp --prefix get,try --suffix hub,ly -t com --pretty --batch
+
+# Dry-run to preview what will be checked
+domain-check --pattern "ai\d\d" --prefix cool --preset startup --dry-run
+
+# Agent-friendly: no prompts, structured output
+domain-check --pattern "app\d" -t com --yes --json | jq '.[] | select(.available==true)'
+```
 
 ### Automation & CI/CD
 ```bash

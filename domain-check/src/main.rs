@@ -902,10 +902,14 @@ async fn get_domains_to_check(
     }
 
     // Step 3: Apply prefix/suffix permutations
-    if args.prefixes.is_some() || args.suffixes.is_some() {
+    // CLI flags take priority; fall back to config file / env vars
+    let config_prefixes = get_generation_prefixes(args);
+    let config_suffixes = get_generation_suffixes(args);
+
+    if config_prefixes.is_some() || config_suffixes.is_some() {
         let empty: Vec<String> = Vec::new();
-        let prefixes = args.prefixes.as_deref().unwrap_or(&empty);
-        let suffixes = args.suffixes.as_deref().unwrap_or(&empty);
+        let prefixes = config_prefixes.as_deref().unwrap_or(&empty);
+        let suffixes = config_suffixes.as_deref().unwrap_or(&empty);
 
         if args.verbose {
             if !prefixes.is_empty() {
@@ -928,6 +932,58 @@ async fn get_domains_to_check(
     }
 
     Ok(expanded_domains)
+}
+
+/// Get effective prefixes: CLI > env var (DC_PREFIX) > config file
+fn get_generation_prefixes(args: &Args) -> Option<Vec<String>> {
+    // CLI flags take highest priority
+    if args.prefixes.is_some() {
+        return args.prefixes.clone();
+    }
+
+    // Fall back to env var
+    let env_config = load_env_config(false);
+    if env_config.prefixes.is_some() {
+        return env_config.prefixes;
+    }
+
+    // Fall back to config file
+    let config_manager = ConfigManager::new(false);
+    if let Ok(file_config) = config_manager.discover_and_load() {
+        if let Some(gen) = file_config.generation {
+            if gen.prefixes.is_some() {
+                return gen.prefixes;
+            }
+        }
+    }
+
+    None
+}
+
+/// Get effective suffixes: CLI > env var (DC_SUFFIX) > config file
+fn get_generation_suffixes(args: &Args) -> Option<Vec<String>> {
+    // CLI flags take highest priority
+    if args.suffixes.is_some() {
+        return args.suffixes.clone();
+    }
+
+    // Fall back to env var
+    let env_config = load_env_config(false);
+    if env_config.suffixes.is_some() {
+        return env_config.suffixes;
+    }
+
+    // Fall back to config file
+    let config_manager = ConfigManager::new(false);
+    if let Ok(file_config) = config_manager.discover_and_load() {
+        if let Some(gen) = file_config.generation {
+            if gen.suffixes.is_some() {
+                return gen.suffixes;
+            }
+        }
+    }
+
+    None
 }
 
 /// Read domains from a file

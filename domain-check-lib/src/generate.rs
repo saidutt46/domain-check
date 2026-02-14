@@ -578,4 +578,107 @@ mod tests {
         };
         assert!(with_prefix.has_affixes());
     }
+
+    // ── Edge Cases ────────────────────────────────────────────────
+
+    #[test]
+    fn test_multiple_patterns_in_config() {
+        let config = GenerateConfig {
+            patterns: vec!["app\\d".to_string(), "go\\d".to_string()],
+            ..Default::default()
+        };
+        let result = generate_names(&config, &[]).unwrap();
+        assert_eq!(result.names.len(), 20); // 10 + 10
+        assert!(result.names.contains(&"app0".to_string()));
+        assert!(result.names.contains(&"go9".to_string()));
+        assert_eq!(result.estimated_count, 20);
+    }
+
+    #[test]
+    fn test_suffix_producing_trailing_hyphen() {
+        let base = vec!["app".to_string()];
+        let result: Vec<_> = apply_affixes(&base, &[], &["-".to_string()], false).collect();
+        // "app-" ends with hyphen → filtered
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_multiple_base_names_with_affixes() {
+        let base = vec!["app".to_string(), "web".to_string()];
+        let result: Vec<_> = apply_affixes(&base, &["my".to_string()], &[], true).collect();
+        assert!(result.contains(&"myapp".to_string()));
+        assert!(result.contains(&"myweb".to_string()));
+        assert!(result.contains(&"app".to_string()));
+        assert!(result.contains(&"web".to_string()));
+        assert_eq!(result.len(), 4);
+    }
+
+    #[test]
+    fn test_long_literal_pattern() {
+        let names = expand_pattern("superlongdomainname").unwrap();
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0], "superlongdomainname");
+    }
+
+    #[test]
+    fn test_single_question_mark_all_filtered() {
+        // Single `?` produces 37 single-char names → all filtered (< 2 chars)
+        let names = expand_pattern("?").unwrap();
+        assert_eq!(names.len(), 0);
+    }
+
+    #[test]
+    fn test_estimate_overflow_saturation() {
+        // 5 wildcards: 37^5 = 69,343,957 — should not overflow
+        let estimate = estimate_pattern_count("?????").unwrap();
+        assert_eq!(estimate, 37usize.pow(5));
+    }
+
+    #[test]
+    fn test_pattern_all_hyphens_filtered() {
+        // Pattern "\\w\\w" where both are hyphens → "--" starts and ends with hyphen
+        let names = expand_pattern("\\w\\w").unwrap();
+        // "--" filtered (starts/ends with hyphen), but "a-", "-a" also filtered
+        // Valid: only combos where neither first nor last is hyphen
+        // 26 letters * 26 letters + 26 letters * 1 hyphen (middle allowed? no, only 2 chars)
+        // Actually: first can be a-z (26), last can be a-z (26) → 676 valid
+        // Plus first a-z, last hyphen → filtered. First hyphen, last a-z → filtered.
+        assert_eq!(names.len(), 26 * 26); // 676 — only letter+letter combos
+    }
+
+    #[test]
+    fn test_prefix_and_suffix_both_produce_invalid() {
+        // prefix="-" suffix="-" → "-app-" starts and ends with hyphen
+        let base = vec!["app".to_string()];
+        let result: Vec<_> =
+            apply_affixes(&base, &["-".to_string()], &["-".to_string()], false).collect();
+        // "-app-" → invalid, "-app" → invalid, "app-" → invalid
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_empty_base_names_with_affixes() {
+        let base: Vec<String> = vec![];
+        let result: Vec<_> = apply_affixes(&base, &["get".to_string()], &[], true).collect();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_pipeline_multiple_patterns_with_literals_and_affixes() {
+        let config = GenerateConfig {
+            patterns: vec!["x\\d".to_string()],
+            prefixes: vec!["my".to_string()],
+            suffixes: vec![],
+            include_bare: true,
+        };
+        let literals = vec!["app".to_string()];
+        let result = generate_names(&config, &literals).unwrap();
+        // 1 literal + 10 pattern = 11 base names
+        // Each gets: my{name} + {name} = 22
+        assert_eq!(result.names.len(), 22);
+        assert!(result.names.contains(&"myapp".to_string()));
+        assert!(result.names.contains(&"app".to_string()));
+        assert!(result.names.contains(&"myx0".to_string()));
+        assert!(result.names.contains(&"x0".to_string()));
+    }
 }
