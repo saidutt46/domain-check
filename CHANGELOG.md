@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.8.0] - 2026-02-14
 
 ### Domain Name Generation Engine (Issue #13)
 
@@ -55,10 +55,12 @@ This release adds pattern-based domain generation, prefix/suffix permutations, a
 - Added `DC_PREFIX` and `DC_SUFFIX` to environment variable reference tables
 
 ### Testing
-- 34 new unit tests for generation engine (patterns, affixes, estimates, pipeline, edge cases)
+- 42 new unit tests for generation engine (patterns, affixes, estimates, pipeline, edge cases)
+- 9 new error.rs tests (error classification, retryability, availability indicators)
 - 2 new config tests (generation config loading, merge precedence)
+- 26 new CLI integration tests (dry-run, patterns, prefixes, suffixes, config precedence, env vars, backward compat)
 - All existing tests unchanged — zero regressions
-- Total test count: 97 → 132
+- Total test count: 97 → 177
 
 ### Impact
 - Zero new dependencies — pure string manipulation
