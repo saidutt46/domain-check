@@ -47,7 +47,11 @@ pub struct Args {
     pub all_tlds: bool,
 
     /// Use a predefined TLD preset (use --list-presets to see all)
-    #[arg(long = "preset", value_name = "NAME", help_heading = "Domain Selection")]
+    #[arg(
+        long = "preset",
+        value_name = "NAME",
+        help_heading = "Domain Selection"
+    )]
     pub preset: Option<String>,
 
     /// List all available TLD presets and exit
@@ -55,19 +59,39 @@ pub struct Args {
     pub list_presets: bool,
 
     /// Input file with domains (one per line)
-    #[arg(short = 'f', long = "file", value_name = "FILE", help_heading = "Domain Selection")]
+    #[arg(
+        short = 'f',
+        long = "file",
+        value_name = "FILE",
+        help_heading = "Domain Selection"
+    )]
     pub file: Option<String>,
 
     /// Pattern for name generation (\w=letter, \d=digit, ?=either)
-    #[arg(long = "pattern", value_name = "PATTERN", value_delimiter = ',', help_heading = "Domain Generation")]
+    #[arg(
+        long = "pattern",
+        value_name = "PATTERN",
+        value_delimiter = ',',
+        help_heading = "Domain Generation"
+    )]
     pub patterns: Option<Vec<String>>,
 
     /// Prefixes to prepend to domain names (comma-separated)
-    #[arg(long = "prefix", value_name = "PREFIX", value_delimiter = ',', help_heading = "Domain Generation")]
+    #[arg(
+        long = "prefix",
+        value_name = "PREFIX",
+        value_delimiter = ',',
+        help_heading = "Domain Generation"
+    )]
     pub prefixes: Option<Vec<String>>,
 
     /// Suffixes to append to domain names (comma-separated)
-    #[arg(long = "suffix", value_name = "SUFFIX", value_delimiter = ',', help_heading = "Domain Generation")]
+    #[arg(
+        long = "suffix",
+        value_name = "SUFFIX",
+        value_delimiter = ',',
+        help_heading = "Domain Generation"
+    )]
     pub suffixes: Option<Vec<String>>,
 
     /// Preview generated domains without checking availability
@@ -99,7 +123,12 @@ pub struct Args {
     pub streaming: bool,
 
     /// Max concurrent domain checks (default: 20, max: 100)
-    #[arg(short = 'c', long = "concurrency", default_value = "20", help_heading = "Performance")]
+    #[arg(
+        short = 'c',
+        long = "concurrency",
+        default_value = "20",
+        help_heading = "Performance"
+    )]
     pub concurrency: usize,
 
     /// Override the 5000 domain limit for bulk operations
