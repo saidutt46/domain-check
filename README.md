@@ -268,7 +268,7 @@ Building a Rust app? Use `domain-check-lib` directly:
 
 ```toml
 [dependencies]
-domain-check-lib = "0.8.0"
+domain-check-lib = "0.9.0"
 ```
 
 ```rust
