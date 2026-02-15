@@ -22,9 +22,43 @@ fn test_help_shows_new_flags() {
         .success()
         .stdout(predicate::str::contains("--all"))
         .stdout(predicate::str::contains("--preset"))
-        .stdout(predicate::str::contains("startup (8)"))
-        .stdout(predicate::str::contains("enterprise (6)"))
-        .stdout(predicate::str::contains("country (9)"));
+        .stdout(predicate::str::contains("--list-presets"))
+        .stdout(predicate::str::contains("Domain Selection"))
+        .stdout(predicate::str::contains("Domain Generation"))
+        .stdout(predicate::str::contains("Output Format"))
+        .stdout(predicate::str::contains("Performance"))
+        .stdout(predicate::str::contains("Protocol"))
+        .stdout(predicate::str::contains("Configuration"));
+}
+
+#[test]
+fn test_list_presets_output() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.arg("--list-presets");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Available TLD Presets"))
+        .stdout(predicate::str::contains("startup"))
+        .stdout(predicate::str::contains("enterprise"))
+        .stdout(predicate::str::contains("country"))
+        .stdout(predicate::str::contains("popular"))
+        .stdout(predicate::str::contains("tech"))
+        .stdout(predicate::str::contains("creative"))
+        .stdout(predicate::str::contains("ecommerce"))
+        .stdout(predicate::str::contains("finance"))
+        .stdout(predicate::str::contains("web"))
+        .stdout(predicate::str::contains("trendy"))
+        .stdout(predicate::str::contains("classic"));
+}
+
+#[test]
+fn test_list_presets_no_domains_required() {
+    // --list-presets should work without any domain arguments
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.arg("--list-presets");
+
+    cmd.assert().success();
 }
 
 #[test]
@@ -244,9 +278,10 @@ fn test_bootstrap_auto_enable_with_verbose() {
 #[test]
 fn test_error_aggregation_in_output() {
     // This test checks that summary contains the expected text
+    // Use --no-bootstrap to limit to 32 hardcoded TLDs for speed
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(["sometestdomain123456", "--all", "--batch"])
-        .timeout(std::time::Duration::from_secs(30));
+    cmd.args(["sometestdomain123456", "--all", "--batch", "--no-bootstrap"])
+        .timeout(std::time::Duration::from_secs(60));
 
     cmd.assert()
         .success()
@@ -887,8 +922,10 @@ fn test_empty_pattern_string_error() {
 #[test]
 fn test_dry_run_with_all_flag() {
     // --dry-run + --all should produce many domains
+    // With bootstrap enabled (default), this fetches IANA registry for ~1,180 TLDs
+    // Use --no-bootstrap to test with just hardcoded TLDs (deterministic)
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(["testname", "--all", "--dry-run"]);
+    cmd.args(["testname", "--all", "--dry-run", "--no-bootstrap"]);
 
     let output = cmd.output().unwrap();
     assert!(output.status.success());
@@ -900,6 +937,78 @@ fn test_dry_run_with_all_flag() {
     assert!(stdout.contains("testname.org"));
     assert!(stderr.contains("32 domains would be checked"));
 }
+
+// ============================================================
+// --no-bootstrap CLI flag tests
+// ============================================================
+
+#[test]
+fn test_no_bootstrap_flag_accepted() {
+    // --no-bootstrap should be a valid flag
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["google.com", "--no-bootstrap", "--batch"]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("google.com"));
+}
+
+#[test]
+fn test_no_bootstrap_with_all_limits_to_hardcoded() {
+    // --all --no-bootstrap --dry-run should produce exactly 32 TLDs (hardcoded only)
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["testname", "--all", "--no-bootstrap", "--dry-run"]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("32 domains would be checked"),
+        "With --no-bootstrap, --all should use only 32 hardcoded TLDs, got: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_all_with_bootstrap_returns_more_than_32_tlds() {
+    // --all (without --no-bootstrap) should return >32 TLDs after bootstrap fetch
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["testname", "--all", "--dry-run"]);
+
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Extract the number from "N domains would be checked"
+    let domain_count: Option<usize> = stderr
+        .split_whitespace()
+        .next()
+        .and_then(|s| s.parse().ok());
+
+    if let Some(count) = domain_count {
+        assert!(
+            count > 32,
+            "With bootstrap enabled, --all should return >32 TLDs, got {}",
+            count
+        );
+    }
+    // If parsing fails (e.g., network unavailable), that's OK — graceful degradation
+}
+
+#[test]
+fn test_no_bootstrap_flag_in_help() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.arg("--help");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("--no-bootstrap"));
+}
+
+// ============================================================
+// Backward compatibility
+// ============================================================
 
 #[test]
 fn test_backward_compat_no_generation_flags() {

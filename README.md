@@ -14,15 +14,15 @@
 
 ## Key Features
 
+- **Universal TLD Coverage** — check against 1,300+ TLDs with `--all`, powered by IANA bootstrap
 - **Domain Generation** — pattern expansion (`\w`, `\d`, `?`), prefix/suffix permutations, dry-run preview
-- **Universal Coverage** — check against all 32 TLDs with `--all` or use smart presets
 - **Lightning Fast** — concurrent processing up to 100 domains simultaneously
 - **Beautiful Output** — colored results, progress counters, loading spinner, grouped pretty mode
 - **Multiple Formats** — pretty terminal display, JSON, CSV for automation, detailed info mode
 - **Bulk Processing** — process thousands of domains from files with real-time streaming
 - **Agent-Friendly** — `--yes` skips prompts, non-TTY never blocks, `--dry-run` for previews
 - **Configuration Files** — persistent settings with TOML configs, env vars, and custom presets
-- **Dual Protocol** — RDAP-first with automatic WHOIS fallback for maximum accuracy
+- **Dual Protocol** — RDAP-first with intelligent WHOIS fallback via IANA server discovery
 
 ---
 
@@ -60,7 +60,7 @@ domain-check --pattern "app\d" -t com --dry-run
 domain-check myapp --prefix get,try --suffix hub -t com --dry-run
 # getmyapphub.com, getmyapp.com, trymyapphub.com, trymyapp.com, myapphub.com, myapp.com
 
-# Use smart presets (startup, enterprise, country)
+# Use smart presets (11 built-in: startup, popular, tech, creative, and more)
 domain-check myapp --preset startup
 
 # Pretty mode — grouped results with section headers
@@ -99,8 +99,9 @@ domain-check [OPTIONS] [DOMAINS]...
 | Option | Description | Example |
 |--------|-------------|---------|
 | `-t, --tld <TLD>` | Specify TLDs for base names | `-t com,org,io` |
-| `--all` | Check against all 32 known TLDs | `--all` |
-| `--preset <NAME>` | Use TLD preset (startup/enterprise/country) | `--preset startup` |
+| `--all` | Check against all known TLDs (1,300+ with bootstrap) | `--all` |
+| `--preset <NAME>` | Use TLD preset (see [presets](#smart-presets)) | `--preset startup` |
+| `--list-presets` | List all available TLD presets and exit | `--list-presets` |
 | `-f, --file <FILE>` | Read domains from file | `-f domains.txt` |
 | `--config <FILE>` | Use specific config file | `--config my-config.toml` |
 
@@ -127,9 +128,11 @@ domain-check [OPTIONS] [DOMAINS]...
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-c, --concurrency <N>` | Max concurrent checks (1-100) | `20` |
-| `-b, --bootstrap` | Use IANA bootstrap for unknown TLDs | `false` |
+| `--no-bootstrap` | Disable IANA bootstrap discovery | `false` |
 | `--no-whois` | Disable WHOIS fallback | `false` |
 | `-d, --debug` | Show detailed debug information | |
+
+Bootstrap is enabled by default, giving access to 1,300+ TLDs via the IANA RDAP registry. Use `--no-bootstrap` to restrict to the 32 hardcoded TLDs for offline or faster operation.
 
 See the full [CLI Reference](./docs/CLI.md) for all options and advanced usage patterns.
 
@@ -169,7 +172,7 @@ DC_PRESET=startup       # Default preset
 DC_TLD=com,io,dev       # Default TLD list
 DC_PRETTY=true          # Enable pretty output
 DC_TIMEOUT=10s          # Request timeout
-DC_BOOTSTRAP=true       # Enable IANA bootstrap
+DC_BOOTSTRAP=true       # IANA bootstrap (enabled by default)
 DC_CONFIG=config.toml   # Config file path
 DC_FILE=domains.txt     # Domains file path
 DC_PREFIX=get,my        # Default prefixes for generation
@@ -209,7 +212,7 @@ domain-check --file required-domains.txt --json | jq '.[] | select(.available)'
 # Domain research pipeline
 domain-check --file ideas.txt --preset startup --csv > research.csv
 
-# Brand protection monitoring
+# Brand protection — scan across 1,300+ TLDs
 domain-check --file brand-variations.txt --all --json > monitoring.json
 
 # High-concurrency processing
@@ -226,6 +229,36 @@ DC_PRESET=my_startup domain-check mystartup
 ```
 
 See [Advanced Examples](./docs/EXAMPLES.md) for more enterprise workflows.
+
+---
+
+## Smart Presets
+
+11 built-in presets covering the most common domain search scenarios:
+
+| Preset | TLDs | Use Case |
+|--------|------|----------|
+| `startup` | com, org, io, ai, tech, app, dev, xyz | Tech startups and SaaS products |
+| `popular` | com, net, org, io, ai, app, dev, tech, me, co, xyz | All-rounder — most registered extensions |
+| `classic` | com, net, org, info, biz | Legacy gTLDs — the original five |
+| `enterprise` | com, org, net, info, biz, us | Corporate and business use |
+| `tech` | io, ai, app, dev, tech, cloud, software, digital, codes, systems, network, solutions | Developer tools and infrastructure |
+| `creative` | design, art, studio, media, photography, film, music, gallery, graphics, ink | Artists, designers, and media |
+| `ecommerce` | shop, store, market, sale, deals, shopping, buy, bargains | Online stores and retail |
+| `finance` | finance, capital, fund, money, investments, insurance, tax, exchange, trading | Financial services and fintech |
+| `web` | web, site, website, online, blog, page, wiki, host, email | Web services and platforms |
+| `trendy` | xyz, online, site, top, icu, fun, space, click, website, life, world, live, today | Fast-growing new gTLDs |
+| `country` | us, uk, de, fr, ca, au, br, in, nl | Major country codes |
+
+```bash
+# List all available presets
+domain-check --list-presets
+
+domain-check mybrand --preset creative --pretty
+domain-check myshop --preset ecommerce --batch --json
+```
+
+You can also define custom presets in your [config file](#configuration).
 
 ---
 
@@ -265,8 +298,6 @@ See the [Library Documentation](https://docs.rs/domain-check-lib) for streaming,
 - [Library API Docs](https://docs.rs/domain-check-lib)
 - [Advanced Examples](./docs/EXAMPLES.md)
 - [Changelog](./CHANGELOG.md)
-- [Contributing](./CONTRIBUTING.md)
-
 **Crates:** [domain-check](https://crates.io/crates/domain-check) (CLI) | [domain-check-lib](https://crates.io/crates/domain-check-lib) (Library)
 
 ## License

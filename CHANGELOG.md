@@ -1,5 +1,86 @@
 # Changelog
 
+## [0.9.0] - 2026-02-14
+
+### Universal TLD Coverage & CLI Help UX Overhaul
+
+This release transforms domain-check from supporting 32 hardcoded TLDs to covering 1,300+ TLDs across the entire internet — with zero manual maintenance. RDAP endpoints are discovered automatically via the IANA bootstrap registry, and TLDs without RDAP are handled through intelligent WHOIS server discovery. The CLI help output is now colored and grouped by category for easy scanning.
+
+### Added
+
+#### **IANA Bootstrap (Enabled by Default)**
+- Bulk fetch of the IANA RDAP bootstrap registry (`dns.json`) on first use — loads ~1,180 TLD-to-endpoint mappings in a single request
+- 24-hour cache with automatic refresh (up from 1-hour per-TLD caching)
+- Negative cache for TLDs known to have no RDAP endpoint, avoiding repeated lookups
+- `initialize_bootstrap()` public API for pre-warming the cache in library usage
+- Graceful degradation: if the IANA fetch fails, falls back to 32 hardcoded TLDs
+
+#### **WHOIS Server Discovery**
+- Automatic discovery of authoritative WHOIS servers via IANA referral (`whois.iana.org`)
+- Targeted WHOIS queries using `whois -h <server> <domain>` for more accurate results
+- WHOIS server cache to avoid repeated IANA lookups for the same TLD
+- Covers ~189 TLDs that lack RDAP endpoints (especially ccTLDs like .es, .co, .eu, .jp)
+
+#### **8 New TLD Presets (11 Total)**
+- `popular` — all-rounder preset: com, net, org, io, ai, app, dev, tech, me, co, xyz
+- `classic` — legacy gTLDs: com, net, org, info, biz
+- `tech` — developer tools and infrastructure: io, ai, app, dev, tech, cloud, software, digital, codes, systems, network, solutions
+- `creative` — artists, designers, and media: design, art, studio, media, photography, film, music, gallery, graphics, ink
+- `ecommerce` (alias: `shopping`) — online stores and retail: shop, store, market, sale, deals, shopping, buy, bargains
+- `finance` — financial services and fintech: finance, capital, fund, money, investments, insurance, tax, exchange, trading
+- `web` — web services and platforms: web, site, website, online, blog, page, wiki, host, email
+- `trendy` — fast-growing new gTLDs: xyz, online, site, top, icu, fun, space, click, website, life, world, live, today
+- Previously limited to 3 presets (startup, enterprise, country) because only 32 hardcoded TLDs were available — bootstrap removes this constraint
+
+#### **CLI: `--list-presets` Flag**
+- New `--list-presets` flag prints all 11 built-in presets with TLD counts and names, then exits
+- Works without any domain arguments — useful for quick discovery of available presets
+
+#### **CLI: Colored, Grouped `--help` Output**
+- `--help` now uses colored output: yellow headers, green flags, cyan placeholders
+- All flags organized into 6 logical groups: Domain Selection, Domain Generation, Output Format, Performance, Protocol, Configuration
+- Much easier to scan than the previous flat wall of 25+ flags
+
+#### **CLI: `--no-bootstrap` Flag**
+- New `--no-bootstrap` flag to disable bootstrap and restrict to 32 hardcoded TLDs
+- Useful for offline environments, CI with network restrictions, or faster deterministic checks
+
+#### **`--all` with Bootstrap Pre-warming**
+- `--all` now pre-warms the bootstrap cache before checking, giving access to 1,300+ TLDs
+- Previously `--all` was limited to 32 hardcoded TLDs
+
+#### **Library API**
+- `initialize_bootstrap()` — pre-warm the IANA bootstrap cache
+- `get_whois_server(tld)` — discover and cache the authoritative WHOIS server for any TLD
+
+### Changed
+- Bootstrap is now enabled by default in `CheckConfig` (previously `false`)
+- `get_all_known_tlds()` returns the union of hardcoded + bootstrapped TLDs (deduplicated, sorted)
+- WHOIS fallback now discovers the authoritative server before querying, improving accuracy for ccTLDs
+- `--all` mode checks 1,300+ TLDs (up from 32) when bootstrap is enabled
+- `--preset` help text now says "use --list-presets to see all" instead of listing 3 stale presets inline
+
+### Removed
+- **`-b`/`--bootstrap` CLI flag** — was a no-op since bootstrap became the default. Use `--no-bootstrap` to disable.
+
+### Fixed
+- **Batch `check_domains` bug**: all error results were mapped to `domains[0]` instead of their actual domain name — errors now correctly report the domain that failed
+
+### Testing
+- 19 new tests covering bootstrap cache, WHOIS discovery, IANA response parsing, and CLI flags
+- 6 network-dependent integration tests (`#[ignore]`): bulk bootstrap fetch, WHOIS discovery, end-to-end non-hardcoded TLD checks
+- 2 new CLI integration tests for `--list-presets` output and grouped help headings
+- All existing tests pass unchanged — zero regressions
+
+### Impact
+- **1,180+ TLDs** via RDAP (IANA bootstrap)
+- **~189 TLDs** via WHOIS fallback (IANA server discovery)
+- **~1,300+ total** — near-universal coverage
+- **32 TLDs** always work offline (hardcoded fallback)
+- **Zero manual maintenance** — IANA is the source of truth
+
+---
+
 ## [0.8.0] - 2026-02-14
 
 ### Domain Name Generation Engine (Issue #13)

@@ -5,13 +5,23 @@
 
 mod ui;
 
+use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::Parser;
 use console::Term;
-use domain_check_lib::{get_all_known_tlds, get_preset_tlds, get_preset_tlds_with_custom};
+use domain_check_lib::{
+    get_all_known_tlds, get_available_presets, get_preset_tlds, get_preset_tlds_with_custom,
+    initialize_bootstrap,
+};
 use domain_check_lib::{load_env_config, ConfigManager, FileConfig};
 use domain_check_lib::{CheckConfig, DomainChecker};
 use std::io::BufRead;
 use std::process;
+
+const STYLES: Styles = Styles::styled()
+    .header(AnsiColor::Yellow.on_default().effects(Effects::BOLD))
+    .usage(AnsiColor::Yellow.on_default().effects(Effects::BOLD))
+    .literal(AnsiColor::Green.on_default().effects(Effects::BOLD))
+    .placeholder(AnsiColor::Cyan.on_default());
 
 /// CLI arguments for domain-check
 #[derive(Parser, Debug)]
@@ -20,116 +30,134 @@ use std::process;
 #[command(author = "Sai Dutt G.V <gvs46@protonmail.com>")]
 #[command(about = "Check domain availability using RDAP with WHOIS fallback")]
 #[command(
-    long_about = "A fast, robust CLI tool for checking domain availability using RDAP protocol with automatic WHOIS fallback. 
-
-Features real-time progress updates and concurrent processing for multiple domains."
+    long_about = "Check domain availability using RDAP protocol with automatic WHOIS fallback.\n\nSupports concurrent checks, TLD presets, pattern generation, and multiple output formats."
 )]
+#[command(styles = STYLES)]
 pub struct Args {
-    /// Domain names to check (supports both base names and FQDNs)
-    #[arg(value_name = "DOMAINS")]
+    /// Domain names to check (base names or FQDNs)
+    #[arg(value_name = "DOMAINS", help_heading = "Domain Selection")]
     pub domains: Vec<String>,
 
-    /// TLDs to check for base domain names (comma-separated or multiple -t flags)
-    #[arg(short = 't', long = "tld", value_name = "TLD", value_delimiter = ',', action = clap::ArgAction::Append)]
+    /// TLDs to check (comma-separated or multiple -t flags)
+    #[arg(short = 't', long = "tld", value_name = "TLD", value_delimiter = ',', action = clap::ArgAction::Append, help_heading = "Domain Selection")]
     pub tlds: Option<Vec<String>>,
 
     /// Check against all known TLDs
-    #[arg(long = "all", help = "Check against all known TLDs")]
+    #[arg(long = "all", help_heading = "Domain Selection")]
     pub all_tlds: bool,
 
-    /// Use predefined TLD presets
+    /// Use a predefined TLD preset (use --list-presets to see all)
     #[arg(
         long = "preset",
         value_name = "NAME",
-        help = "Use TLD preset:\n  startup (8): com, org, io, ai, tech, app, dev, xyz\n  enterprise (6): com, org, net, info, biz, us\n  country (9): us, uk, de, fr, ca, au, br, in, nl"
+        help_heading = "Domain Selection"
     )]
     pub preset: Option<String>,
 
-    /// Input file with domains to check (one per line)
-    #[arg(short = 'f', long = "file", value_name = "FILE")]
+    /// List all available TLD presets and exit
+    #[arg(long = "list-presets", help_heading = "Domain Selection")]
+    pub list_presets: bool,
+
+    /// Input file with domains (one per line)
+    #[arg(
+        short = 'f',
+        long = "file",
+        value_name = "FILE",
+        help_heading = "Domain Selection"
+    )]
     pub file: Option<String>,
 
-    /// Use specific config file instead of automatic discovery
+    /// Pattern for name generation (\w=letter, \d=digit, ?=either)
     #[arg(
-        long = "config",
-        value_name = "FILE",
-        help = "Use specific config file"
+        long = "pattern",
+        value_name = "PATTERN",
+        value_delimiter = ',',
+        help_heading = "Domain Generation"
     )]
-    pub config: Option<String>,
-
-    /// Max concurrent domain checks (default: 20, max: 100)
-    #[arg(short = 'c', long = "concurrency", default_value = "20")]
-    pub concurrency: usize,
-
-    /// Override the 500 domain limit for bulk operations
-    #[arg(long = "force")]
-    pub force: bool,
-
-    /// Show detailed domain information when available
-    #[arg(short = 'i', long = "info")]
-    pub info: bool,
-
-    /// Use IANA bootstrap to find RDAP endpoints for unknown TLDs
-    #[arg(short = 'b', long = "bootstrap")]
-    pub bootstrap: bool,
-
-    /// Disable automatic WHOIS fallback
-    #[arg(long = "no-whois")]
-    pub no_whois: bool,
-
-    /// Output results in JSON format
-    #[arg(short = 'j', long = "json")]
-    pub json: bool,
-
-    /// Output results in CSV format
-    #[arg(long = "csv")]
-    pub csv: bool,
-
-    /// Enable grouped, structured output with section headers
-    #[arg(short = 'p', long = "pretty")]
-    pub pretty: bool,
-
-    /// Force batch mode (collect all results first)
-    #[arg(
-        long = "batch",
-        help = "Force batch mode - collect all results before displaying"
-    )]
-    pub batch: bool,
-
-    /// Force streaming mode (show results as ready)
-    #[arg(
-        long = "streaming",
-        help = "Force streaming mode - show results as they complete"
-    )]
-    pub streaming: bool,
-
-    /// Show detailed debug information and error messages
-    #[arg(short = 'd', long = "debug")]
-    pub debug: bool,
-
-    /// Verbose logging
-    #[arg(short = 'v', long = "verbose")]
-    pub verbose: bool,
-
-    /// Pattern for domain name generation (\w=letter, \d=digit, ?=either)
-    #[arg(long = "pattern", value_name = "PATTERN", value_delimiter = ',')]
     pub patterns: Option<Vec<String>>,
 
     /// Prefixes to prepend to domain names (comma-separated)
-    #[arg(long = "prefix", value_name = "PREFIX", value_delimiter = ',')]
+    #[arg(
+        long = "prefix",
+        value_name = "PREFIX",
+        value_delimiter = ',',
+        help_heading = "Domain Generation"
+    )]
     pub prefixes: Option<Vec<String>>,
 
     /// Suffixes to append to domain names (comma-separated)
-    #[arg(long = "suffix", value_name = "SUFFIX", value_delimiter = ',')]
+    #[arg(
+        long = "suffix",
+        value_name = "SUFFIX",
+        value_delimiter = ',',
+        help_heading = "Domain Generation"
+    )]
     pub suffixes: Option<Vec<String>>,
 
     /// Preview generated domains without checking availability
-    #[arg(long = "dry-run")]
+    #[arg(long = "dry-run", help_heading = "Domain Generation")]
     pub dry_run: bool,
 
+    /// Output results in JSON format
+    #[arg(short = 'j', long = "json", help_heading = "Output Format")]
+    pub json: bool,
+
+    /// Output results in CSV format
+    #[arg(long = "csv", help_heading = "Output Format")]
+    pub csv: bool,
+
+    /// Enable grouped, structured output with section headers
+    #[arg(short = 'p', long = "pretty", help_heading = "Output Format")]
+    pub pretty: bool,
+
+    /// Show detailed domain information when available
+    #[arg(short = 'i', long = "info", help_heading = "Output Format")]
+    pub info: bool,
+
+    /// Collect all results before displaying
+    #[arg(long = "batch", help_heading = "Output Format")]
+    pub batch: bool,
+
+    /// Show results as they complete
+    #[arg(long = "streaming", help_heading = "Output Format")]
+    pub streaming: bool,
+
+    /// Max concurrent domain checks (default: 20, max: 100)
+    #[arg(
+        short = 'c',
+        long = "concurrency",
+        default_value = "20",
+        help_heading = "Performance"
+    )]
+    pub concurrency: usize,
+
+    /// Override the 5000 domain limit for bulk operations
+    #[arg(long = "force", help_heading = "Performance")]
+    pub force: bool,
+
     /// Skip confirmation prompts (for automation/agents)
-    #[arg(long = "yes", short = 'y')]
+    #[arg(long = "yes", short = 'y', help_heading = "Performance")]
     pub yes: bool,
+
+    /// Disable IANA bootstrap (use only hardcoded TLDs for RDAP)
+    #[arg(long = "no-bootstrap", help_heading = "Protocol")]
+    pub no_bootstrap: bool,
+
+    /// Disable automatic WHOIS fallback
+    #[arg(long = "no-whois", help_heading = "Protocol")]
+    pub no_whois: bool,
+
+    /// Use specific config file instead of automatic discovery
+    #[arg(long = "config", value_name = "FILE", help_heading = "Configuration")]
+    pub config: Option<String>,
+
+    /// Show detailed debug information and error messages
+    #[arg(short = 'd', long = "debug", help_heading = "Configuration")]
+    pub debug: bool,
+
+    /// Verbose logging
+    #[arg(short = 'v', long = "verbose", help_heading = "Configuration")]
+    pub verbose: bool,
 }
 
 /// Error statistics for aggregated reporting
@@ -289,6 +317,12 @@ async fn main() {
         process::exit(1);
     }
 
+    // Handle --list-presets early
+    if args.list_presets {
+        print_presets();
+        return;
+    }
+
     // Set up logging if verbose
     if args.verbose {
         println!(
@@ -306,6 +340,11 @@ async fn main() {
 
 /// Validate command line arguments
 fn validate_args(args: &Args) -> Result<(), String> {
+    // --list-presets is self-contained, skip other validation
+    if args.list_presets {
+        return Ok(());
+    }
+
     // Must have either domains, file, or patterns
     if args.domains.is_empty() && args.file.is_none() && args.patterns.is_none() {
         return Err(
@@ -354,15 +393,64 @@ fn validate_args(args: &Args) -> Result<(), String> {
     Ok(())
 }
 
-/// Determine if bootstrap should be auto-enabled
-fn should_enable_bootstrap(args: &Args, resolved_tlds: &Option<Vec<String>>) -> bool {
-    // --all needs bootstrap for comprehensive coverage
-    args.bootstrap || args.all_tlds || resolved_tlds.as_ref().is_some_and(|tlds| tlds.len() > 20)
-    // Large sets likely need bootstrap
+/// Print all available TLD presets with their TLDs, then exit.
+fn print_presets() {
+    use console::Style;
+
+    let heading = Style::new().yellow().bold();
+    let name_style = Style::new().green().bold();
+    let count_style = Style::new().cyan();
+
+    println!();
+    println!("{}", heading.apply_to("Available TLD Presets:"));
+    println!();
+
+    for preset_name in get_available_presets() {
+        if let Some(tlds) = get_preset_tlds(preset_name) {
+            let tld_list = tlds.join(", ");
+            println!(
+                "  {} {}  {}",
+                name_style.apply_to(format!("{:<12}", preset_name)),
+                count_style.apply_to(format!("({})", tlds.len())),
+                tld_list,
+            );
+        }
+    }
+
+    println!();
+    println!("Use: domain-check <name> --preset <preset>");
+}
+
+/// Determine if bootstrap should be enabled.
+///
+/// Bootstrap is now enabled by default. It can be disabled with `--no-bootstrap`.
+fn should_enable_bootstrap(args: &Args, _resolved_tlds: &Option<Vec<String>>) -> bool {
+    if args.no_bootstrap {
+        return false;
+    }
+    // Bootstrap is enabled by default; --bootstrap flag is now a no-op
+    true
 }
 
 /// Main domain checking logic
 async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    // Pre-warm bootstrap cache if --all mode is requested (so get_all_known_tlds()
+    // returns the full ~1,180 TLDs from IANA, not just the 32 hardcoded ones)
+    if args.all_tlds && !args.no_bootstrap {
+        if args.verbose {
+            println!("Fetching IANA bootstrap registry for full TLD coverage...");
+        }
+        if let Err(e) = initialize_bootstrap().await {
+            if args.verbose {
+                eprintln!(
+                    "Warning: Bootstrap fetch failed ({}), using hardcoded TLDs",
+                    e
+                );
+            }
+            // Graceful degradation: continue with hardcoded 32 TLDs
+        }
+    }
+
     // Build configuration from CLI args
     let config = build_config(&args)?;
 
@@ -387,7 +475,7 @@ async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Erro
     }
 
     // Interactive confirmation for large runs (TTY only)
-    if domains.len() > 500 && !args.force && !args.yes {
+    if domains.len() > 5000 && !args.force && !args.yes {
         let term = Term::stderr();
         if term.is_term() {
             let estimated_secs = (domains.len() as f64 / config.concurrency as f64) * 1.0;
@@ -836,7 +924,7 @@ fn apply_cli_args_to_config(
     // Otherwise keep TLDs from environment or config file (already applied)
 
     // Bootstrap logic with environment consideration
-    config.enable_bootstrap = should_enable_bootstrap(args, &config.tlds) || args.bootstrap;
+    config.enable_bootstrap = should_enable_bootstrap(args, &config.tlds);
 
     Ok(config)
 }
@@ -1185,8 +1273,8 @@ mod tests {
             concurrency: 20,
             force: false,
             info: false,
-            bootstrap: false,
             no_whois: false,
+            no_bootstrap: false,
             json: false,
             csv: false,
             pretty: false,
@@ -1196,6 +1284,7 @@ mod tests {
             verbose: false,
             all_tlds: false,
             preset: None,
+            list_presets: false,
             patterns: None,
             prefixes: None,
             suffixes: None,
@@ -1205,21 +1294,20 @@ mod tests {
     }
 
     #[test]
-    fn test_should_enable_bootstrap_large_tld_set() {
-        // Test auto-bootstrap with large TLD sets
+    fn test_should_enable_bootstrap_default() {
+        // Bootstrap is now enabled by default
         let args = create_test_args();
-        let large_tld_set = Some((0..25).map(|i| format!("tld{}", i)).collect());
-
-        assert!(should_enable_bootstrap(&args, &large_tld_set));
+        let tlds = Some(vec!["com".to_string(), "org".to_string()]);
+        assert!(should_enable_bootstrap(&args, &tlds));
     }
 
     #[test]
-    fn test_should_enable_bootstrap_small_set() {
-        // Test no auto-bootstrap with small TLD sets
-        let args = create_test_args();
-        let small_tld_set = Some(vec!["com".to_string(), "org".to_string()]);
-
-        assert!(!should_enable_bootstrap(&args, &small_tld_set));
+    fn test_should_disable_bootstrap_with_flag() {
+        // --no-bootstrap disables it
+        let mut args = create_test_args();
+        args.no_bootstrap = true;
+        let tlds = Some(vec!["com".to_string(), "org".to_string()]);
+        assert!(!should_enable_bootstrap(&args, &tlds));
     }
 
     #[test]

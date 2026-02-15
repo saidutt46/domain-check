@@ -163,7 +163,7 @@ impl Default for CheckConfig {
             concurrency: 20,
             timeout: Duration::from_secs(5),
             enable_whois_fallback: true,
-            enable_bootstrap: false,
+            enable_bootstrap: true,
             detailed_info: false,
             tlds: None, // Will default to ["com"] when needed
             rdap_timeout: Duration::from_secs(3),
