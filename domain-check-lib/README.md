@@ -7,6 +7,8 @@
 [![Downloads](https://img.shields.io/crates/d/domain-check-lib.svg)](https://crates.io/crates/domain-check-lib)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
+Note: docs.rs shows the latest published crate version and can lag this repository's `main` branch.
+
 ## Quick Start
 
 ```toml

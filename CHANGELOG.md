@@ -249,8 +249,8 @@ This release introduces comprehensive configuration management, transforming dom
 ### 🎉 Added
 
 #### **Configuration File Support**
-- **TOML configuration files**: Create `.domain-check.toml` for persistent settings
-- **Multi-location discovery**: Local (`./.domain-check.toml`), global (`~/.domain-check.toml`), and XDG (`~/.config/domain-check/config.toml`)
+- **TOML configuration files**: Create `domain-check.toml` for persistent settings
+- **Multi-location discovery**: Local (`./domain-check.toml`), global (`~/.domain-check.toml`), and XDG (`~/.config/domain-check/config.toml`)
 - **Hierarchical precedence**: CLI args > environment variables > local config > global config > XDG config > defaults
 - **Comprehensive validation**: Clear error messages for invalid configuration values
 - **--config flag**: Specify custom configuration file locations
@@ -290,7 +290,7 @@ This release introduces comprehensive configuration management, transforming dom
 
 #### Basic Configuration File
 ```toml
-# .domain-check.toml
+# domain-check.toml
 [defaults]
 concurrency = 25
 preset = "startup"
@@ -375,7 +375,7 @@ domain-check --concurrency 25 --preset startup --pretty anotherdomain
 echo '[defaults]
 concurrency = 25
 preset = "startup"
-pretty = true' > .domain-check.toml
+pretty = true' > domain-check.toml
 # Now simple commands use your preferences
 domain-check mystartup
 domain-check anotherdomain
@@ -384,7 +384,7 @@ domain-check anotherdomain
 This release addresses the most requested workflow improvements: persistent configuration and reduced command repetition. The configuration system transforms domain-check from a basic CLI tool into a comprehensive domain management platform suitable for individual developers, teams, and enterprise automation.
 
 
-## [0.5.1] - 2024-06-24
+## [0.5.1] - 2025-06-24
 
 ### 🚀 Distribution & Licensing Updates
 

@@ -60,7 +60,7 @@ Domain-check supports persistent configuration through TOML files. This eliminat
 #### Basic Configuration Example
 
 ```toml
-# .domain-check.toml
+# domain-check.toml
 [defaults]
 concurrency = 25
 preset = "startup"
@@ -102,7 +102,7 @@ domain-check mystartup --preset my_startup
 Settings are resolved in this order (highest to lowest):
 1. **CLI arguments** (explicit user input)
 2. **Environment variables** (DC_*)
-3. **Local config** (./.domain-check.toml)
+3. **Local config** (./domain-check.toml, or ./.domain-check.toml)
 4. **Global config** (~/.domain-check.toml)
 5. **XDG config** (~/.config/domain-check/config.toml)
 6. **Built-in defaults**
@@ -327,7 +327,7 @@ domain-check example.museum
 Create reusable TLD combinations in your configuration file:
 
 ```toml
-# .domain-check.toml
+# domain-check.toml
 [custom_presets]
 my_startup = ["com", "io", "ai", "dev", "app", "tech"]
 my_crypto = ["com", "org", "crypto", "blockchain", "web3"]
@@ -373,7 +373,7 @@ a progress counter for multi-domain checks, and a colored summary bar.
 ### Pretty Output
 ```bash
 domain-check rustcloud --preset startup --pretty --batch
-# domain-check v0.7.0 — Checking 8 domains
+# domain-check v0.9.0 — Checking 8 domains
 # Preset: startup | Concurrency: 20
 #
 # ── Available (3) ──────────────────────────────
@@ -665,7 +665,7 @@ domain-check --pattern "test\d" -t com --json | jq '.'
 Prefixes and suffixes can be set as persistent defaults:
 
 ```toml
-# .domain-check.toml
+# domain-check.toml
 [generation]
 prefixes = ["get", "my"]
 suffixes = ["hub", "ly"]
@@ -766,7 +766,7 @@ domain-check --pattern "app\d" --prefix get,my -t com --yes --json | \
 # Brand variations with prefixes/suffixes
 domain-check mybrand --prefix get,try,use --suffix app,hub,io -t com --dry-run
 
-# Config-driven generation (uses .domain-check.toml prefixes/suffixes)
+# Config-driven generation (uses domain-check.toml prefixes/suffixes)
 domain-check myapp -t com,io
 ```
 

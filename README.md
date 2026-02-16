@@ -69,7 +69,7 @@ domain-check rustcloud --preset startup --pretty --batch
 
 **Pretty mode output:**
 ```
-domain-check v0.7.0 — Checking 8 domains
+domain-check v0.9.0 — Checking 8 domains
 Preset: startup | Concurrency: 20
 
 ── Available (3) ──────────────────────────────
@@ -142,7 +142,7 @@ See the full [CLI Reference](./docs/CLI.md) for all options and advanced usage p
 
 ### Config Files
 
-Create a `.domain-check.toml` to set persistent defaults:
+Create a `domain-check.toml` to set persistent defaults:
 
 ```toml
 [defaults]
@@ -221,7 +221,7 @@ domain-check --file large-list.txt --concurrency 75 --streaming
 
 ### Custom Presets
 ```bash
-# Define presets in .domain-check.toml, then use them
+# Define presets in domain-check.toml, then use them
 domain-check mystartup --preset my_startup
 
 # Or via environment variable
@@ -289,6 +289,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 See the [Library Documentation](https://docs.rs/domain-check-lib) for streaming, bulk processing, and configuration APIs.
+Note: docs.rs tracks the latest published crate release and may lag this repository's `main` branch.
 
 ---
 
