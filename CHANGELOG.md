@@ -1,10 +1,29 @@
 # Changelog
 
+## [0.9.1] - 2026-02-17
+
+### Documentation Overhaul
+
+This patch release focuses on documentation quality, structure, and discoverability to better reflect domain-check as a mature CLI + library project.
+
+### Added
+- New `CONTRIBUTING.md` with setup, workflow, and contribution standards
+- New `SECURITY.md` with reporting policy and supported-version guidance
+- New `docs/README.md` documentation index
+- New `docs/FAQ.md` for troubleshooting and common usage questions
+- New `docs/AUTOMATION.md` for CI/CD and machine-readable workflows
+
+### Changed
+- Reworked `README.md` into a cleaner landing page with stronger product framing
+- Improved cross-linking between README, CLI reference, examples, FAQ, and automation docs
+- Updated key docs wording from `1,300+` to `1,200+` TLD coverage for consistency
+- Normalized examples and formatting across docs to match current CLI output style
+
 ## [0.9.0] - 2026-02-14
 
 ### Universal TLD Coverage & CLI Help UX Overhaul
 
-This release transforms domain-check from supporting 32 hardcoded TLDs to covering 1,300+ TLDs across the entire internet — with zero manual maintenance. RDAP endpoints are discovered automatically via the IANA bootstrap registry, and TLDs without RDAP are handled through intelligent WHOIS server discovery. The CLI help output is now colored and grouped by category for easy scanning.
+This release transforms domain-check from supporting 32 hardcoded TLDs to covering 1,200+ TLDs across the entire internet — with zero manual maintenance. RDAP endpoints are discovered automatically via the IANA bootstrap registry, and TLDs without RDAP are handled through intelligent WHOIS server discovery. The CLI help output is now colored and grouped by category for easy scanning.
 
 ### Added
 
@@ -46,7 +65,7 @@ This release transforms domain-check from supporting 32 hardcoded TLDs to coveri
 - Useful for offline environments, CI with network restrictions, or faster deterministic checks
 
 #### **`--all` with Bootstrap Pre-warming**
-- `--all` now pre-warms the bootstrap cache before checking, giving access to 1,300+ TLDs
+- `--all` now pre-warms the bootstrap cache before checking, giving access to 1,200+ TLDs
 - Previously `--all` was limited to 32 hardcoded TLDs
 
 #### **Library API**
@@ -57,7 +76,7 @@ This release transforms domain-check from supporting 32 hardcoded TLDs to coveri
 - Bootstrap is now enabled by default in `CheckConfig` (previously `false`)
 - `get_all_known_tlds()` returns the union of hardcoded + bootstrapped TLDs (deduplicated, sorted)
 - WHOIS fallback now discovers the authoritative server before querying, improving accuracy for ccTLDs
-- `--all` mode checks 1,300+ TLDs (up from 32) when bootstrap is enabled
+- `--all` mode checks 1,200+ TLDs (up from 32) when bootstrap is enabled
 - `--preset` help text now says "use --list-presets to see all" instead of listing 3 stale presets inline
 
 ### Removed
@@ -75,7 +94,7 @@ This release transforms domain-check from supporting 32 hardcoded TLDs to coveri
 ### Impact
 - **1,180+ TLDs** via RDAP (IANA bootstrap)
 - **~189 TLDs** via WHOIS fallback (IANA server discovery)
-- **~1,300+ total** — near-universal coverage
+- **~1,200+ total** — near-universal coverage
 - **32 TLDs** always work offline (hardcoded fallback)
 - **Zero manual maintenance** — IANA is the source of truth
 

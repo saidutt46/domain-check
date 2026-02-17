@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - **Pure Async Rust** — built with tokio for high performance
 - **Dual Protocol** — RDAP-first with intelligent WHOIS fallback via IANA server discovery
-- **1,300+ TLDs** — universal coverage via IANA bootstrap, with 32 hardcoded TLDs as offline fallback
+- **1,200+ TLDs** — universal coverage via IANA bootstrap, with 32 hardcoded TLDs as offline fallback
 - **Concurrent Processing** — check multiple domains simultaneously
 - **Robust Error Handling** — comprehensive error types with recovery
 - **Detailed Information** — extract registrar, dates, and status codes
@@ -143,7 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Pre-warm the IANA bootstrap cache for full TLD coverage
     initialize_bootstrap().await?;
 
-    // Get all known TLDs (1,300+ after bootstrap, 32 hardcoded offline)
+    // Get all known TLDs (1,200+ after bootstrap, 32 hardcoded offline)
     let all_tlds = get_all_known_tlds();
     println!("Loaded {} TLDs", all_tlds.len());
 
@@ -228,7 +228,7 @@ use domain_check_lib::{initialize_bootstrap, get_whois_server};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load 1,300+ TLDs from the IANA RDAP bootstrap registry
+    // Load 1,200+ TLDs from the IANA RDAP bootstrap registry
     initialize_bootstrap().await?;
 
     // Discover authoritative WHOIS servers for any TLD via IANA referral
@@ -256,6 +256,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - **CLI Tool**: [`domain-check`](https://crates.io/crates/domain-check) — command-line interface
 - **Repository**: [GitHub](https://github.com/saidutt46/domain-check)
+- **Docs Index**: [`docs/README.md`](../docs/README.md)
+- **Automation Guide**: [`docs/AUTOMATION.md`](../docs/AUTOMATION.md)
+- **FAQ**: [`docs/FAQ.md`](../docs/FAQ.md)
 
 ## License
 
@@ -263,4 +266,4 @@ Apache License, Version 2.0 — see the [LICENSE](../LICENSE) file for details.
 
 ## Contributing
 
-Contributions welcome! Open an issue or pull request on [GitHub](https://github.com/saidutt46/domain-check).
+Contributions welcome. See [`CONTRIBUTING.md`](../CONTRIBUTING.md) for setup and workflow.

@@ -2,6 +2,8 @@
 
 Complete guide to using the `domain-check` command-line tool.
 
+Related docs: [README](../README.md) | [Automation Guide](./AUTOMATION.md) | [FAQ](./FAQ.md) | [Examples](./EXAMPLES.md)
+
 ## Table of Contents
 
 - [Basic Usage](#basic-usage)
@@ -161,7 +163,7 @@ DC_CONFIG=team-config.toml domain-check mystartup
 |------|-------------|---------|
 | `<DOMAINS>...` | Domain names to check | `domain-check example.com google.com` |
 | `-t, --tld <TLD>` | Specify TLDs for base names | `domain-check startup -t com,org,io` |
-| `--all` | Check against all known TLDs (1,300+ with bootstrap) | `domain-check myapp --all` |
+| `--all` | Check against all known TLDs (1,200+ with bootstrap) | `domain-check myapp --all` |
 | `--preset <NAME>` | Use TLD preset (11 built-in or custom) | `domain-check myapp --preset startup` |
 | `--list-presets` | List all available TLD presets and exit | `domain-check --list-presets` |
 | `-f, --file <FILE>` | Read domains from file | `domain-check --file domains.txt` |
@@ -174,7 +176,7 @@ DC_CONFIG=team-config.toml domain-check mystartup
 | Flag | Description | Example |
 |------|-------------|---------|
 | `-t, --tld <TLD>` | Specify TLDs for base names | `domain-check startup -t com,org,io` |
-| `--all` | Check against all known TLDs (1,300+ with bootstrap) | `domain-check myapp --all` |
+| `--all` | Check against all known TLDs (1,200+ with bootstrap) | `domain-check myapp --all` |
 | `--preset <NAME>` | Use TLD preset (11 built-in or custom) | `domain-check myapp --preset startup` |
 | `--list-presets` | List all available TLD presets and exit | `domain-check --list-presets` |
 
@@ -298,10 +300,10 @@ domain-check mysite --preset country
 
 ### Universal TLD Checking
 
-With bootstrap enabled (the default), `--all` checks against 1,300+ TLDs — virtually every TLD on the internet.
+With bootstrap enabled (the default), `--all` checks against 1,200+ TLDs — virtually every TLD on the internet.
 
 ```bash
-# Check against all known TLDs (1,300+ with bootstrap)
+# Check against all known TLDs (1,200+ with bootstrap)
 domain-check myapp --all
 # Fetches the IANA RDAP registry, then checks across all discovered TLDs
 

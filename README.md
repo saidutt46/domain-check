@@ -1,6 +1,6 @@
 # domain-check
 
-**Fast, powerful CLI tool for checking domain availability using RDAP and WHOIS protocols.**
+Universal domain exploration engine: fast domain availability checks across the internet, as both a CLI and Rust library.
 
 [![Homebrew](https://img.shields.io/badge/Homebrew-available-brightgreen)](https://github.com/saidutt46/homebrew-domain-check)
 [![CLI Crate](https://img.shields.io/crates/v/domain-check.svg?label=CLI)](https://crates.io/crates/domain-check)
@@ -12,63 +12,49 @@
   <img src="./assets/demo.svg" alt="domain-check demo" width="700"/>
 </p>
 
-## Key Features
+Quick Links: [Installation](#installation) | [Quick Start](#quick-start) | [Why domain-check](#why-domain-check) | [Configuration](#configuration) | [Automation](#automation--ci) | [Presets](#smart-presets) | [Library](#library) | [FAQ](./docs/FAQ.md) | [Contributing](./CONTRIBUTING.md)
 
-- **Universal TLD Coverage** — check against 1,300+ TLDs with `--all`, powered by IANA bootstrap
-- **Domain Generation** — pattern expansion (`\w`, `\d`, `?`), prefix/suffix permutations, dry-run preview
-- **Lightning Fast** — concurrent processing up to 100 domains simultaneously
-- **Beautiful Output** — colored results, progress counters, loading spinner, grouped pretty mode
-- **Multiple Formats** — pretty terminal display, JSON, CSV for automation, detailed info mode
-- **Bulk Processing** — process thousands of domains from files with real-time streaming
-- **Agent-Friendly** — `--yes` skips prompts, non-TTY never blocks, `--dry-run` for previews
-- **Configuration Files** — persistent settings with TOML configs, env vars, and custom presets
-- **Dual Protocol** — RDAP-first with intelligent WHOIS fallback via IANA server discovery
+## Why domain-check
 
----
+- **Broad TLD coverage**: check across `1200+` known TLDs with `--all` (bootstrap enabled by default).
+- **Dual-protocol engine**: RDAP-first with intelligent WHOIS fallback and IANA-based discovery.
+- **Fast and scalable**: concurrent checks up to 100 domains at a time, with streaming or batch output modes.
+- **Domain generation built in**: pattern expansion (`\w`, `\d`, `?`), prefix/suffix permutations, dry-run previews.
+- **Strong UX for humans**: grouped pretty output, progress indicators, summaries, and detailed domain metadata.
+- **Automation-ready output**: JSON/CSV modes, non-TTY-safe behavior, and explicit non-interactive flags.
+- **Configurable workflows**: config files, environment variables, custom presets, and deterministic CI setups.
+- **CLI + library ecosystem**: same core capabilities available in both `domain-check` and `domain-check-lib`.
 
 ## Installation
 
-### Homebrew (macOS)
-```bash
-brew install domain-check
-```
-
-### Cargo (All Platforms)
-```bash
-cargo install domain-check
-```
-
-### Pre-built Binaries
-Download from [GitHub Releases](https://github.com/saidutt46/domain-check/releases) — available for macOS, Linux, and Windows.
-
----
+| Method | Command | Notes |
+|---|---|---|
+| Homebrew (macOS) | `brew install domain-check` | Easiest install for macOS users |
+| Cargo | `cargo install domain-check` | Works on all Rust-supported platforms |
+| GitHub Releases | [Download binaries](https://github.com/saidutt46/domain-check/releases) | Prebuilt binaries for macOS/Linux/Windows |
 
 ## Quick Start
 
 ```bash
-# Check a single domain
+# Check one fully qualified domain
 domain-check example.com
 
-# Check multiple TLD variations
-domain-check mystartup -t com,org,net,dev --batch
+# Expand base name across TLDs
+domain-check mystartup -t com,org,io,dev --batch
 
-# Generate domains with patterns (dry-run to preview)
-domain-check --pattern "app\d" -t com --dry-run
-# app0.com, app1.com, ..., app9.com (10 domains)
-
-# Prefix/suffix permutations
-domain-check myapp --prefix get,try --suffix hub -t com --dry-run
-# getmyapphub.com, getmyapp.com, trymyapphub.com, trymyapp.com, myapphub.com, myapp.com
-
-# Use smart presets (11 built-in: startup, popular, tech, creative, and more)
+# Use curated TLD groups
 domain-check myapp --preset startup
 
-# Pretty mode — grouped results with section headers
-domain-check rustcloud --preset startup --pretty --batch
+# Generate names from a pattern (preview only)
+domain-check --pattern "app\d" -t com --dry-run
+
+# Check every known TLD (bootstrap-enabled)
+domain-check brand --all --batch
 ```
 
-**Pretty mode output:**
-```
+Expected pretty output shape:
+
+```text
 domain-check v0.9.0 — Checking 8 domains
 Preset: startup | Concurrency: 20
 
@@ -87,62 +73,25 @@ Preset: startup | Concurrency: 20
 8 domains in 0.8s  |  3 available  |  5 taken  |  0 unknown
 ```
 
----
+## Core Command Surface
 
-## Command Reference
-
-```
+```text
 domain-check [OPTIONS] [DOMAINS]...
 ```
 
-### Core Options
-| Option | Description | Example |
-|--------|-------------|---------|
-| `-t, --tld <TLD>` | Specify TLDs for base names | `-t com,org,io` |
-| `--all` | Check against all known TLDs (1,300+ with bootstrap) | `--all` |
-| `--preset <NAME>` | Use TLD preset (see [presets](#smart-presets)) | `--preset startup` |
-| `--list-presets` | List all available TLD presets and exit | `--list-presets` |
-| `-f, --file <FILE>` | Read domains from file | `-f domains.txt` |
-| `--config <FILE>` | Use specific config file | `--config my-config.toml` |
+| Category | Key flags |
+|---|---|
+| Domain selection | `-t, --tld`, `--all`, `--preset`, `--list-presets`, `-f, --file` |
+| Generation | `--pattern`, `--prefix`, `--suffix`, `--dry-run`, `-y, --yes` |
+| Output | `-p, --pretty`, `-j, --json`, `--csv`, `-i, --info`, `--streaming`, `--batch` |
+| Performance/protocol | `-c, --concurrency`, `--no-bootstrap`, `--no-whois`, `-d, --debug` |
+| Config | `--config` |
 
-### Domain Generation
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--pattern <PAT>` | Generate from pattern (`\w`=letter, `\d`=digit, `?`=either) | `--pattern "app\d"` |
-| `--prefix <LIST>` | Prepend prefixes to names | `--prefix get,my,try` |
-| `--suffix <LIST>` | Append suffixes to names | `--suffix hub,ly,app` |
-| `--dry-run` | Preview generated domains, no network | `--dry-run` |
-| `-y, --yes` | Skip confirmation prompts | `--yes` |
-
-### Output Options
-| Option | Description |
-|--------|-------------|
-| `-p, --pretty` | Grouped, structured output with section headers |
-| `-j, --json` | JSON format |
-| `--csv` | CSV format |
-| `-i, --info` | Show detailed domain info (registrar, dates) |
-| `--streaming` | Show results as they complete |
-| `--batch` | Collect all results before displaying |
-
-### Performance & Protocol
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-c, --concurrency <N>` | Max concurrent checks (1-100) | `20` |
-| `--no-bootstrap` | Disable IANA bootstrap discovery | `false` |
-| `--no-whois` | Disable WHOIS fallback | `false` |
-| `-d, --debug` | Show detailed debug information | |
-
-Bootstrap is enabled by default, giving access to 1,300+ TLDs via the IANA RDAP registry. Use `--no-bootstrap` to restrict to the 32 hardcoded TLDs for offline or faster operation.
-
-See the full [CLI Reference](./docs/CLI.md) for all options and advanced usage patterns.
-
----
+Full reference: [docs/CLI.md](./docs/CLI.md)
 
 ## Configuration
 
-### Config Files
-
-Create a `domain-check.toml` to set persistent defaults:
+Create `domain-check.toml` in your project directory:
 
 ```toml
 [defaults]
@@ -154,117 +103,67 @@ bootstrap = true
 
 [custom_presets]
 my_startup = ["com", "io", "ai", "dev", "app"]
-my_enterprise = ["com", "org", "net", "biz", "info"]
 
 [generation]
 prefixes = ["get", "my"]
 suffixes = ["hub", "ly"]
 ```
 
-Config file locations (checked in order):
+Config lookup order:
 `./domain-check.toml` > `~/.domain-check.toml` > `~/.config/domain-check/config.toml`
 
-### Environment Variables
+Common environment variables:
 
 ```bash
-DC_CONCURRENCY=50       # Default concurrency
-DC_PRESET=startup       # Default preset
-DC_TLD=com,io,dev       # Default TLD list
-DC_PRETTY=true          # Enable pretty output
-DC_TIMEOUT=10s          # Request timeout
-DC_BOOTSTRAP=true       # IANA bootstrap (enabled by default)
-DC_CONFIG=config.toml   # Config file path
-DC_FILE=domains.txt     # Domains file path
-DC_PREFIX=get,my        # Default prefixes for generation
-DC_SUFFIX=hub,ly        # Default suffixes for generation
+DC_CONCURRENCY=50
+DC_PRESET=startup
+DC_TLD=com,io,dev
+DC_PRETTY=true
+DC_TIMEOUT=10s
+DC_BOOTSTRAP=true
+DC_CONFIG=config.toml
+DC_FILE=domains.txt
+DC_PREFIX=get,my
+DC_SUFFIX=hub,ly
 ```
 
----
+## Automation & CI
 
-## Examples
-
-### Domain Generation
 ```bash
-# Pattern-based: check all "go0" through "go9" domains
-domain-check --pattern "go\d" -t com,io --batch --json
+# Non-interactive structured output
+domain-check --file required-domains.txt --json
 
-# Prefix/suffix: explore brand variations
-domain-check myapp --prefix get,try --suffix hub,ly -t com --pretty --batch
-
-# Dry-run to preview what will be checked
-domain-check --pattern "ai\d\d" --prefix cool --preset startup --dry-run
-
-# Agent-friendly: no prompts, structured output
+# Pipe to jq
 domain-check --pattern "app\d" -t com --yes --json | jq '.[] | select(.available==true)'
-```
 
-### Automation & CI/CD
-```bash
-# Environment-driven configuration
-DC_CONCURRENCY=50 DC_PRESET=enterprise domain-check --file domains.txt --json
-
-# Pipe JSON results for downstream processing
-domain-check --file required-domains.txt --json | jq '.[] | select(.available)'
-```
-
-### Bulk Workflows
-```bash
-# Domain research pipeline
-domain-check --file ideas.txt --preset startup --csv > research.csv
-
-# Brand protection — scan across 1,300+ TLDs
-domain-check --file brand-variations.txt --all --json > monitoring.json
-
-# High-concurrency processing
+# Stream live results for long runs
 domain-check --file large-list.txt --concurrency 75 --streaming
 ```
 
-### Custom Presets
-```bash
-# Define presets in domain-check.toml, then use them
-domain-check mystartup --preset my_startup
-
-# Or via environment variable
-DC_PRESET=my_startup domain-check mystartup
-```
-
-See [Advanced Examples](./docs/EXAMPLES.md) for more enterprise workflows.
-
----
+Automation guide: [docs/AUTOMATION.md](./docs/AUTOMATION.md)
 
 ## Smart Presets
 
-11 built-in presets covering the most common domain search scenarios:
-
-| Preset | TLDs | Use Case |
-|--------|------|----------|
-| `startup` | com, org, io, ai, tech, app, dev, xyz | Tech startups and SaaS products |
-| `popular` | com, net, org, io, ai, app, dev, tech, me, co, xyz | All-rounder — most registered extensions |
-| `classic` | com, net, org, info, biz | Legacy gTLDs — the original five |
-| `enterprise` | com, org, net, info, biz, us | Corporate and business use |
-| `tech` | io, ai, app, dev, tech, cloud, software, digital, codes, systems, network, solutions | Developer tools and infrastructure |
-| `creative` | design, art, studio, media, photography, film, music, gallery, graphics, ink | Artists, designers, and media |
-| `ecommerce` | shop, store, market, sale, deals, shopping, buy, bargains | Online stores and retail |
-| `finance` | finance, capital, fund, money, investments, insurance, tax, exchange, trading | Financial services and fintech |
-| `web` | web, site, website, online, blog, page, wiki, host, email | Web services and platforms |
-| `trendy` | xyz, online, site, top, icu, fun, space, click, website, life, world, live, today | Fast-growing new gTLDs |
-| `country` | us, uk, de, fr, ca, au, br, in, nl | Major country codes |
+Built-in presets: `startup`, `popular`, `classic`, `enterprise`, `tech`, `creative`, `ecommerce`, `finance`, `web`, `trendy`, `country`.
 
 ```bash
-# List all available presets
 domain-check --list-presets
-
 domain-check mybrand --preset creative --pretty
 domain-check myshop --preset ecommerce --batch --json
 ```
 
-You can also define custom presets in your [config file](#configuration).
+## Reliability Notes
 
----
+- Domain status is network- and registry-dependent. Temporary errors can produce `UNKNOWN` states.
+- WHOIS output is less standardized than RDAP; parsing quality varies by registry.
+- For repeatable CI workflows, pin behavior with explicit flags (`--batch`, `--json`, `--no-bootstrap`, `--concurrency`).
+- docs.rs reflects the latest published crate release and can lag repository `main`.
+
+Troubleshooting and expected edge cases: [docs/FAQ.md](./docs/FAQ.md)
 
 ## Library
 
-Building a Rust app? Use `domain-check-lib` directly:
+Use `domain-check-lib` directly in Rust projects:
 
 ```toml
 [dependencies]
@@ -278,29 +177,24 @@ use domain_check_lib::DomainChecker;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let checker = DomainChecker::new();
     let result = checker.check_domain("example.com").await?;
-
-    match result.available {
-        Some(true) => println!("{} is AVAILABLE", result.domain),
-        Some(false) => println!("{} is TAKEN", result.domain),
-        None => println!("{} is UNKNOWN", result.domain),
-    }
+    println!("{} -> {:?}", result.domain, result.available);
     Ok(())
 }
 ```
 
-See the [Library Documentation](https://docs.rs/domain-check-lib) for streaming, bulk processing, and configuration APIs.
-Note: docs.rs tracks the latest published crate release and may lag this repository's `main` branch.
+Library docs: [domain-check-lib/README.md](./domain-check-lib/README.md) | [docs.rs](https://docs.rs/domain-check-lib)
 
----
+## Project Docs
 
-## Resources
-
-- [CLI Reference & Examples](./docs/CLI.md)
-- [Library API Docs](https://docs.rs/domain-check-lib)
-- [Advanced Examples](./docs/EXAMPLES.md)
-- [Changelog](./CHANGELOG.md)
-**Crates:** [domain-check](https://crates.io/crates/domain-check) (CLI) | [domain-check-lib](https://crates.io/crates/domain-check-lib) (Library)
+- CLI reference: [docs/CLI.md](./docs/CLI.md)
+- Docs index: [docs/README.md](./docs/README.md)
+- Examples and workflows: [docs/EXAMPLES.md](./docs/EXAMPLES.md)
+- Automation usage: [docs/AUTOMATION.md](./docs/AUTOMATION.md)
+- FAQ: [docs/FAQ.md](./docs/FAQ.md)
+- Changelog: [CHANGELOG.md](./CHANGELOG.md)
+- Contributing: [CONTRIBUTING.md](./CONTRIBUTING.md)
+- Security policy: [SECURITY.md](./SECURITY.md)
 
 ## License
 
-Licensed under the Apache License, Version 2.0 — see the [LICENSE](LICENSE) file for details.
+Licensed under the Apache License, Version 2.0. See [LICENSE](./LICENSE).
