@@ -13,7 +13,7 @@ Note: docs.rs shows the latest published crate version and can lag this reposito
 
 ```toml
 [dependencies]
-domain-check-lib = "0.9.0"
+domain-check-lib = "0.9.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
