@@ -19,6 +19,7 @@ target/
 
 # Local development files
 CLAUDE.md
+aagent.md
 BLUEPRINT.md
 dev-doc.md
 

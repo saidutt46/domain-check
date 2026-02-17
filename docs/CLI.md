@@ -2,6 +2,8 @@
 
 Complete guide to using the `domain-check` command-line tool.
 
+Related docs: [README](../README.md) | [Automation Guide](./AUTOMATION.md) | [FAQ](./FAQ.md) | [Examples](./EXAMPLES.md)
+
 ## Table of Contents
 
 - [Basic Usage](#basic-usage)
@@ -60,7 +62,7 @@ Domain-check supports persistent configuration through TOML files. This eliminat
 #### Basic Configuration Example
 
 ```toml
-# .domain-check.toml
+# domain-check.toml
 [defaults]
 concurrency = 25
 preset = "startup"
@@ -102,7 +104,7 @@ domain-check mystartup --preset my_startup
 Settings are resolved in this order (highest to lowest):
 1. **CLI arguments** (explicit user input)
 2. **Environment variables** (DC_*)
-3. **Local config** (./.domain-check.toml)
+3. **Local config** (./domain-check.toml, or ./.domain-check.toml)
 4. **Global config** (~/.domain-check.toml)
 5. **XDG config** (~/.config/domain-check/config.toml)
 6. **Built-in defaults**
@@ -161,7 +163,7 @@ DC_CONFIG=team-config.toml domain-check mystartup
 |------|-------------|---------|
 | `<DOMAINS>...` | Domain names to check | `domain-check example.com google.com` |
 | `-t, --tld <TLD>` | Specify TLDs for base names | `domain-check startup -t com,org,io` |
-| `--all` | Check against all known TLDs (1,300+ with bootstrap) | `domain-check myapp --all` |
+| `--all` | Check against all known TLDs (1,200+ with bootstrap) | `domain-check myapp --all` |
 | `--preset <NAME>` | Use TLD preset (11 built-in or custom) | `domain-check myapp --preset startup` |
 | `--list-presets` | List all available TLD presets and exit | `domain-check --list-presets` |
 | `-f, --file <FILE>` | Read domains from file | `domain-check --file domains.txt` |
@@ -174,7 +176,7 @@ DC_CONFIG=team-config.toml domain-check mystartup
 | Flag | Description | Example |
 |------|-------------|---------|
 | `-t, --tld <TLD>` | Specify TLDs for base names | `domain-check startup -t com,org,io` |
-| `--all` | Check against all known TLDs (1,300+ with bootstrap) | `domain-check myapp --all` |
+| `--all` | Check against all known TLDs (1,200+ with bootstrap) | `domain-check myapp --all` |
 | `--preset <NAME>` | Use TLD preset (11 built-in or custom) | `domain-check myapp --preset startup` |
 | `--list-presets` | List all available TLD presets and exit | `domain-check --list-presets` |
 
@@ -298,10 +300,10 @@ domain-check mysite --preset country
 
 ### Universal TLD Checking
 
-With bootstrap enabled (the default), `--all` checks against 1,300+ TLDs — virtually every TLD on the internet.
+With bootstrap enabled (the default), `--all` checks against 1,200+ TLDs — virtually every TLD on the internet.
 
 ```bash
-# Check against all known TLDs (1,300+ with bootstrap)
+# Check against all known TLDs (1,200+ with bootstrap)
 domain-check myapp --all
 # Fetches the IANA RDAP registry, then checks across all discovered TLDs
 
@@ -327,7 +329,7 @@ domain-check example.museum
 Create reusable TLD combinations in your configuration file:
 
 ```toml
-# .domain-check.toml
+# domain-check.toml
 [custom_presets]
 my_startup = ["com", "io", "ai", "dev", "app", "tech"]
 my_crypto = ["com", "org", "crypto", "blockchain", "web3"]
@@ -373,7 +375,7 @@ a progress counter for multi-domain checks, and a colored summary bar.
 ### Pretty Output
 ```bash
 domain-check rustcloud --preset startup --pretty --batch
-# domain-check v0.7.0 — Checking 8 domains
+# domain-check v0.9.0 — Checking 8 domains
 # Preset: startup | Concurrency: 20
 #
 # ── Available (3) ──────────────────────────────
@@ -665,7 +667,7 @@ domain-check --pattern "test\d" -t com --json | jq '.'
 Prefixes and suffixes can be set as persistent defaults:
 
 ```toml
-# .domain-check.toml
+# domain-check.toml
 [generation]
 prefixes = ["get", "my"]
 suffixes = ["hub", "ly"]
@@ -766,7 +768,7 @@ domain-check --pattern "app\d" --prefix get,my -t com --yes --json | \
 # Brand variations with prefixes/suffixes
 domain-check mybrand --prefix get,try,use --suffix app,hub,io -t com --dry-run
 
-# Config-driven generation (uses .domain-check.toml prefixes/suffixes)
+# Config-driven generation (uses domain-check.toml prefixes/suffixes)
 domain-check myapp -t com,io
 ```
 

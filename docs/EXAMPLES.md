@@ -2,6 +2,8 @@
 
 Real-world examples and automation patterns for domain-check in professional environments.
 
+Related docs: [README](../README.md) | [CLI Reference](./CLI.md) | [Automation Guide](./AUTOMATION.md) | [FAQ](./FAQ.md)
+
 ## Table of Contents
 
 - [Developer Workflows](#developer-workflows)
@@ -10,7 +12,6 @@ Real-world examples and automation patterns for domain-check in professional env
 - [CI/CD Integration](#cicd-integration)
 - [Data Processing](#data-processing)
 - [Advanced Enterprise Scenarios](#advanced-enterprise-scenarios)
-
 - [Domain Generation](#domain-generation)
 
 ---
@@ -72,7 +73,7 @@ domain-check --file names.txt --prefix get,try --suffix hub -t com --dry-run
 Set up persistent generation defaults for your team:
 
 ```toml
-# .domain-check.toml (commit to repo)
+# domain-check.toml (commit to repo)
 [defaults]
 concurrency = 30
 preset = "startup"
@@ -109,10 +110,10 @@ Every developer needs to check domain availability when starting new projects. H
 ```bash
 # 1. Check your project name across essential TLDs
 domain-check myawesomeapp --preset startup --pretty
-# 🔴 myawesomeapp.com is TAKEN
-# 🟢 myawesomeapp.io is AVAILABLE  
-# 🟢 myawesomeapp.dev is AVAILABLE
-# 🟢 myawesomeapp.app is AVAILABLE
+# myawesomeapp.com TAKEN
+# myawesomeapp.io AVAILABLE
+# myawesomeapp.dev AVAILABLE
+# myawesomeapp.app AVAILABLE
 
 # 2. Check variations if the main name is taken
 echo "myawesomeapp
@@ -129,9 +130,9 @@ Before buying domains, verify they're actually available and get detailed info.
 ```bash
 # 1. Verify specific domains you want to buy
 domain-check myapp.com myapp.io myapp.dev --info --pretty
-# 🔴 myapp.com is TAKEN (Registrar: GoDaddy, Expires: 2025-12-15)
-# 🟢 myapp.io is AVAILABLE
-# 🟢 myapp.dev is AVAILABLE
+# myapp.com TAKEN (Registrar: GoDaddy, Expires: 2025-12-15)
+# myapp.io AVAILABLE
+# myapp.dev AVAILABLE
 
 # 2. Export results for decision making
 domain-check myapp.com myapp.io myapp.dev --info --csv > purchase-decision.csv
@@ -626,7 +627,7 @@ done
 
 ## Universal TLD Coverage
 
-With bootstrap enabled by default, domain-check can check domains across 1,300+ TLDs — virtually every TLD on the internet.
+With bootstrap enabled by default, domain-check can check domains across 1,200+ TLDs — virtually every TLD on the internet.
 
 ### Full TLD Scan
 
