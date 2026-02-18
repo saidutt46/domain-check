@@ -160,153 +160,6 @@ pub struct Args {
     pub verbose: bool,
 }
 
-/// Error statistics for aggregated reporting
-#[derive(Debug, Default)]
-pub(crate) struct ErrorStats {
-    pub(crate) timeouts: Vec<String>,
-    pub(crate) network_errors: Vec<String>,
-    pub(crate) parsing_errors: Vec<String>,
-    pub(crate) unknown_tld_errors: Vec<String>,
-    pub(crate) other_errors: Vec<String>,
-}
-
-impl ErrorStats {
-    fn add_error(&mut self, domain: &str, error: &domain_check_lib::DomainCheckError) {
-        match error {
-            domain_check_lib::DomainCheckError::Timeout { .. } => {
-                self.timeouts.push(domain.to_string()); // Full domain name
-            }
-            domain_check_lib::DomainCheckError::NetworkError { .. } => {
-                self.network_errors.push(domain.to_string());
-            }
-            domain_check_lib::DomainCheckError::ParseError { .. } => {
-                self.parsing_errors.push(domain.to_string());
-            }
-            domain_check_lib::DomainCheckError::BootstrapError { .. } => {
-                self.unknown_tld_errors.push(domain.to_string());
-            }
-            domain_check_lib::DomainCheckError::RdapError { .. } => {
-                self.other_errors.push(domain.to_string());
-            }
-            domain_check_lib::DomainCheckError::WhoisError { .. } => {
-                self.other_errors.push(domain.to_string());
-            }
-            _ => {
-                self.other_errors.push(domain.to_string());
-            }
-        }
-    }
-
-    fn has_errors(&self) -> bool {
-        !self.timeouts.is_empty()
-            || !self.network_errors.is_empty()
-            || !self.parsing_errors.is_empty()
-            || !self.unknown_tld_errors.is_empty()
-            || !self.other_errors.is_empty()
-    }
-
-    #[cfg(test)]
-    fn format_summary(&self, args: &Args) -> String {
-        if !self.has_errors() {
-            return String::new();
-        }
-
-        let mut summary = vec!["⚠️  Some domains could not be checked:".to_string()];
-
-        // Helper function to format domain list with smart truncation
-        let format_domain_list = |domains: &[String], max_show: usize| -> String {
-            if domains.len() <= max_show {
-                domains.join(", ")
-            } else {
-                let shown = &domains[..max_show];
-                let remaining = domains.len() - max_show;
-                format!("{}, ... and {} more", shown.join(", "), remaining)
-            }
-        };
-
-        if !self.timeouts.is_empty() {
-            let domain_list = format_domain_list(&self.timeouts, 5); // Show max 5, then "and X more"
-            summary.push(format!(
-                "• {} timeouts: {}",
-                self.timeouts.len(),
-                domain_list
-            ));
-        }
-
-        if !self.network_errors.is_empty() {
-            let domain_list = format_domain_list(&self.network_errors, 5);
-            summary.push(format!(
-                "• {} network errors: {}",
-                self.network_errors.len(),
-                domain_list
-            ));
-        }
-
-        if !self.parsing_errors.is_empty() {
-            let domain_list = format_domain_list(&self.parsing_errors, 5);
-            summary.push(format!(
-                "• {} parsing errors: {}",
-                self.parsing_errors.len(),
-                domain_list
-            ));
-        }
-
-        if !self.unknown_tld_errors.is_empty() {
-            let domain_list = format_domain_list(&self.unknown_tld_errors, 5);
-            summary.push(format!(
-                "• {} unknown TLD errors: {}",
-                self.unknown_tld_errors.len(),
-                domain_list
-            ));
-        }
-
-        if !self.other_errors.is_empty() {
-            let domain_list = format_domain_list(&self.other_errors, 5);
-            summary.push(format!(
-                "• {} other errors: {}",
-                self.other_errors.len(),
-                domain_list
-            ));
-        }
-
-        // Add retry information in debug mode
-        if args.debug && self.has_errors() {
-            summary.push("• All errors attempted WHOIS fallback where possible".to_string());
-        }
-
-        summary.join("\n")
-    }
-}
-
-// HELPER FUNCTION to categorize errors from error messages
-fn categorize_error_from_message(error_msg: &str) -> domain_check_lib::DomainCheckError {
-    let msg_lower = error_msg.to_lowercase();
-
-    if msg_lower.contains("timeout") || msg_lower.contains("timed out") {
-        domain_check_lib::DomainCheckError::timeout(
-            "domain check",
-            std::time::Duration::from_secs(3),
-        )
-    } else if msg_lower.contains("network")
-        || msg_lower.contains("dns")
-        || msg_lower.contains("connect")
-    {
-        domain_check_lib::DomainCheckError::network("network error")
-    } else if msg_lower.contains("parse") || msg_lower.contains("json") {
-        domain_check_lib::DomainCheckError::ParseError {
-            message: "parsing error".to_string(),
-            content: None,
-        }
-    } else if msg_lower.contains("unknown")
-        || msg_lower.contains("tld")
-        || msg_lower.contains("bootstrap")
-    {
-        domain_check_lib::DomainCheckError::bootstrap("unknown", "unknown TLD")
-    } else {
-        domain_check_lib::DomainCheckError::internal("other error")
-    }
-}
-
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
@@ -336,6 +189,11 @@ async fn main() {
         eprintln!("Error: {}", e);
         process::exit(1);
     }
+
+    // Force immediate exit to avoid hanging on reqwest's connection pool cleanup.
+    // Without this, background tokio tasks from reqwest's HTTP client keep the
+    // runtime alive for several seconds after all work is done.
+    process::exit(0);
 }
 
 /// Validate command line arguments
@@ -578,7 +436,6 @@ async fn run_streaming_check(
     let mut taken_count = 0;
     let mut unknown_count = 0;
     let mut results = Vec::new();
-    let mut error_stats = ErrorStats::default();
     let mut completed = 0usize;
     let total = domains.len();
 
@@ -615,10 +472,6 @@ async fn run_streaming_check(
             Some(false) => taken_count += 1,
             None => {
                 unknown_count += 1;
-                if let Some(error_msg) = &domain_result.error_message {
-                    let mock_error = categorize_error_from_message(error_msg);
-                    error_stats.add_error(&domain_result.domain, &mock_error);
-                }
             }
         }
 
@@ -650,10 +503,6 @@ async fn run_streaming_check(
             unknown_count,
             duration,
         );
-        if error_stats.has_errors() {
-            println!();
-            ui::print_error_summary(&error_stats, args);
-        }
     }
 
     Ok(())
@@ -1308,99 +1157,6 @@ mod tests {
         args.no_bootstrap = true;
         let tlds = Some(vec!["com".to_string(), "org".to_string()]);
         assert!(!should_enable_bootstrap(&args, &tlds));
-    }
-
-    #[test]
-    fn test_categorize_error_from_message() {
-        // Test timeout error categorization
-        let timeout_error = categorize_error_from_message("Operation timed out after 3s");
-        assert!(matches!(
-            timeout_error,
-            domain_check_lib::DomainCheckError::Timeout { .. }
-        ));
-
-        // Test network error categorization
-        let network_error = categorize_error_from_message("dns error: failed to lookup");
-        assert!(matches!(
-            network_error,
-            domain_check_lib::DomainCheckError::NetworkError { .. }
-        ));
-
-        // Test parsing error categorization
-        let parse_error = categorize_error_from_message("Failed to parse JSON response");
-        assert!(matches!(
-            parse_error,
-            domain_check_lib::DomainCheckError::ParseError { .. }
-        ));
-
-        // Test bootstrap error categorization
-        let bootstrap_error = categorize_error_from_message("Unknown TLD not supported");
-        assert!(matches!(
-            bootstrap_error,
-            domain_check_lib::DomainCheckError::BootstrapError { .. }
-        ));
-    }
-
-    #[test]
-    fn test_error_stats_aggregation() {
-        let mut stats = ErrorStats::default();
-
-        // Add different types of errors
-        let timeout_error =
-            domain_check_lib::DomainCheckError::timeout("test", std::time::Duration::from_secs(3));
-        let network_error = domain_check_lib::DomainCheckError::network("network failure");
-
-        stats.add_error("example.com", &timeout_error);
-        stats.add_error("test.org", &network_error);
-        stats.add_error("another.com", &timeout_error);
-
-        // Verify aggregation
-        assert_eq!(stats.timeouts.len(), 2);
-        assert_eq!(stats.network_errors.len(), 1);
-        assert!(stats.has_errors());
-
-        // Verify domains are stored correctly
-        assert!(stats.timeouts.contains(&"example.com".to_string()));
-        assert!(stats.timeouts.contains(&"another.com".to_string()));
-        assert!(stats.network_errors.contains(&"test.org".to_string()));
-    }
-
-    #[test]
-    fn test_error_stats_format_summary() {
-        let mut stats = ErrorStats::default();
-        let args = create_test_args();
-
-        // Test empty stats
-        assert_eq!(stats.format_summary(&args), "");
-
-        // Add some errors
-        let timeout_error =
-            domain_check_lib::DomainCheckError::timeout("test", std::time::Duration::from_secs(3));
-        stats.add_error("example.com", &timeout_error);
-        stats.add_error("test.org", &timeout_error);
-
-        let summary = stats.format_summary(&args);
-        assert!(summary.contains("⚠️  Some domains could not be checked:"));
-        assert!(summary.contains("2 timeouts:"));
-        assert!(summary.contains("example.com"));
-        assert!(summary.contains("test.org"));
-    }
-
-    #[test]
-    fn test_error_stats_truncation() {
-        let mut stats = ErrorStats::default();
-        let args = create_test_args();
-
-        // Add more than 5 errors to test truncation
-        let timeout_error =
-            domain_check_lib::DomainCheckError::timeout("test", std::time::Duration::from_secs(3));
-        for i in 0..8 {
-            stats.add_error(&format!("domain{}.com", i), &timeout_error);
-        }
-
-        let summary = stats.format_summary(&args);
-        assert!(summary.contains("8 timeouts:"));
-        assert!(summary.contains("... and 3 more")); // Should truncate after 5
     }
 
     // validation tests to include required domains

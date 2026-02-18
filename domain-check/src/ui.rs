@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{Args, ErrorStats};
+use crate::Args;
 
 // ── Spinner ──────────────────────────────────────────────────────────────────
 
@@ -366,101 +366,6 @@ pub fn print_summary(
         style("|").dim(),
         style(format!("{} unknown", unknown)).yellow(),
     );
-}
-
-// ── Error summary ────────────────────────────────────────────────────────────
-
-/// Print a categorized error summary using colors.
-pub fn print_error_summary(error_stats: &ErrorStats, args: &Args) {
-    if !error_stats.has_errors() {
-        return;
-    }
-
-    println!("  {}", style("Some domains could not be checked:").yellow());
-
-    let format_list = |domains: &[String], max_show: usize| -> String {
-        if domains.len() <= max_show {
-            domains.join(", ")
-        } else {
-            let shown = &domains[..max_show];
-            let remaining = domains.len() - max_show;
-            format!("{}, ... and {} more", shown.join(", "), remaining)
-        }
-    };
-
-    if !error_stats.timeouts.is_empty() {
-        println!(
-            "  {} {} timeout{}: {}",
-            style("•").dim(),
-            error_stats.timeouts.len(),
-            if error_stats.timeouts.len() == 1 {
-                ""
-            } else {
-                "s"
-            },
-            format_list(&error_stats.timeouts, 5),
-        );
-    }
-    if !error_stats.network_errors.is_empty() {
-        println!(
-            "  {} {} network error{}: {}",
-            style("•").dim(),
-            error_stats.network_errors.len(),
-            if error_stats.network_errors.len() == 1 {
-                ""
-            } else {
-                "s"
-            },
-            format_list(&error_stats.network_errors, 5),
-        );
-    }
-    if !error_stats.parsing_errors.is_empty() {
-        println!(
-            "  {} {} parsing error{}: {}",
-            style("•").dim(),
-            error_stats.parsing_errors.len(),
-            if error_stats.parsing_errors.len() == 1 {
-                ""
-            } else {
-                "s"
-            },
-            format_list(&error_stats.parsing_errors, 5),
-        );
-    }
-    if !error_stats.unknown_tld_errors.is_empty() {
-        println!(
-            "  {} {} unknown TLD error{}: {}",
-            style("•").dim(),
-            error_stats.unknown_tld_errors.len(),
-            if error_stats.unknown_tld_errors.len() == 1 {
-                ""
-            } else {
-                "s"
-            },
-            format_list(&error_stats.unknown_tld_errors, 5),
-        );
-    }
-    if !error_stats.other_errors.is_empty() {
-        println!(
-            "  {} {} other error{}: {}",
-            style("•").dim(),
-            error_stats.other_errors.len(),
-            if error_stats.other_errors.len() == 1 {
-                ""
-            } else {
-                "s"
-            },
-            format_list(&error_stats.other_errors, 5),
-        );
-    }
-
-    if args.debug && error_stats.has_errors() {
-        println!(
-            "  {} {}",
-            style("•").dim(),
-            style("All errors attempted WHOIS fallback where possible").dim(),
-        );
-    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
