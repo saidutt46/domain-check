@@ -397,7 +397,7 @@ async fn run_streaming_check(
     args: &Args,
     tlds: &Option<Vec<String>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use futures::StreamExt;
+    use futures_util::StreamExt;
 
     // Show initial progress message
     if args.pretty {
@@ -461,7 +461,7 @@ async fn run_streaming_check(
 
     // Use buffer_unordered to maintain concurrency while preserving domain context
     let mut stream =
-        futures::stream::iter(domain_futures).buffer_unordered(checker.config().concurrency);
+        futures_util::stream::iter(domain_futures).buffer_unordered(checker.config().concurrency);
 
     // Process results as they complete
     while let Some(domain_result) = stream.next().await {

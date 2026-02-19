@@ -8,7 +8,7 @@ use crate::protocols::registry::{extract_tld, get_whois_server};
 use crate::protocols::{RdapClient, WhoisClient};
 use crate::types::{CheckConfig, CheckMethod, DomainResult};
 use crate::utils::validate_domain;
-use futures::stream::{Stream, StreamExt};
+use futures_util::stream::{Stream, StreamExt};
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -419,7 +419,7 @@ impl DomainChecker {
     ///
     /// ```rust,no_run
     /// use domain_check_lib::DomainChecker;
-    /// use futures::StreamExt;
+    /// use futures_util::StreamExt;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -444,7 +444,7 @@ impl DomainChecker {
         let semaphore = Arc::new(Semaphore::new(self.config.concurrency));
 
         // Create stream of futures
-        let stream = futures::stream::iter(domains)
+        let stream = futures_util::stream::iter(domains)
             .map(move |domain| {
                 let semaphore = Arc::clone(&semaphore);
                 let rdap_client = self.rdap_client.clone();

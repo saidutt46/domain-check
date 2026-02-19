@@ -48,7 +48,7 @@ serde_json = { workspace = true }
 toml = { workspace = true }
 
 # Async utilities for streaming
-futures = { workspace = true }
+futures-util = { workspace = true }
 
 # Development dependencies
 [dev-dependencies]
