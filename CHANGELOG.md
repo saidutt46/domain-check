@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased]
+
+### Custom Help Screen & Binary Size Optimization
+
+This release overhauls the CLI help experience and dramatically reduces the release binary size through dependency cleanup and build optimizations.
+
+### Changed
+
+#### **Custom `--help` Screen**
+- Replaced clap's default help renderer with a fully custom help screen
+- ASCII art banner (figlet `standard` font) in cyan bold
+- Compact one-liner flag table organized into 7 sections: Domain Selection, Domain Generation, Output Format, Performance, Protocol, Configuration, General
+- Usage patterns with colored `domain-check` command name
+- Example commands section with green syntax highlighting
+- Modern color palette: cyan flags, magenta section headers, dim descriptions
+- `--version` still handled natively by clap
+
+#### **Binary Size: 6.2 MB → 2.8 MB (55% reduction)**
+- Added release profile: LTO, single codegen unit, symbol stripping, abort-on-panic
+- Removed unused `regex` dependency (eliminated 4 crates: regex, regex-automata, regex-syntax, aho-corasick)
+- Narrowed tokio features from `"full"` to only what's used (rt, rt-multi-thread, time, sync, macros, process, io-util)
+- Replaced `futures` meta-crate with `futures-util` (only StreamExt and stream::iter were used)
+- Removed unused `toml` dependency from CLI crate (config parsing is in the library)
+- Replaced `lazy_static` with `std::sync::OnceLock` (stable since Rust 1.70, our MSRV)
+
+### Removed
+- `domain-check/src/main.rs.old` — 52 KB of dead legacy code
+- `regex` dependency from both crates (only a dead `From<regex::Error>` impl existed)
+- `lazy_static` dependency (replaced with stdlib)
+- `futures` meta-crate (replaced with `futures-util`)
+- Clap styling imports and custom `STYLES` constant (superseded by custom help)
+
+### Fixed
+- `--pattern` help text now correctly documents all 3 wildcards: `\w=letter`, `\d=digit`, `?=either` (was missing `?=either`)
+
+---
+
 ## [0.9.1] - 2026-02-17
 
 ### Documentation Overhaul
