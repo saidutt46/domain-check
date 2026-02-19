@@ -42,9 +42,6 @@ serde_json = { workspace = true }
 # Configuration file parsing
 toml = { workspace = true }
 
-# Global state management for registry cache
-lazy_static = { workspace = true }
-
 # Development dependencies (for testing)
 [dev-dependencies]
 tokio-test = { workspace = true }

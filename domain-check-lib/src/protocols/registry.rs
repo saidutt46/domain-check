@@ -5,7 +5,7 @@
 
 use crate::error::DomainCheckError;
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// Bootstrap registry cache for discovered RDAP endpoints and WHOIS servers.
@@ -47,9 +47,10 @@ impl BootstrapCache {
     }
 }
 
-// Global bootstrap cache using lazy_static
-lazy_static::lazy_static! {
-    static ref BOOTSTRAP_CACHE: Mutex<BootstrapCache> = Mutex::new(BootstrapCache::new());
+/// Global bootstrap cache accessor.
+fn bootstrap_cache() -> &'static Mutex<BootstrapCache> {
+    static CACHE: OnceLock<Mutex<BootstrapCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(BootstrapCache::new()))
 }
 
 /// Get the built-in RDAP registry mappings.
@@ -127,7 +128,7 @@ pub fn get_all_known_tlds() -> Vec<String> {
     let mut tld_set: HashSet<String> = registry.keys().map(|k| k.to_string()).collect();
 
     // Include bootstrap cache entries
-    if let Ok(cache) = BOOTSTRAP_CACHE.lock() {
+    if let Ok(cache) = bootstrap_cache().lock() {
         for tld in cache.rdap_endpoints.keys() {
             tld_set.insert(tld.clone());
         }
@@ -338,7 +339,7 @@ pub async fn get_rdap_endpoint(tld: &str, use_bootstrap: bool) -> Result<String,
 
     // 2-3. Check bootstrap cache and negative cache
     {
-        let cache = BOOTSTRAP_CACHE
+        let cache = bootstrap_cache()
             .lock()
             .map_err(|_| DomainCheckError::internal("Failed to acquire bootstrap cache lock"))?;
 
@@ -362,7 +363,7 @@ pub async fn get_rdap_endpoint(tld: &str, use_bootstrap: bool) -> Result<String,
     if use_bootstrap {
         // Fetch if cache is empty or stale
         let needs_fetch = {
-            let cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
+            let cache = bootstrap_cache().lock().map_err(|_| {
                 DomainCheckError::internal("Failed to acquire bootstrap cache lock")
             })?;
             !cache.rdap_loaded || cache.is_stale()
@@ -373,7 +374,7 @@ pub async fn get_rdap_endpoint(tld: &str, use_bootstrap: bool) -> Result<String,
         }
 
         // Re-check after fetch
-        let cache = BOOTSTRAP_CACHE
+        let cache = bootstrap_cache()
             .lock()
             .map_err(|_| DomainCheckError::internal("Failed to acquire bootstrap cache lock"))?;
 
@@ -384,7 +385,7 @@ pub async fn get_rdap_endpoint(tld: &str, use_bootstrap: bool) -> Result<String,
         // 5. Still not found — add to negative cache and return error
         drop(cache);
         {
-            let mut cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
+            let mut cache = bootstrap_cache().lock().map_err(|_| {
                 DomainCheckError::internal("Failed to acquire bootstrap cache lock")
             })?;
             cache.no_rdap.insert(tld_lower.clone());
@@ -471,7 +472,7 @@ async fn fetch_full_bootstrap() -> Result<(), DomainCheckError> {
     }
 
     // Update cache atomically
-    let mut cache = BOOTSTRAP_CACHE
+    let mut cache = bootstrap_cache()
         .lock()
         .map_err(|_| DomainCheckError::internal("Failed to acquire bootstrap cache lock"))?;
 
@@ -492,7 +493,7 @@ async fn fetch_full_bootstrap() -> Result<(), DomainCheckError> {
 /// cache is still fresh (within the 24-hour TTL).
 pub async fn initialize_bootstrap() -> Result<(), DomainCheckError> {
     let needs_fetch = {
-        let cache = BOOTSTRAP_CACHE
+        let cache = bootstrap_cache()
             .lock()
             .map_err(|_| DomainCheckError::internal("Failed to acquire bootstrap cache lock"))?;
         !cache.rdap_loaded || cache.is_stale()
@@ -507,7 +508,7 @@ pub async fn initialize_bootstrap() -> Result<(), DomainCheckError> {
 
 /// Cache a discovered WHOIS server for a TLD.
 pub fn cache_whois_server(tld: &str, server: &str) -> Result<(), DomainCheckError> {
-    let mut cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
+    let mut cache = bootstrap_cache().lock().map_err(|_| {
         DomainCheckError::internal("Failed to acquire bootstrap cache lock for writing")
     })?;
 
@@ -531,7 +532,7 @@ pub fn cache_whois_server(tld: &str, server: &str) -> Result<(), DomainCheckErro
 ///
 /// The WHOIS server hostname if cached, or None.
 pub fn get_cached_whois_server(tld: &str) -> Option<String> {
-    let cache = BOOTSTRAP_CACHE.lock().ok()?;
+    let cache = bootstrap_cache().lock().ok()?;
     let server = cache.whois_servers.get(&tld.to_lowercase())?;
     if server.is_empty() {
         None // Empty string means "no server found" (negative cache)
@@ -542,7 +543,7 @@ pub fn get_cached_whois_server(tld: &str) -> Option<String> {
 
 /// Check if a TLD has been negatively cached for WHOIS (no server found).
 pub fn is_whois_negatively_cached(tld: &str) -> bool {
-    if let Ok(cache) = BOOTSTRAP_CACHE.lock() {
+    if let Ok(cache) = bootstrap_cache().lock() {
         matches!(cache.whois_servers.get(&tld.to_lowercase()), Some(s) if s.is_empty())
     } else {
         false
@@ -621,7 +622,7 @@ pub fn extract_tld(domain: &str) -> Result<String, DomainCheckError> {
 /// Clear the bootstrap cache (useful for testing).
 #[allow(dead_code)]
 pub fn clear_bootstrap_cache() -> Result<(), DomainCheckError> {
-    let mut cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
+    let mut cache = bootstrap_cache().lock().map_err(|_| {
         DomainCheckError::internal("Failed to acquire bootstrap cache lock for clearing")
     })?;
 
@@ -636,7 +637,7 @@ pub fn clear_bootstrap_cache() -> Result<(), DomainCheckError> {
 /// Get bootstrap cache statistics (useful for debugging).
 #[allow(dead_code)]
 pub fn get_bootstrap_cache_stats() -> Result<(usize, bool), DomainCheckError> {
-    let cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
+    let cache = bootstrap_cache().lock().map_err(|_| {
         DomainCheckError::internal("Failed to acquire bootstrap cache lock for stats")
     })?;
 
