@@ -48,8 +48,7 @@ serde_json = "1.0"
 # Configuration file parsing
 toml = "0.9.2"
 
-# Error handling and utilities
-regex = "1.10"
+# Async utilities
 futures = "0.3"
 
 # CLI-specific dependencies (only used by domain-check crate)

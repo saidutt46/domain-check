@@ -304,14 +304,6 @@ impl From<std::io::Error> for DomainCheckError {
     }
 }
 
-impl From<regex::Error> for DomainCheckError {
-    fn from(err: regex::Error) -> Self {
-        Self::Internal {
-            message: format!("Regex error: {}", err),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
