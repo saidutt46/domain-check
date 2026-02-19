@@ -15,6 +15,183 @@ use std::time::Duration;
 
 use crate::Args;
 
+// ── Custom help ─────────────────────────────────────────────────────────────
+
+/// Print a fully custom help screen with ASCII art, compact flags, and examples.
+pub fn print_custom_help() {
+    // ASCII art banner — cyan bold
+    let banner = r#"     _                       _                  _               _
+  __| | ___  _ __ ___   __ _(_)_ __         ___| |__   ___  ___| | __
+ / _` |/ _ \| '_ ` _ \ / _` | | '_ \ _____ / __| '_ \ / _ \/ __| |/ /
+| (_| | (_) | | | | | | (_| | | | | |_____| (__| | | |  __/ (__|   <
+ \__,_|\___/|_| |_| |_|\__,_|_|_| |_|      \___|_| |_|\___|\___|_|\_\"#;
+
+    println!("{}", style(banner).cyan().bold());
+    println!();
+    println!(
+        " {} {}",
+        style("domain-check").white().bold(),
+        style(format!("v{}", env!("CARGO_PKG_VERSION"))).dim(),
+    );
+    println!(
+        " {}",
+        style("Check domain availability using RDAP with WHOIS fallback").dim()
+    );
+
+    // USAGE
+    print_section("USAGE");
+    println!(
+        "   {} {} {}",
+        style("domain-check").cyan().bold(),
+        style("[DOMAINS]").white(),
+        style("[--flags]").dim()
+    );
+    println!(
+        "   {} {} {}",
+        style("domain-check").cyan().bold(),
+        style("--file <FILE>").white(),
+        style("[--flags]").dim()
+    );
+    println!(
+        "   {} {} {}",
+        style("domain-check").cyan().bold(),
+        style("--pattern <PATTERN>").white(),
+        style("[--flags]").dim()
+    );
+
+    // DOMAIN SELECTION
+    print_section("DOMAIN SELECTION");
+    print_flag(
+        "",
+        "[DOMAINS]",
+        "Domain names to check (base names or FQDNs)",
+    );
+    print_flag(
+        "-t",
+        "--tld <TLD>",
+        "TLDs to check (comma-separated or multiple -t)",
+    );
+    print_flag("", "--all", "Check against all known TLDs");
+    print_flag("", "--preset <NAME>", "Use a predefined TLD preset");
+    print_flag(
+        "",
+        "--list-presets",
+        "List all available TLD presets and exit",
+    );
+    print_flag(
+        "-f",
+        "--file <FILE>",
+        "Input file with domains (one per line)",
+    );
+
+    // DOMAIN GENERATION
+    print_section("DOMAIN GENERATION");
+    print_flag(
+        "",
+        "--pattern <PATTERN>",
+        "Pattern for name generation (\\w=letter, \\d=digit, ?=either)",
+    );
+    print_flag(
+        "",
+        "--prefix <PREFIX>",
+        "Prefixes to prepend (comma-separated)",
+    );
+    print_flag(
+        "",
+        "--suffix <SUFFIX>",
+        "Suffixes to append (comma-separated)",
+    );
+    print_flag(
+        "",
+        "--dry-run",
+        "Preview generated domains without checking",
+    );
+
+    // OUTPUT FORMAT
+    print_section("OUTPUT FORMAT");
+    print_flag("-j", "--json", "Output results in JSON format");
+    print_flag("", "--csv", "Output results in CSV format");
+    print_flag("-p", "--pretty", "Grouped output with section headers");
+    print_flag("-i", "--info", "Show detailed domain information");
+    print_flag("", "--batch", "Collect all results before displaying");
+    print_flag("", "--streaming", "Show results as they complete");
+
+    // PERFORMANCE
+    print_section("PERFORMANCE");
+    print_flag(
+        "-c",
+        "--concurrency <N>",
+        "Max concurrent checks (default: 20, max: 100)",
+    );
+    print_flag("", "--force", "Override the 5000 domain limit");
+    print_flag("-y", "--yes", "Skip confirmation prompts");
+
+    // PROTOCOL
+    print_section("PROTOCOL");
+    print_flag(
+        "",
+        "--no-bootstrap",
+        "Disable IANA bootstrap (hardcoded TLDs only)",
+    );
+    print_flag("", "--no-whois", "Disable automatic WHOIS fallback");
+
+    // CONFIGURATION
+    print_section("CONFIGURATION");
+    print_flag("", "--config <FILE>", "Use specific config file");
+    print_flag("-d", "--debug", "Show detailed debug info and errors");
+    print_flag("-v", "--verbose", "Verbose logging");
+
+    // GENERAL
+    print_section("GENERAL");
+    print_flag("-h", "--help", "Show this help message");
+    print_flag("-V", "--version", "Show version");
+
+    // EXAMPLES
+    print_section("EXAMPLES");
+    print_example("domain-check myapp", "Check myapp.com (default TLD)");
+    print_example("domain-check myapp -t com,io,dev", "Check specific TLDs");
+    print_example(
+        "domain-check myapp --preset startup",
+        "Use the startup TLD preset",
+    );
+    print_example(
+        "domain-check --pattern \"app\\d\" --dry-run",
+        "Preview pattern-generated names",
+    );
+
+    println!();
+}
+
+/// Print a magenta bold section header.
+fn print_section(name: &str) {
+    println!();
+    println!(" {}", style(name).magenta().bold());
+}
+
+/// Print a compact flag line with aligned columns.
+fn print_flag(short: &str, long: &str, desc: &str) {
+    if short.is_empty() {
+        // No short flag — 6 chars of padding
+        println!("       {:<24} {}", style(long).cyan(), desc);
+    } else {
+        println!(
+            "   {}  {:<24} {}",
+            style(short).cyan(),
+            style(long).cyan(),
+            desc,
+        );
+    }
+}
+
+/// Print an example line with green command and dim description.
+fn print_example(cmd: &str, desc: &str) {
+    println!(
+        "   {} {}",
+        style(format!("$ {:<44}", cmd)).green(),
+        style(desc).dim(),
+    );
+}
+
 // ── Spinner ──────────────────────────────────────────────────────────────────
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

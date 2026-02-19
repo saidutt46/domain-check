@@ -5,7 +5,6 @@
 
 mod ui;
 
-use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::Parser;
 use console::Term;
 use domain_check_lib::{
@@ -17,23 +16,17 @@ use domain_check_lib::{CheckConfig, DomainChecker};
 use std::io::BufRead;
 use std::process;
 
-const STYLES: Styles = Styles::styled()
-    .header(AnsiColor::Yellow.on_default().effects(Effects::BOLD))
-    .usage(AnsiColor::Yellow.on_default().effects(Effects::BOLD))
-    .literal(AnsiColor::Green.on_default().effects(Effects::BOLD))
-    .placeholder(AnsiColor::Cyan.on_default());
-
 /// CLI arguments for domain-check
 #[derive(Parser, Debug)]
 #[command(name = "domain-check")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
-#[command(author = "Sai Dutt G.V <gvs46@protonmail.com>")]
 #[command(about = "Check domain availability using RDAP with WHOIS fallback")]
-#[command(
-    long_about = "Check domain availability using RDAP protocol with automatic WHOIS fallback.\n\nSupports concurrent checks, TLD presets, pattern generation, and multiple output formats."
-)]
-#[command(styles = STYLES)]
+#[command(disable_help_flag = true)]
 pub struct Args {
+    /// Show this help message
+    #[arg(short = 'h', long = "help", action = clap::ArgAction::SetTrue, global = true)]
+    pub help: bool,
+
     /// Domain names to check (base names or FQDNs)
     #[arg(value_name = "DOMAINS", help_heading = "Domain Selection")]
     pub domains: Vec<String>,
@@ -163,6 +156,12 @@ pub struct Args {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+
+    // Handle --help before anything else
+    if args.help {
+        ui::print_custom_help();
+        return;
+    }
 
     // Validate arguments
     if let Err(e) = validate_args(&args) {
@@ -1139,6 +1138,7 @@ mod tests {
             suffixes: None,
             dry_run: false,
             yes: false,
+            help: false,
         }
     }
 
