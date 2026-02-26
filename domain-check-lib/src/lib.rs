@@ -90,7 +90,7 @@ pub struct LibraryInfo {
 }
 
 /// Get list of enabled features at compile time
-#[allow(clippy::vec_init_then_push)] // ← Add this line
+#[allow(clippy::vec_init_then_push)]
 fn get_enabled_features() -> Vec<&'static str> {
     let mut features = Vec::new();
 
@@ -107,4 +107,142 @@ fn get_enabled_features() -> Vec<&'static str> {
     features.push("debug");
 
     features
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Constants ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_version_is_not_empty() {
+        assert!(!VERSION.is_empty());
+    }
+
+    #[test]
+    fn test_version_is_semver() {
+        let parts: Vec<&str> = VERSION.split('.').collect();
+        assert!(parts.len() >= 2, "VERSION should be semver: {}", VERSION);
+        for part in &parts {
+            assert!(
+                part.parse::<u32>().is_ok(),
+                "non-numeric semver part: {}",
+                part
+            );
+        }
+    }
+
+    #[test]
+    fn test_author_is_not_empty() {
+        assert!(!AUTHOR.is_empty());
+    }
+
+    // ── init() ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_init_does_not_panic() {
+        init(); // no-op, should not panic
+        init(); // idempotent
+    }
+
+    // ── info() ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_info_version_matches_constant() {
+        let info = info();
+        assert_eq!(info.version, VERSION);
+    }
+
+    #[test]
+    fn test_info_author_matches_constant() {
+        let info = info();
+        assert_eq!(info.author, AUTHOR);
+    }
+
+    #[test]
+    fn test_info_has_default_features() {
+        let info = info();
+        // With default features enabled, rdap, whois, and bootstrap should be present
+        assert!(info.features.contains(&"rdap"), "missing rdap feature");
+        assert!(info.features.contains(&"whois"), "missing whois feature");
+        assert!(
+            info.features.contains(&"bootstrap"),
+            "missing bootstrap feature"
+        );
+    }
+
+    #[test]
+    fn test_library_info_debug() {
+        let info = info();
+        let debug = format!("{:?}", info);
+        assert!(debug.contains("LibraryInfo"));
+        assert!(debug.contains(VERSION));
+    }
+
+    #[test]
+    fn test_library_info_clone() {
+        let info = info();
+        let cloned = info.clone();
+        assert_eq!(info.version, cloned.version);
+        assert_eq!(info.author, cloned.author);
+        assert_eq!(info.features, cloned.features);
+    }
+
+    // ── Result type alias ──────────────────────────────────────────────
+
+    #[test]
+    fn test_result_type_alias_ok() {
+        let result: Result<i32> = Ok(42);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_result_type_alias_err() {
+        let result: Result<i32> = Err(DomainCheckError::invalid_domain("bad", "invalid"));
+        assert!(result.is_err());
+    }
+
+    // ── Public re-exports ──────────────────────────────────────────────
+
+    #[test]
+    fn test_check_config_default() {
+        let config = CheckConfig::default();
+        assert!(config.concurrency > 0);
+    }
+
+    #[test]
+    fn test_domain_result_construction() {
+        let result = DomainResult {
+            domain: "example.com".to_string(),
+            available: Some(true),
+            info: None,
+            check_duration: None,
+            method_used: CheckMethod::Rdap,
+            error_message: None,
+        };
+        assert_eq!(result.domain, "example.com");
+        assert_eq!(result.available, Some(true));
+    }
+
+    #[test]
+    fn test_check_method_variants() {
+        let _rdap = CheckMethod::Rdap;
+        let _whois = CheckMethod::Whois;
+        let _unknown = CheckMethod::Unknown;
+    }
+
+    #[test]
+    fn test_output_mode_variants() {
+        let _streaming = OutputMode::Streaming;
+        let _collected = OutputMode::Collected;
+        let _auto = OutputMode::Auto;
+    }
+
+    #[test]
+    fn test_domain_checker_new() {
+        let checker = DomainChecker::new();
+        let config = checker.config();
+        assert!(config.concurrency > 0);
+    }
 }

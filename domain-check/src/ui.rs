@@ -609,6 +609,19 @@ mod tests {
         }
     }
 
+    fn make_result_with_error(error: &str) -> DomainResult {
+        DomainResult {
+            domain: "test.com".to_string(),
+            available: None,
+            info: None,
+            check_duration: None,
+            method_used: CheckMethod::Unknown,
+            error_message: Some(error.to_string()),
+        }
+    }
+
+    // ── brief_error ─────────────────────────────────────────────────────
+
     #[test]
     fn test_brief_error_timeout() {
         let r = make_result("a.com", None);
@@ -616,22 +629,69 @@ mod tests {
     }
 
     #[test]
+    fn test_brief_error_timed_out() {
+        let r = make_result_with_error("request timed out after 5s");
+        assert_eq!(brief_error(&r), "(timeout)");
+    }
+
+    #[test]
     fn test_brief_error_network() {
-        let r = DomainResult {
-            error_message: Some("dns lookup failed".to_string()),
-            ..make_result("a.com", None)
-        };
+        let r = make_result_with_error("dns lookup failed");
         assert_eq!(brief_error(&r), "(network error)");
     }
 
     #[test]
-    fn test_brief_error_unknown_status() {
+    fn test_brief_error_connect() {
+        let r = make_result_with_error("failed to connect to server");
+        assert_eq!(brief_error(&r), "(network error)");
+    }
+
+    #[test]
+    fn test_brief_error_parsing() {
+        let r = make_result_with_error("failed to parse json response");
+        assert_eq!(brief_error(&r), "(parsing error)");
+    }
+
+    #[test]
+    fn test_brief_error_json() {
+        let r = make_result_with_error("invalid JSON in response");
+        assert_eq!(brief_error(&r), "(parsing error)");
+    }
+
+    #[test]
+    fn test_brief_error_unknown_tld() {
+        let r = make_result_with_error("unknown TLD .xyz123");
+        assert_eq!(brief_error(&r), "(unknown TLD)");
+    }
+
+    #[test]
+    fn test_brief_error_bootstrap() {
+        let r = make_result_with_error("bootstrap registry failed");
+        assert_eq!(brief_error(&r), "(unknown TLD)");
+    }
+
+    #[test]
+    fn test_brief_error_generic() {
+        let r = make_result_with_error("something unexpected happened");
+        assert_eq!(brief_error(&r), "(error)");
+    }
+
+    #[test]
+    fn test_brief_error_no_message() {
         let r = DomainResult {
             error_message: None,
             ..make_result("a.com", None)
         };
         assert_eq!(brief_error(&r), "(unknown status)");
     }
+
+    #[test]
+    fn test_brief_error_case_insensitive() {
+        let r = make_result_with_error("TIMEOUT occurred");
+        assert_eq!(brief_error(&r), "(timeout)");
+    }
+
+    // ── format_domain_info ──────────────────────────────────────────────
 
     #[test]
     fn test_format_domain_info_all_fields() {
@@ -654,11 +714,35 @@ mod tests {
     }
 
     #[test]
-    fn test_format_domain_info_partial() {
+    fn test_format_domain_info_registrar_only() {
         let info = DomainInfo {
             registrar: Some("Namecheap".to_string()),
             ..Default::default()
         };
         assert_eq!(format_domain_info(&info), "Registrar: Namecheap");
+    }
+
+    #[test]
+    fn test_format_domain_info_dates_only() {
+        let info = DomainInfo {
+            creation_date: Some("2020-01-01".to_string()),
+            expiration_date: Some("2025-01-01".to_string()),
+            ..Default::default()
+        };
+        let formatted = format_domain_info(&info);
+        assert!(formatted.contains("Created: 2020-01-01"));
+        assert!(formatted.contains("Expires: 2025-01-01"));
+        assert!(!formatted.contains("Registrar"));
+    }
+
+    #[test]
+    fn test_format_domain_info_comma_separated() {
+        let info = DomainInfo {
+            registrar: Some("Reg".to_string()),
+            creation_date: Some("2020".to_string()),
+            ..Default::default()
+        };
+        let formatted = format_domain_info(&info);
+        assert!(formatted.contains(", "));
     }
 }

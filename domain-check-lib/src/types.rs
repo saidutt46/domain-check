@@ -287,3 +287,221 @@ impl std::fmt::Display for OutputMode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── CheckConfig defaults ────────────────────────────────────────────
+
+    #[test]
+    fn test_check_config_defaults() {
+        let config = CheckConfig::default();
+        assert_eq!(config.concurrency, 20);
+        assert_eq!(config.timeout, Duration::from_secs(5));
+        assert!(config.enable_whois_fallback);
+        assert!(config.enable_bootstrap);
+        assert!(!config.detailed_info);
+        assert!(config.tlds.is_none());
+        assert_eq!(config.rdap_timeout, Duration::from_secs(3));
+        assert_eq!(config.whois_timeout, Duration::from_secs(5));
+        assert!(config.custom_presets.is_empty());
+    }
+
+    // ── Builder methods ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_with_concurrency_normal() {
+        let config = CheckConfig::default().with_concurrency(50);
+        assert_eq!(config.concurrency, 50);
+    }
+
+    #[test]
+    fn test_with_concurrency_clamps_to_max() {
+        let config = CheckConfig::default().with_concurrency(200);
+        assert_eq!(config.concurrency, 100);
+    }
+
+    #[test]
+    fn test_with_concurrency_clamps_to_min() {
+        let config = CheckConfig::default().with_concurrency(0);
+        assert_eq!(config.concurrency, 1);
+    }
+
+    #[test]
+    fn test_with_concurrency_boundary_values() {
+        assert_eq!(CheckConfig::default().with_concurrency(1).concurrency, 1);
+        assert_eq!(
+            CheckConfig::default().with_concurrency(100).concurrency,
+            100
+        );
+    }
+
+    #[test]
+    fn test_with_timeout() {
+        let config = CheckConfig::default().with_timeout(Duration::from_secs(30));
+        assert_eq!(config.timeout, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_with_whois_fallback() {
+        let config = CheckConfig::default().with_whois_fallback(false);
+        assert!(!config.enable_whois_fallback);
+    }
+
+    #[test]
+    fn test_with_bootstrap() {
+        let config = CheckConfig::default().with_bootstrap(false);
+        assert!(!config.enable_bootstrap);
+    }
+
+    #[test]
+    fn test_with_detailed_info() {
+        let config = CheckConfig::default().with_detailed_info(true);
+        assert!(config.detailed_info);
+    }
+
+    #[test]
+    fn test_with_tlds() {
+        let config = CheckConfig::default().with_tlds(vec!["com".into(), "org".into()]);
+        assert_eq!(
+            config.tlds,
+            Some(vec!["com".to_string(), "org".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_builder_chaining_order_independent() {
+        let a = CheckConfig::default()
+            .with_concurrency(50)
+            .with_timeout(Duration::from_secs(10))
+            .with_bootstrap(false);
+
+        let b = CheckConfig::default()
+            .with_bootstrap(false)
+            .with_timeout(Duration::from_secs(10))
+            .with_concurrency(50);
+
+        assert_eq!(a.concurrency, b.concurrency);
+        assert_eq!(a.timeout, b.timeout);
+        assert_eq!(a.enable_bootstrap, b.enable_bootstrap);
+    }
+
+    #[test]
+    fn test_builder_preserves_other_defaults() {
+        let config = CheckConfig::default().with_concurrency(50);
+        // Only concurrency changed; everything else should be default
+        assert_eq!(config.timeout, Duration::from_secs(5));
+        assert!(config.enable_whois_fallback);
+        assert!(config.enable_bootstrap);
+        assert!(!config.detailed_info);
+        assert!(config.tlds.is_none());
+    }
+
+    // ── GenerateConfig ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_generate_config_new_defaults() {
+        let config = GenerateConfig::new();
+        assert!(config.patterns.is_empty());
+        assert!(config.prefixes.is_empty());
+        assert!(config.suffixes.is_empty());
+        assert!(config.include_bare);
+    }
+
+    #[test]
+    fn test_generate_config_has_generation_empty() {
+        let config = GenerateConfig::new();
+        assert!(!config.has_generation());
+    }
+
+    #[test]
+    fn test_generate_config_has_generation_with_pattern() {
+        let mut config = GenerateConfig::new();
+        config.patterns.push("test\\d".to_string());
+        assert!(config.has_generation());
+    }
+
+    #[test]
+    fn test_generate_config_has_affixes_none() {
+        let config = GenerateConfig::new();
+        assert!(!config.has_affixes());
+    }
+
+    #[test]
+    fn test_generate_config_has_affixes_prefix_only() {
+        let mut config = GenerateConfig::new();
+        config.prefixes.push("get".to_string());
+        assert!(config.has_affixes());
+    }
+
+    #[test]
+    fn test_generate_config_has_affixes_suffix_only() {
+        let mut config = GenerateConfig::new();
+        config.suffixes.push("ly".to_string());
+        assert!(config.has_affixes());
+    }
+
+    // ── Display impls ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_check_method_display() {
+        assert_eq!(format!("{}", CheckMethod::Rdap), "RDAP");
+        assert_eq!(format!("{}", CheckMethod::Whois), "WHOIS");
+        assert_eq!(format!("{}", CheckMethod::Bootstrap), "Bootstrap");
+        assert_eq!(format!("{}", CheckMethod::Unknown), "Unknown");
+    }
+
+    #[test]
+    fn test_output_mode_display() {
+        assert_eq!(format!("{}", OutputMode::Streaming), "Streaming");
+        assert_eq!(format!("{}", OutputMode::Collected), "Collected");
+        assert_eq!(format!("{}", OutputMode::Auto), "Auto");
+    }
+
+    // ── Serialization ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_check_method_serialization() {
+        let json = serde_json::to_string(&CheckMethod::Rdap).unwrap();
+        assert_eq!(json, "\"rdap\"");
+        let json = serde_json::to_string(&CheckMethod::Whois).unwrap();
+        assert_eq!(json, "\"whois\"");
+    }
+
+    #[test]
+    fn test_check_method_deserialization() {
+        let method: CheckMethod = serde_json::from_str("\"bootstrap\"").unwrap();
+        assert_eq!(method, CheckMethod::Bootstrap);
+    }
+
+    #[test]
+    fn test_domain_result_json_skip_none_fields() {
+        let result = DomainResult {
+            domain: "test.com".to_string(),
+            available: Some(true),
+            info: None,
+            check_duration: None,
+            method_used: CheckMethod::Rdap,
+            error_message: None,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        // None fields with skip_serializing_if should be absent
+        assert!(!json.contains("info"));
+        assert!(!json.contains("check_duration"));
+        assert!(!json.contains("error_message"));
+        assert!(json.contains("\"domain\":\"test.com\""));
+        assert!(json.contains("\"available\":true"));
+    }
+
+    #[test]
+    fn test_domain_info_default() {
+        let info = DomainInfo::default();
+        assert!(info.registrar.is_none());
+        assert!(info.creation_date.is_none());
+        assert!(info.expiration_date.is_none());
+        assert!(info.status.is_empty());
+        assert!(info.updated_date.is_none());
+        assert!(info.nameservers.is_empty());
+    }
+}

@@ -188,24 +188,58 @@ fn is_valid_fqdn(domain: &str) -> bool {
 mod tests {
     use super::*;
 
+    // ── validate_domain ─────────────────────────────────────────────────
+
     #[test]
-    fn test_validate_domain() {
+    fn test_validate_domain_valid() {
         assert!(validate_domain("example.com").is_ok());
-        assert!(validate_domain("test").is_ok());
-        assert!(validate_domain("").is_err());
-        assert!(validate_domain("a").is_err());
+        assert!(validate_domain("test").is_ok()); // >= 2 chars, no dot required
+        assert!(validate_domain("ab").is_ok());
+        assert!(validate_domain("sub.example.com").is_ok());
     }
 
     #[test]
-    fn test_extract_domain_parts() {
+    fn test_validate_domain_empty() {
+        let err = validate_domain("").unwrap_err();
+        assert!(err.to_string().contains("empty"));
+    }
+
+    #[test]
+    fn test_validate_domain_too_short() {
+        let err = validate_domain("a").unwrap_err();
+        assert!(err.to_string().contains("too short"));
+    }
+
+    #[test]
+    fn test_validate_domain_whitespace_trimmed() {
+        assert!(validate_domain("  example.com  ").is_ok());
+    }
+
+    #[test]
+    fn test_validate_domain_only_whitespace() {
+        assert!(validate_domain("   ").is_err());
+    }
+
+    // ── extract_domain_parts ────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_domain_parts_simple() {
         assert_eq!(
             extract_domain_parts("example.com"),
             ("example".to_string(), Some("com".to_string()))
         );
+    }
+
+    #[test]
+    fn test_extract_domain_parts_multi_level() {
         assert_eq!(
             extract_domain_parts("test.co.uk"),
             ("test".to_string(), Some("co.uk".to_string()))
         );
+    }
+
+    #[test]
+    fn test_extract_domain_parts_no_dot() {
         assert_eq!(
             extract_domain_parts("example"),
             ("example".to_string(), None)
@@ -213,60 +247,149 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_domain_inputs() {
+    fn test_extract_domain_parts_subdomain() {
+        assert_eq!(
+            extract_domain_parts("sub.example.com"),
+            ("sub".to_string(), Some("example.com".to_string()))
+        );
+    }
+
+    // ── expand_domain_inputs ────────────────────────────────────────────
+
+    #[test]
+    fn test_expand_with_tlds() {
         let domains = vec!["example".to_string(), "test.com".to_string()];
         let tlds = Some(vec!["com".to_string(), "org".to_string()]);
 
         let result = expand_domain_inputs(&domains, &tlds);
-        assert_eq!(
-            result,
-            vec![
-                "example.com",
-                "example.org",
-                "test.com" // FQDN, no expansion
-            ]
-        );
+        assert_eq!(result, vec!["example.com", "example.org", "test.com"]);
     }
 
     #[test]
-    fn test_expand_domain_inputs_with_invalid() {
-        let domains = vec![
-            "".to_string(),
-            "a".to_string(),
-            "valid".to_string(),
-            "test.com".to_string(),
-        ];
+    fn test_expand_default_tld() {
+        let domains = vec!["example".to_string()];
+        let result = expand_domain_inputs(&domains, &None);
+        assert_eq!(result, vec!["example.com"]);
+    }
+
+    #[test]
+    fn test_expand_fqdn_not_expanded() {
+        let domains = vec!["already.io".to_string()];
         let tlds = Some(vec!["com".to_string(), "org".to_string()]);
-
         let result = expand_domain_inputs(&domains, &tlds);
-        // Should skip empty and single-char domains
-        assert_eq!(result, vec!["valid.com", "valid.org", "test.com"]);
+        assert_eq!(result, vec!["already.io"]);
     }
 
     #[test]
-    fn test_is_valid_base_name() {
+    fn test_expand_skips_empty() {
+        let domains = vec!["".to_string(), "valid".to_string()];
+        let result = expand_domain_inputs(&domains, &None);
+        assert_eq!(result, vec!["valid.com"]);
+    }
+
+    #[test]
+    fn test_expand_skips_short_base_names() {
+        let domains = vec!["a".to_string(), "valid".to_string()];
+        let result = expand_domain_inputs(&domains, &None);
+        assert_eq!(result, vec!["valid.com"]);
+    }
+
+    #[test]
+    fn test_expand_skips_invalid_fqdn() {
+        let domains = vec![".com".to_string(), "example.com".to_string()];
+        let result = expand_domain_inputs(&domains, &None);
+        assert_eq!(result, vec!["example.com"]);
+    }
+
+    #[test]
+    fn test_expand_empty_input() {
+        let result = expand_domain_inputs(&[], &None);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_expand_empty_tld_entries_filtered() {
+        let domains = vec!["example".to_string()];
+        let tlds = Some(vec!["com".to_string(), "".to_string(), "org".to_string()]);
+        let result = expand_domain_inputs(&domains, &tlds);
+        assert_eq!(result, vec!["example.com", "example.org"]);
+    }
+
+    #[test]
+    fn test_expand_mixed_fqdn_and_base() {
+        let domains = vec![
+            "base1".to_string(),
+            "already.io".to_string(),
+            "base2".to_string(),
+        ];
+        let tlds = Some(vec!["com".to_string()]);
+        let result = expand_domain_inputs(&domains, &tlds);
+        assert_eq!(result, vec!["base1.com", "already.io", "base2.com"]);
+    }
+
+    // ── is_valid_base_name ──────────────────────────────────────────────
+
+    #[test]
+    fn test_valid_base_names() {
         assert!(is_valid_base_name("example"));
         assert!(is_valid_base_name("test-domain"));
         assert!(is_valid_base_name("abc123"));
-
-        assert!(!is_valid_base_name(""));
-        assert!(!is_valid_base_name("a"));
-        assert!(!is_valid_base_name("-example"));
-        assert!(!is_valid_base_name("example-"));
-        assert!(!is_valid_base_name("test.com")); // Contains dot
+        assert!(is_valid_base_name("ab")); // minimum valid
+        assert!(is_valid_base_name("a1"));
     }
 
     #[test]
-    fn test_is_valid_fqdn() {
+    fn test_invalid_base_names() {
+        assert!(!is_valid_base_name(""));
+        assert!(!is_valid_base_name("a")); // too short
+        assert!(!is_valid_base_name("-example")); // starts with hyphen
+        assert!(!is_valid_base_name("example-")); // ends with hyphen
+        assert!(!is_valid_base_name("test.com")); // contains dot
+        assert!(!is_valid_base_name("test domain")); // contains space
+        assert!(!is_valid_base_name("test_domain")); // contains underscore
+    }
+
+    // ── is_valid_fqdn ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_valid_fqdns() {
         assert!(is_valid_fqdn("example.com"));
         assert!(is_valid_fqdn("test.co.uk"));
         assert!(is_valid_fqdn("sub.example.com"));
+        assert!(is_valid_fqdn("a1.io")); // minimum valid
+    }
 
-        assert!(!is_valid_fqdn("example"));
-        assert!(!is_valid_fqdn(".com"));
-        assert!(!is_valid_fqdn("example."));
-        assert!(!is_valid_fqdn("-example.com"));
-        assert!(!is_valid_fqdn("example.com-"));
-        assert!(!is_valid_fqdn("ex."));
+    #[test]
+    fn test_invalid_fqdns() {
+        assert!(!is_valid_fqdn("example")); // no dot
+        assert!(!is_valid_fqdn(".com")); // starts with dot
+        assert!(!is_valid_fqdn("example.")); // ends with dot
+        assert!(!is_valid_fqdn("-example.com")); // starts with hyphen
+        assert!(!is_valid_fqdn("example.com-")); // ends with hyphen
+        assert!(!is_valid_fqdn("ex.")); // part after dot is empty
+        assert!(!is_valid_fqdn("a.b")); // too short (< 4 chars)
+    }
+
+    #[test]
+    fn test_fqdn_too_long() {
+        let long_domain = format!("{}.com", "a".repeat(250));
+        assert!(!is_valid_fqdn(&long_domain)); // > 253 chars
+    }
+
+    #[test]
+    fn test_fqdn_label_too_long() {
+        let long_label = format!("{}.com", "a".repeat(64));
+        assert!(!is_valid_fqdn(&long_label)); // label > 63 chars
+    }
+
+    #[test]
+    fn test_fqdn_hyphen_in_label() {
+        assert!(is_valid_fqdn("my-domain.com")); // hyphen in middle is ok
+        assert!(!is_valid_fqdn("my--domain.-com")); // hyphen at start of label
+    }
+
+    #[test]
+    fn test_fqdn_consecutive_dots() {
+        assert!(!is_valid_fqdn("example..com")); // empty label between dots
     }
 }
