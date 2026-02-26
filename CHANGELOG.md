@@ -6,7 +6,20 @@
 
 This release overhauls the CLI help experience and dramatically reduces the release binary size through dependency cleanup and build optimizations.
 
+#### Binary Size Report (macOS arm64)
+| Build | Size | Notes |
+|-------|------|-------|
+| v0.9.1 (`main`) | 5.88 MB | Before optimizations |
+| This release | 2.71 MB | After LTO, strip, dependency cleanup |
+| **Reduction** | **54% smaller** | **3.17 MB saved** |
+
 ### Changed
+
+#### **Dual License: MIT OR Apache-2.0**
+- Changed license from Apache-2.0 only to dual MIT OR Apache-2.0
+- Users may choose either license at their option
+- Aligns with Rust ecosystem convention (used by the Rust compiler, serde, tokio, clap, etc.)
+- Added `LICENSE-MIT`; renamed `LICENSE` → `LICENSE-APACHE`
 
 #### **Custom `--help` Screen**
 - Replaced clap's default help renderer with a fully custom help screen
@@ -17,7 +30,7 @@ This release overhauls the CLI help experience and dramatically reduces the rele
 - Modern color palette: cyan flags, magenta section headers, dim descriptions
 - `--version` still handled natively by clap
 
-#### **Binary Size: 6.2 MB → 2.8 MB (55% reduction)**
+#### **Binary Size: 5.9 MB → 2.7 MB (54% reduction)**
 - Added release profile: LTO, single codegen unit, symbol stripping, abort-on-panic
 - Removed unused `regex` dependency (eliminated 4 crates: regex, regex-automata, regex-syntax, aho-corasick)
 - Narrowed tokio features from `"full"` to only what's used (rt, rt-multi-thread, time, sync, macros, process, io-util)
