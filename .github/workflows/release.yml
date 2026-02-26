@@ -390,7 +390,7 @@ jobs:
             desc "Fast, powerful CLI tool for checking domain availability using RDAP and WHOIS"
             homepage "https://github.com/saidutt46/domain-check"
             version "${VERSION}"
-            license "MIT"
+            license "MIT OR Apache-2.0"
           
             if Hardware::CPU.arm?
               url "https://github.com/saidutt46/domain-check/releases/download/v${VERSION}/domain-check-macos-aarch64.tar.gz"
