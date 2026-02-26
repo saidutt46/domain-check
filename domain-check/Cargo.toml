@@ -53,7 +53,7 @@ tokio-test = { workspace = true }
 
 assert_cmd = "2.0"
 predicates = "3.0"  
-tempfile = "3.8"
+tempfile = { workspace = true }
 
 # CLI-specific features
 [features]
