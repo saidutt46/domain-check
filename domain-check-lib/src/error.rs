@@ -207,10 +207,8 @@ impl fmt::Display for DomainCheckError {
                 } else if message.to_lowercase().contains("timeout") {
                     write!(f, "⏱️ Request timed out\n   💡 Your internet connection may be slow. Try again or check fewer domains at once")
                 } else {
-                    match source {
-                        Some(_) => write!(f, "🌐 Network error: {}\n   💡 Please check your internet connection", message),
-                        None => write!(f, "🌐 Network error: {}\n   💡 Please check your internet connection", message),
-                    }
+                    let _ = source; // source captured for Debug/error chain, not user-facing
+                    write!(f, "🌐 Network error: {}\n   💡 Please check your internet connection", message)
                 }
             }
             Self::RdapError { domain, message, status_code } => {
