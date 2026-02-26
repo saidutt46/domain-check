@@ -27,8 +27,6 @@ pub fn validate_domain(domain: &str) -> Result<(), DomainCheckError> {
         ));
     }
 
-    // TODO: Implement proper domain validation
-    // For now, just check basic format
     if !domain.contains('.') && domain.len() < 2 {
         return Err(DomainCheckError::invalid_domain(
             domain,
@@ -37,30 +35,6 @@ pub fn validate_domain(domain: &str) -> Result<(), DomainCheckError> {
     }
 
     Ok(())
-}
-
-/// Extract the base name and TLD from a domain.
-///
-/// Handles multi-level TLDs properly (e.g., "example.co.uk" -> ("example", "co.uk")).
-///
-/// # Arguments
-///
-/// * `domain` - The domain to parse
-///
-/// # Returns
-///
-/// A tuple of (base_name, tld) where TLD is None if no dot is found.
-#[allow(dead_code)]
-pub fn extract_domain_parts(domain: &str) -> (String, Option<String>) {
-    let parts: Vec<&str> = domain.split('.').collect();
-
-    if parts.len() >= 2 {
-        let base_name = parts[0].to_string();
-        let tld = parts[1..].join(".");
-        (base_name, Some(tld))
-    } else {
-        (domain.to_string(), None)
-    }
 }
 
 /// Expand domain inputs based on smart detection rules.
@@ -218,40 +192,6 @@ mod tests {
     #[test]
     fn test_validate_domain_only_whitespace() {
         assert!(validate_domain("   ").is_err());
-    }
-
-    // ── extract_domain_parts ────────────────────────────────────────────
-
-    #[test]
-    fn test_extract_domain_parts_simple() {
-        assert_eq!(
-            extract_domain_parts("example.com"),
-            ("example".to_string(), Some("com".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_extract_domain_parts_multi_level() {
-        assert_eq!(
-            extract_domain_parts("test.co.uk"),
-            ("test".to_string(), Some("co.uk".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_extract_domain_parts_no_dot() {
-        assert_eq!(
-            extract_domain_parts("example"),
-            ("example".to_string(), None)
-        );
-    }
-
-    #[test]
-    fn test_extract_domain_parts_subdomain() {
-        assert_eq!(
-            extract_domain_parts("sub.example.com"),
-            ("sub".to_string(), Some("example.com".to_string()))
-        );
     }
 
     // ── expand_domain_inputs ────────────────────────────────────────────

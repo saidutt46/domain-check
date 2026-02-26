@@ -89,7 +89,8 @@ pub struct LibraryInfo {
     pub features: Vec<&'static str>,
 }
 
-/// Get list of enabled features at compile time
+/// Get list of enabled features at compile time.
+// Allow: each push is behind a #[cfg(feature)], so init-then-push is the only idiomatic way.
 #[allow(clippy::vec_init_then_push)]
 fn get_enabled_features() -> Vec<&'static str> {
     let mut features = Vec::new();
