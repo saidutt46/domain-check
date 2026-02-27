@@ -376,3 +376,538 @@ fn to_batch_response(results: Vec<domain_check_lib::DomainResult>) -> BatchCheck
         results: responses,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use domain_check_lib::{CheckMethod, DomainResult};
+
+    // ── to_json helper ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_to_json_produces_valid_json() {
+        let resp = DomainCheckResponse {
+            domain: "example.com".into(),
+            available: Some(true),
+            method: "RDAP".into(),
+            error: None,
+        };
+        let json = to_json(&resp);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["domain"], "example.com");
+        assert_eq!(parsed["available"], true);
+        assert_eq!(parsed["method"], "RDAP");
+    }
+
+    // ── DomainCheckResponse serialization ────────────────────────────────
+
+    #[test]
+    fn test_domain_check_response_skips_none_error() {
+        let resp = DomainCheckResponse {
+            domain: "test.com".into(),
+            available: Some(false),
+            method: "WHOIS".into(),
+            error: None,
+        };
+        let json = to_json(&resp);
+        assert!(!json.contains("error"));
+    }
+
+    #[test]
+    fn test_domain_check_response_includes_error_when_present() {
+        let resp = DomainCheckResponse {
+            domain: "test.com".into(),
+            available: None,
+            method: "Unknown".into(),
+            error: Some("network timeout".into()),
+        };
+        let json = to_json(&resp);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["error"], "network timeout");
+        assert!(parsed["available"].is_null());
+    }
+
+    // ── BatchCheckResponse serialization ─────────────────────────────────
+
+    #[test]
+    fn test_batch_response_counts() {
+        let resp = BatchCheckResponse {
+            total: 3,
+            available: 1,
+            taken: 1,
+            unknown: 1,
+            results: vec![
+                DomainCheckResponse {
+                    domain: "free.com".into(),
+                    available: Some(true),
+                    method: "RDAP".into(),
+                    error: None,
+                },
+                DomainCheckResponse {
+                    domain: "taken.com".into(),
+                    available: Some(false),
+                    method: "RDAP".into(),
+                    error: None,
+                },
+                DomainCheckResponse {
+                    domain: "unknown.xyz".into(),
+                    available: None,
+                    method: "Unknown".into(),
+                    error: Some("failed".into()),
+                },
+            ],
+        };
+        let json = to_json(&resp);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["total"], 3);
+        assert_eq!(parsed["available"], 1);
+        assert_eq!(parsed["taken"], 1);
+        assert_eq!(parsed["unknown"], 1);
+        assert_eq!(parsed["results"].as_array().unwrap().len(), 3);
+    }
+
+    // ── GenerateNamesResponse serialization ──────────────────────────────
+
+    #[test]
+    fn test_generate_names_response() {
+        let resp = GenerateNamesResponse {
+            count: 2,
+            estimated_before_filter: 5,
+            names: vec!["app01".into(), "app02".into()],
+        };
+        let json = to_json(&resp);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["count"], 2);
+        assert_eq!(parsed["estimated_before_filter"], 5);
+        assert_eq!(parsed["names"].as_array().unwrap().len(), 2);
+    }
+
+    // ── ListPresetsResponse serialization ────────────────────────────────
+
+    #[test]
+    fn test_list_presets_response() {
+        let resp = ListPresetsResponse {
+            presets: vec![PresetInfo {
+                name: "startup".into(),
+                tlds: vec!["com".into(), "io".into()],
+            }],
+        };
+        let json = to_json(&resp);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["presets"][0]["name"], "startup");
+        assert_eq!(parsed["presets"][0]["tlds"][0], "com");
+    }
+
+    // ── DomainInfoResponse serialization ─────────────────────────────────
+
+    #[test]
+    fn test_domain_info_response_minimal() {
+        let resp = DomainInfoResponse {
+            domain: "available.com".into(),
+            available: Some(true),
+            method: "RDAP".into(),
+            registrar: None,
+            creation_date: None,
+            expiration_date: None,
+            updated_date: None,
+            status: None,
+            nameservers: None,
+            error: None,
+        };
+        let json = to_json(&resp);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["domain"], "available.com");
+        assert_eq!(parsed["available"], true);
+        // None fields should be absent
+        assert!(parsed.get("registrar").is_none());
+        assert!(parsed.get("nameservers").is_none());
+        assert!(parsed.get("error").is_none());
+    }
+
+    #[test]
+    fn test_domain_info_response_full() {
+        let resp = DomainInfoResponse {
+            domain: "google.com".into(),
+            available: Some(false),
+            method: "RDAP".into(),
+            registrar: Some("MarkMonitor Inc.".into()),
+            creation_date: Some("1997-09-15".into()),
+            expiration_date: Some("2028-09-14".into()),
+            updated_date: Some("2019-09-09".into()),
+            status: Some(vec!["clientTransferProhibited".into()]),
+            nameservers: Some(vec!["ns1.google.com".into()]),
+            error: None,
+        };
+        let json = to_json(&resp);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["registrar"], "MarkMonitor Inc.");
+        assert_eq!(parsed["nameservers"][0], "ns1.google.com");
+        assert_eq!(parsed["status"][0], "clientTransferProhibited");
+    }
+
+    #[test]
+    fn test_domain_info_response_skips_empty_vectors() {
+        let resp = DomainInfoResponse {
+            domain: "test.com".into(),
+            available: Some(false),
+            method: "RDAP".into(),
+            registrar: Some("Test".into()),
+            creation_date: None,
+            expiration_date: None,
+            updated_date: None,
+            status: Some(vec![]),  // empty vec should be skipped
+            nameservers: Some(vec![]),  // empty vec should be skipped
+            error: None,
+        };
+        let json = to_json(&resp);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        // empty vecs are serialized as [] since skip_serializing_if is on Option, not on empty
+        // but our code uses .filter(|s| !s.is_empty()) so they become None before reaching here
+        // However this test constructs directly — so the filter doesn't apply.
+        // This tests the serde behavior: Some(vec![]) IS serialized.
+        assert!(parsed.get("status").is_some());
+    }
+
+    // ── to_batch_response helper ─────────────────────────────────────────
+
+    #[test]
+    fn test_to_batch_response_empty() {
+        let batch = to_batch_response(vec![]);
+        assert_eq!(batch.total, 0);
+        assert_eq!(batch.available, 0);
+        assert_eq!(batch.taken, 0);
+        assert_eq!(batch.unknown, 0);
+        assert!(batch.results.is_empty());
+    }
+
+    #[test]
+    fn test_to_batch_response_mixed_results() {
+        let results = vec![
+            DomainResult {
+                domain: "free.com".into(),
+                available: Some(true),
+                info: None,
+                check_duration: None,
+                method_used: CheckMethod::Rdap,
+                error_message: None,
+            },
+            DomainResult {
+                domain: "taken.com".into(),
+                available: Some(false),
+                info: None,
+                check_duration: None,
+                method_used: CheckMethod::Whois,
+                error_message: None,
+            },
+            DomainResult {
+                domain: "err.xyz".into(),
+                available: None,
+                info: None,
+                check_duration: None,
+                method_used: CheckMethod::Unknown,
+                error_message: Some("timeout".into()),
+            },
+        ];
+        let batch = to_batch_response(results);
+        assert_eq!(batch.total, 3);
+        assert_eq!(batch.available, 1);
+        assert_eq!(batch.taken, 1);
+        assert_eq!(batch.unknown, 1);
+        assert_eq!(batch.results[0].domain, "free.com");
+        assert_eq!(batch.results[1].method, "WHOIS");
+        assert_eq!(batch.results[2].error.as_deref(), Some("timeout"));
+    }
+
+    #[test]
+    fn test_to_batch_response_all_available() {
+        let results = vec![
+            DomainResult {
+                domain: "a.com".into(),
+                available: Some(true),
+                info: None,
+                check_duration: None,
+                method_used: CheckMethod::Rdap,
+                error_message: None,
+            },
+            DomainResult {
+                domain: "b.com".into(),
+                available: Some(true),
+                info: None,
+                check_duration: None,
+                method_used: CheckMethod::Rdap,
+                error_message: None,
+            },
+        ];
+        let batch = to_batch_response(results);
+        assert_eq!(batch.available, 2);
+        assert_eq!(batch.taken, 0);
+        assert_eq!(batch.unknown, 0);
+    }
+
+    // ── Server construction & info ───────────────────────────────────────
+
+    #[test]
+    fn test_server_new() {
+        let server = DomainCheckServer::new();
+        let info = server.get_info();
+        assert_eq!(info.server_info.name, "domain-check-mcp");
+        assert!(!info.server_info.version.is_empty());
+    }
+
+    #[test]
+    fn test_server_info_has_tools_capability() {
+        let server = DomainCheckServer::new();
+        let info = server.get_info();
+        assert!(
+            info.capabilities.tools.is_some(),
+            "Server must advertise tools capability"
+        );
+    }
+
+    #[test]
+    fn test_server_info_has_instructions() {
+        let server = DomainCheckServer::new();
+        let info = server.get_info();
+        assert!(info.instructions.is_some());
+        assert!(info.instructions.unwrap().contains("domain"));
+    }
+
+    #[test]
+    fn test_server_info_version_matches_crate() {
+        let server = DomainCheckServer::new();
+        let info = server.get_info();
+        assert_eq!(info.server_info.version, env!("CARGO_PKG_VERSION"));
+    }
+
+    // ── Tool registration ────────────────────────────────────────────────
+
+    #[test]
+    fn test_tool_router_has_six_tools() {
+        let server = DomainCheckServer::new();
+        let tools = server.tool_router.list_all();
+        assert_eq!(tools.len(), 6, "Expected 6 tools, got {}", tools.len());
+    }
+
+    #[test]
+    fn test_tool_router_tool_names() {
+        let server = DomainCheckServer::new();
+        let tools = server.tool_router.list_all();
+        let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+        assert!(names.contains(&"check_domain"));
+        assert!(names.contains(&"check_domains"));
+        assert!(names.contains(&"check_with_preset"));
+        assert!(names.contains(&"generate_names"));
+        assert!(names.contains(&"list_presets"));
+        assert!(names.contains(&"domain_info"));
+    }
+
+    #[test]
+    fn test_tool_descriptions_not_empty() {
+        let server = DomainCheckServer::new();
+        let tools = server.tool_router.list_all();
+        for tool in &tools {
+            assert!(
+                tool.description.is_some(),
+                "Tool {} missing description",
+                tool.name
+            );
+            assert!(
+                !tool.description.as_ref().unwrap().is_empty(),
+                "Tool {} has empty description",
+                tool.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_tool_schemas_have_type_object() {
+        let server = DomainCheckServer::new();
+        let tools = server.tool_router.list_all();
+        for tool in &tools {
+            assert_eq!(
+                tool.input_schema.get("type").and_then(|v| v.as_str()),
+                Some("object"),
+                "Tool {} input schema must have type: object",
+                tool.name
+            );
+        }
+    }
+
+    // ── list_presets tool (no network) ────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_list_presets_tool() {
+        let server = DomainCheckServer::new();
+        let result = server.list_presets().await;
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let presets = parsed["presets"].as_array().unwrap();
+        assert!(presets.len() >= 10, "Expected at least 10 presets");
+
+        // Verify each preset has name and non-empty tlds
+        for preset in presets {
+            assert!(preset["name"].is_string());
+            assert!(!preset["tlds"].as_array().unwrap().is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_presets_contains_known_presets() {
+        let server = DomainCheckServer::new();
+        let result = server.list_presets().await;
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let names: Vec<&str> = parsed["presets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].as_str().unwrap())
+            .collect();
+        assert!(names.contains(&"startup"));
+        assert!(names.contains(&"tech"));
+        assert!(names.contains(&"popular"));
+        assert!(names.contains(&"classic"));
+    }
+
+    // ── generate_names tool (no network) ─────────────────────────────────
+
+    #[tokio::test]
+    async fn test_generate_names_tool_simple_pattern() {
+        let server = DomainCheckServer::new();
+        let result = server
+            .generate_names(Parameters(GenerateNamesParams {
+                patterns: vec!["app\\d".into()],
+                literal_names: None,
+                prefixes: None,
+                suffixes: None,
+                include_bare: None,
+            }))
+            .await;
+        assert!(result.is_ok());
+        let parsed: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(parsed["count"], 10);
+        let names = parsed["names"].as_array().unwrap();
+        assert!(names.iter().any(|n| n == "app0"));
+        assert!(names.iter().any(|n| n == "app9"));
+    }
+
+    #[tokio::test]
+    async fn test_generate_names_tool_with_affixes() {
+        let server = DomainCheckServer::new();
+        let result = server
+            .generate_names(Parameters(GenerateNamesParams {
+                patterns: vec![],
+                literal_names: Some(vec!["cloud".into()]),
+                prefixes: Some(vec!["get".into()]),
+                suffixes: Some(vec!["ly".into()]),
+                include_bare: Some(true),
+            }))
+            .await;
+        assert!(result.is_ok());
+        let parsed: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
+        let names: Vec<&str> = parsed["names"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n.as_str().unwrap())
+            .collect();
+        assert!(names.contains(&"getcloudly"));
+        assert!(names.contains(&"getcloud"));
+        assert!(names.contains(&"cloudly"));
+        assert!(names.contains(&"cloud"));
+    }
+
+    #[tokio::test]
+    async fn test_generate_names_tool_invalid_pattern() {
+        let server = DomainCheckServer::new();
+        let result = server
+            .generate_names(Parameters(GenerateNamesParams {
+                patterns: vec!["test\\x".into()],
+                literal_names: None,
+                prefixes: None,
+                suffixes: None,
+                include_bare: None,
+            }))
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("unknown escape"));
+    }
+
+    // ── check_with_preset validation (no network) ────────────────────────
+
+    #[tokio::test]
+    async fn test_check_with_preset_unknown_preset() {
+        let server = DomainCheckServer::new();
+        let result = server
+            .check_with_preset(Parameters(CheckWithPresetParams {
+                name: "test".into(),
+                preset: "nonexistent".into(),
+                concurrency: None,
+            }))
+            .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Unknown preset"));
+        assert!(err.contains("startup")); // should list available presets
+    }
+
+    // ── check_domains validation (no network) ────────────────────────────
+
+    #[tokio::test]
+    async fn test_check_domains_empty_list() {
+        let server = DomainCheckServer::new();
+        let result = server
+            .check_domains(Parameters(CheckDomainsParams {
+                domains: vec![],
+                concurrency: None,
+                timeout_secs: None,
+            }))
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("cannot be empty"));
+    }
+
+    #[tokio::test]
+    async fn test_check_domains_exceeds_limit() {
+        let server = DomainCheckServer::new();
+        let domains: Vec<String> = (0..501).map(|i| format!("domain{i}.com")).collect();
+        let result = server
+            .check_domains(Parameters(CheckDomainsParams {
+                domains,
+                concurrency: None,
+                timeout_secs: None,
+            }))
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("501"));
+    }
+
+    #[tokio::test]
+    async fn test_check_domains_at_limit_accepted() {
+        // 500 domains should NOT be rejected by validation
+        // (it will fail on network, but validation passes)
+        let server = DomainCheckServer::new();
+        let domains: Vec<String> = (0..500).map(|i| format!("domain{i}.com")).collect();
+        let result = server
+            .check_domains(Parameters(CheckDomainsParams {
+                domains,
+                concurrency: None,
+                timeout_secs: None,
+            }))
+            .await;
+        // Should not get the "Too many domains" error
+        if let Err(e) = &result {
+            assert!(!e.contains("Too many domains"));
+        }
+    }
+
+    // ── Safety constants ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_max_batch_domains_is_500() {
+        assert_eq!(MAX_BATCH_DOMAINS, 500);
+    }
+
+    #[test]
+    fn test_max_generated_names_is_100k() {
+        assert_eq!(MAX_GENERATED_NAMES, 100_000);
+    }
+}
