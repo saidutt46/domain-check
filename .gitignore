@@ -19,9 +19,7 @@ target/
 
 # Local development files
 CLAUDE.md
-aagent.md
-BLUEPRINT.md
-dev-doc.md
+!docs/
 
 # Demo recording artifacts (keep .svg, ignore .cast)
 assets/*.cast
@@ -29,4 +27,3 @@ assets/.demo-scenario.sh
 
 # Coverage reports
 coverage-report/
-agent.md

@@ -4,7 +4,7 @@ use domain_check_lib::{
 };
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{Implementation, ServerInfo},
+    model::{Implementation, ServerCapabilities, ServerInfo, ToolsCapability},
     schemars, tool, tool_handler, tool_router, ServerHandler,
 };
 use serde::{Deserialize, Serialize};
@@ -331,6 +331,10 @@ impl ServerHandler for DomainCheckServer {
             server_info: Implementation {
                 name: "domain-check-mcp".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
+                ..Default::default()
+            },
+            capabilities: ServerCapabilities {
+                tools: Some(ToolsCapability::default()),
                 ..Default::default()
             },
             instructions: Some(
