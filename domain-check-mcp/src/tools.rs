@@ -555,8 +555,8 @@ mod tests {
             creation_date: None,
             expiration_date: None,
             updated_date: None,
-            status: Some(vec![]),  // empty vec should be skipped
-            nameservers: Some(vec![]),  // empty vec should be skipped
+            status: Some(vec![]),      // empty vec should be skipped
+            nameservers: Some(vec![]), // empty vec should be skipped
             error: None,
         };
         let json = to_json(&resp);
@@ -909,5 +909,294 @@ mod tests {
     #[test]
     fn test_max_generated_names_is_100k() {
         assert_eq!(MAX_GENERATED_NAMES, 100_000);
+    }
+
+    // ── Integration tests: duplex client ↔ server ────────────────────────
+
+    mod integration {
+        use super::*;
+        use rmcp::{
+            model::{CallToolRequestParams, ClientInfo},
+            service::RunningService,
+            ClientHandler, RoleClient, ServiceExt,
+        };
+
+        type Client = RunningService<RoleClient, TestClient>;
+
+        #[derive(Debug, Clone, Default)]
+        struct TestClient;
+
+        impl ClientHandler for TestClient {
+            fn get_info(&self) -> ClientInfo {
+                ClientInfo::default()
+            }
+        }
+
+        async fn setup_client() -> Client {
+            let (server_transport, client_transport) = tokio::io::duplex(65536);
+
+            let server = DomainCheckServer::new();
+            tokio::spawn(async move {
+                let svc = server
+                    .serve(server_transport)
+                    .await
+                    .expect("server start failed");
+                let _ = svc.waiting().await;
+            });
+
+            TestClient
+                .serve(client_transport)
+                .await
+                .expect("client start failed")
+        }
+
+        fn text_from_result(result: &rmcp::model::CallToolResult) -> &str {
+            result
+                .content
+                .first()
+                .and_then(|c| c.raw.as_text())
+                .map(|t| t.text.as_str())
+                .expect("expected text content in result")
+        }
+
+        #[tokio::test]
+        async fn test_duplex_initialize_and_list_tools() {
+            let client = setup_client().await;
+
+            let tools = client.list_tools(None).await.expect("list_tools failed");
+            assert_eq!(tools.tools.len(), 6, "Expected 6 tools");
+
+            let names: Vec<&str> = tools.tools.iter().map(|t| t.name.as_ref()).collect();
+            assert!(names.contains(&"check_domain"));
+            assert!(names.contains(&"check_domains"));
+            assert!(names.contains(&"check_with_preset"));
+            assert!(names.contains(&"generate_names"));
+            assert!(names.contains(&"list_presets"));
+            assert!(names.contains(&"domain_info"));
+
+            client.cancel().await.expect("cancel failed");
+        }
+
+        #[tokio::test]
+        async fn test_duplex_list_presets() {
+            let client = setup_client().await;
+
+            let result = client
+                .call_tool(CallToolRequestParams {
+                    meta: None,
+                    name: "list_presets".into(),
+                    arguments: Some(serde_json::Map::new()),
+                    task: None,
+                })
+                .await
+                .expect("call_tool failed");
+
+            let text = text_from_result(&result);
+            let parsed: serde_json::Value =
+                serde_json::from_str(text).expect("response is not valid JSON");
+
+            let presets = parsed["presets"]
+                .as_array()
+                .expect("presets should be array");
+            assert!(presets.len() >= 10);
+
+            // Verify startup preset exists and has expected TLDs
+            let startup = presets.iter().find(|p| p["name"] == "startup");
+            assert!(startup.is_some(), "startup preset should exist");
+            let startup_tlds = startup.unwrap()["tlds"].as_array().unwrap();
+            assert!(startup_tlds.iter().any(|t| t == "com"));
+            assert!(startup_tlds.iter().any(|t| t == "io"));
+
+            // Result should not be an error
+            assert_ne!(result.is_error, Some(true));
+
+            client.cancel().await.expect("cancel failed");
+        }
+
+        #[tokio::test]
+        async fn test_duplex_generate_names() {
+            let client = setup_client().await;
+
+            let result = client
+                .call_tool(CallToolRequestParams {
+                    meta: None,
+                    name: "generate_names".into(),
+                    arguments: Some(
+                        serde_json::json!({
+                            "patterns": ["app\\d\\d"]
+                        })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    ),
+                    task: None,
+                })
+                .await
+                .expect("call_tool failed");
+
+            let text = text_from_result(&result);
+            let parsed: serde_json::Value = serde_json::from_str(text).unwrap();
+
+            assert_eq!(parsed["count"], 100);
+            let names = parsed["names"].as_array().unwrap();
+            assert_eq!(names.len(), 100);
+            assert!(names.iter().any(|n| n == "app00"));
+            assert!(names.iter().any(|n| n == "app99"));
+            assert!(names.iter().any(|n| n == "app42"));
+
+            assert_ne!(result.is_error, Some(true));
+
+            client.cancel().await.expect("cancel failed");
+        }
+
+        #[tokio::test]
+        async fn test_duplex_generate_names_with_affixes() {
+            let client = setup_client().await;
+
+            let result = client
+                .call_tool(CallToolRequestParams {
+                    meta: None,
+                    name: "generate_names".into(),
+                    arguments: Some(
+                        serde_json::json!({
+                            "patterns": [],
+                            "literal_names": ["cloud"],
+                            "prefixes": ["get"],
+                            "suffixes": ["ly"],
+                            "include_bare": true
+                        })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    ),
+                    task: None,
+                })
+                .await
+                .expect("call_tool failed");
+
+            let text = text_from_result(&result);
+            let parsed: serde_json::Value = serde_json::from_str(text).unwrap();
+
+            let names: Vec<&str> = parsed["names"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|n| n.as_str().unwrap())
+                .collect();
+            assert!(names.contains(&"getcloudly"));
+            assert!(names.contains(&"getcloud"));
+            assert!(names.contains(&"cloudly"));
+            assert!(names.contains(&"cloud"));
+
+            client.cancel().await.expect("cancel failed");
+        }
+
+        #[tokio::test]
+        async fn test_duplex_generate_names_invalid_pattern() {
+            let client = setup_client().await;
+
+            let result = client
+                .call_tool(CallToolRequestParams {
+                    meta: None,
+                    name: "generate_names".into(),
+                    arguments: Some(
+                        serde_json::json!({
+                            "patterns": ["bad\\x"]
+                        })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    ),
+                    task: None,
+                })
+                .await
+                .expect("call_tool failed");
+
+            // Should be an error result
+            assert_eq!(result.is_error, Some(true));
+            let text = text_from_result(&result);
+            assert!(text.contains("unknown escape"));
+
+            client.cancel().await.expect("cancel failed");
+        }
+
+        #[tokio::test]
+        async fn test_duplex_check_domains_empty_list() {
+            let client = setup_client().await;
+
+            let result = client
+                .call_tool(CallToolRequestParams {
+                    meta: None,
+                    name: "check_domains".into(),
+                    arguments: Some(
+                        serde_json::json!({
+                            "domains": []
+                        })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    ),
+                    task: None,
+                })
+                .await
+                .expect("call_tool failed");
+
+            assert_eq!(result.is_error, Some(true));
+            let text = text_from_result(&result);
+            assert!(text.contains("cannot be empty"));
+
+            client.cancel().await.expect("cancel failed");
+        }
+
+        #[tokio::test]
+        async fn test_duplex_check_with_preset_unknown() {
+            let client = setup_client().await;
+
+            let result = client
+                .call_tool(CallToolRequestParams {
+                    meta: None,
+                    name: "check_with_preset".into(),
+                    arguments: Some(
+                        serde_json::json!({
+                            "name": "test",
+                            "preset": "does_not_exist"
+                        })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    ),
+                    task: None,
+                })
+                .await
+                .expect("call_tool failed");
+
+            assert_eq!(result.is_error, Some(true));
+            let text = text_from_result(&result);
+            assert!(text.contains("Unknown preset"));
+
+            client.cancel().await.expect("cancel failed");
+        }
+
+        #[tokio::test]
+        async fn test_duplex_call_nonexistent_tool() {
+            let client = setup_client().await;
+
+            let result = client
+                .call_tool(CallToolRequestParams {
+                    meta: None,
+                    name: "nonexistent_tool".into(),
+                    arguments: Some(serde_json::Map::new()),
+                    task: None,
+                })
+                .await;
+
+            // Should return an error (either protocol error or tool error)
+            assert!(
+                result.is_err() || result.as_ref().unwrap().is_error == Some(true),
+                "Calling nonexistent tool should fail"
+            );
+
+            client.cancel().await.expect("cancel failed");
+        }
     }
 }
