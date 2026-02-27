@@ -16,6 +16,7 @@
 members = [
     "domain-check-lib",  # Core library crate
     "domain-check",      # CLI application crate
+    "domain-check-mcp",  # MCP server crate
 ]
 
 # Use edition 2021 resolver for better dependency resolution
@@ -54,6 +55,10 @@ futures-util = "0.3"
 # CLI-specific dependencies (only used by domain-check crate)
 clap = { version = "4.5", features = ["derive"] }
 console = "0.15"
+
+# Logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Testing dependencies (available to all crates)
 tokio-test = "0.4"

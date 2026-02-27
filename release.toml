@@ -26,3 +26,4 @@ shared-version = true
 # Package release order:
 # 1. domain-check-lib (library, released first in CI/CD)
 # 2. domain-check (CLI, depends on library)
+# 3. domain-check-mcp (MCP server, depends on library)

@@ -29,3 +29,4 @@ assets/.demo-scenario.sh
 
 # Coverage reports
 coverage-report/
+agent.md
