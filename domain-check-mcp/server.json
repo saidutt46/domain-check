@@ -2,25 +2,35 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.saidutt46/domain-check",
   "description": "Domain availability checking — single domains, batch checks, TLD presets, name generation, and detailed registration info via RDAP and WHOIS.",
-  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/saidutt46/domain-check.git",
+    "source": "github"
+  },
+  "version": "1.0.1",
   "packages": [
     {
-      "registryType": "cargo",
-      "name": "domain-check-mcp",
-      "version": "1.0.0",
-      "runtimeHint": "cargo-install",
-      "transport": [
-        {
-          "type": "stdio"
-        }
-      ],
-      "environmentVariables": [
-        {
-          "name": "RUST_LOG",
-          "description": "Logging level (e.g., domain_check_mcp=debug). Logs go to stderr.",
-          "required": false
-        }
-      ]
+      "registryType": "mcpb",
+      "identifier": "https://github.com/saidutt46/domain-check/releases/download/v1.0.1/domain-check-mcp-linux-x86_64.mcpb",
+      "fileSha256": "PLACEHOLDER_COMPUTED_AT_RELEASE_TIME",
+      "transport": { "type": "stdio" }
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/saidutt46/domain-check/releases/download/v1.0.1/domain-check-mcp-macos-x86_64.mcpb",
+      "fileSha256": "PLACEHOLDER_COMPUTED_AT_RELEASE_TIME",
+      "transport": { "type": "stdio" }
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/saidutt46/domain-check/releases/download/v1.0.1/domain-check-mcp-macos-aarch64.mcpb",
+      "fileSha256": "PLACEHOLDER_COMPUTED_AT_RELEASE_TIME",
+      "transport": { "type": "stdio" }
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/saidutt46/domain-check/releases/download/v1.0.1/domain-check-mcp-windows-x86_64.mcpb",
+      "fileSha256": "PLACEHOLDER_COMPUTED_AT_RELEASE_TIME",
+      "transport": { "type": "stdio" }
     }
   ]
 }
