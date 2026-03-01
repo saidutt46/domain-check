@@ -1,20 +1,40 @@
 # domain-check-lib
 
-**A fast, robust Rust library for checking domain availability using RDAP and WHOIS protocols**
+Rust library for checking domain availability using RDAP and WHOIS protocols. The same engine that powers the [`domain-check`](https://crates.io/crates/domain-check) CLI.
 
 [![Crates.io](https://img.shields.io/crates/v/domain-check-lib.svg)](https://crates.io/crates/domain-check-lib)
 [![Documentation](https://docs.rs/domain-check-lib/badge.svg)](https://docs.rs/domain-check-lib)
 [![Downloads](https://img.shields.io/crates/d/domain-check-lib.svg)](https://crates.io/crates/domain-check-lib)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/saidutt46/domain-check#license)
 
-Note: docs.rs shows the latest published crate version and can lag this repository's `main` branch.
+## Why use the library?
+
+- **Domain registrar dashboards** — check availability in real time as users type
+- **SaaS platforms** — let customers claim a custom domain during onboarding
+- **Brand monitoring** — scan TLDs for trademark squatting on a schedule
+- **CI/CD pipelines** — validate domain ownership before deploy
+- **Bulk research tools** — check thousands of domains with streaming results
+
+## At a Glance
+
+- **1,200+ TLDs** via IANA bootstrap, 32 hardcoded as offline fallback
+- **Dual protocol** — RDAP-first with automatic WHOIS fallback via IANA server discovery
+- **Up to 100 concurrent checks** with configurable concurrency
+- **Streaming support** — process results as they arrive via `futures_util::Stream`
+- **Rich metadata** — registrar, creation/expiration dates, status codes, nameservers
+- **11 built-in TLD presets** — startup, tech, creative, finance, etc.
+- **Domain expansion** — expand base names across TLD lists automatically
+- **Comprehensive error types** — timeout, network, parse, bootstrap errors with recovery hints
+- **Pure async Rust** — built on tokio + reqwest, no OpenSSL dependency
+
+> Want a ready-to-use CLI instead? See [`domain-check`](https://crates.io/crates/domain-check).
 
 ## Quick Start
 
 ```toml
 [dependencies]
 domain-check-lib = "0.9.1"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
 ```rust
@@ -34,19 +54,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
-
----
-
-## Key Features
-
-- **Pure Async Rust** — built with tokio for high performance
-- **Dual Protocol** — RDAP-first with intelligent WHOIS fallback via IANA server discovery
-- **1,200+ TLDs** — universal coverage via IANA bootstrap, with 32 hardcoded TLDs as offline fallback
-- **Concurrent Processing** — check multiple domains simultaneously
-- **Robust Error Handling** — comprehensive error types with recovery
-- **Detailed Information** — extract registrar, dates, and status codes
-- **Streaming Support** — real-time results for bulk operations
-- **TLD Management** — access preset groups, bootstrap initialization, and domain expansion
 
 ---
 
@@ -88,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 use domain_check_lib::DomainChecker;
-use futures::StreamExt;
+use futures_util::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -167,6 +174,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Bootstrap & WHOIS Discovery
+
+```rust
+use domain_check_lib::{initialize_bootstrap, get_whois_server};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load 1,200+ TLDs from the IANA RDAP bootstrap registry
+    initialize_bootstrap().await?;
+
+    // Discover authoritative WHOIS servers for any TLD via IANA referral
+    if let Some(server) = get_whois_server("com").await {
+        println!(".com WHOIS server: {}", server); // → whois.verisign-grs.com
+    }
+
+    Ok(())
+}
+```
+
+---
+
+## Error Handling
+
+```rust
+use domain_check_lib::DomainCheckError;
+
+match checker.check_domain("invalid-domain").await {
+    Ok(result) => println!("Success: {:?}", result),
+    Err(DomainCheckError::InvalidDomain { domain, reason }) => {
+        eprintln!("Invalid domain '{}': {}", domain, reason);
+    }
+    Err(DomainCheckError::NetworkError { message, .. }) => {
+        eprintln!("Network error: {}", message);
+    }
+    Err(DomainCheckError::Timeout { operation, duration }) => {
+        eprintln!("Timeout after {:?}: {}", duration, operation);
+    }
+    Err(e) => eprintln!("Other error: {}", e),
+}
+```
+
 ---
 
 ## Data Structures
@@ -199,49 +247,6 @@ pub struct DomainInfo {
 
 ---
 
-## Error Handling
-
-```rust
-use domain_check_lib::DomainCheckError;
-
-match checker.check_domain("invalid-domain").await {
-    Ok(result) => println!("Success: {:?}", result),
-    Err(DomainCheckError::InvalidDomain { domain, reason }) => {
-        eprintln!("Invalid domain '{}': {}", domain, reason);
-    }
-    Err(DomainCheckError::NetworkError { message, .. }) => {
-        eprintln!("Network error: {}", message);
-    }
-    Err(DomainCheckError::Timeout { operation, duration }) => {
-        eprintln!("Timeout after {:?}: {}", duration, operation);
-    }
-    Err(e) => eprintln!("Other error: {}", e),
-}
-```
-
----
-
-### Bootstrap & WHOIS Discovery
-
-```rust
-use domain_check_lib::{initialize_bootstrap, get_whois_server};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load 1,200+ TLDs from the IANA RDAP bootstrap registry
-    initialize_bootstrap().await?;
-
-    // Discover authoritative WHOIS servers for any TLD via IANA referral
-    if let Some(server) = get_whois_server("com").await {
-        println!(".com WHOIS server: {}", server); // → whois.verisign-grs.com
-    }
-
-    Ok(())
-}
-```
-
----
-
 ## Protocol Support
 
 | Protocol | Role | Details |
@@ -257,12 +262,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **CLI Tool**: [`domain-check`](https://crates.io/crates/domain-check) — command-line interface
 - **Repository**: [GitHub](https://github.com/saidutt46/domain-check)
 - **Docs Index**: [`docs/README.md`](../docs/README.md)
-- **Automation Guide**: [`docs/AUTOMATION.md`](../docs/AUTOMATION.md)
 - **FAQ**: [`docs/FAQ.md`](../docs/FAQ.md)
 
 ## License
 
-Apache License, Version 2.0 — see the [LICENSE](../LICENSE) file for details.
+Licensed under either of [Apache License, Version 2.0](../LICENSE-APACHE) or [MIT License](../LICENSE-MIT) at your option.
 
 ## Contributing
 

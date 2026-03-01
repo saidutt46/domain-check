@@ -5,7 +5,7 @@
 
 use crate::error::DomainCheckError;
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// Bootstrap registry cache for discovered RDAP endpoints and WHOIS servers.
@@ -47,9 +47,10 @@ impl BootstrapCache {
     }
 }
 
-// Global bootstrap cache using lazy_static
-lazy_static::lazy_static! {
-    static ref BOOTSTRAP_CACHE: Mutex<BootstrapCache> = Mutex::new(BootstrapCache::new());
+/// Global bootstrap cache accessor.
+fn bootstrap_cache() -> &'static Mutex<BootstrapCache> {
+    static CACHE: OnceLock<Mutex<BootstrapCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(BootstrapCache::new()))
 }
 
 /// Get the built-in RDAP registry mappings.
@@ -127,7 +128,7 @@ pub fn get_all_known_tlds() -> Vec<String> {
     let mut tld_set: HashSet<String> = registry.keys().map(|k| k.to_string()).collect();
 
     // Include bootstrap cache entries
-    if let Ok(cache) = BOOTSTRAP_CACHE.lock() {
+    if let Ok(cache) = bootstrap_cache().lock() {
         for tld in cache.rdap_endpoints.keys() {
             tld_set.insert(tld.clone());
         }
@@ -338,7 +339,7 @@ pub async fn get_rdap_endpoint(tld: &str, use_bootstrap: bool) -> Result<String,
 
     // 2-3. Check bootstrap cache and negative cache
     {
-        let cache = BOOTSTRAP_CACHE
+        let cache = bootstrap_cache()
             .lock()
             .map_err(|_| DomainCheckError::internal("Failed to acquire bootstrap cache lock"))?;
 
@@ -362,7 +363,7 @@ pub async fn get_rdap_endpoint(tld: &str, use_bootstrap: bool) -> Result<String,
     if use_bootstrap {
         // Fetch if cache is empty or stale
         let needs_fetch = {
-            let cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
+            let cache = bootstrap_cache().lock().map_err(|_| {
                 DomainCheckError::internal("Failed to acquire bootstrap cache lock")
             })?;
             !cache.rdap_loaded || cache.is_stale()
@@ -373,7 +374,7 @@ pub async fn get_rdap_endpoint(tld: &str, use_bootstrap: bool) -> Result<String,
         }
 
         // Re-check after fetch
-        let cache = BOOTSTRAP_CACHE
+        let cache = bootstrap_cache()
             .lock()
             .map_err(|_| DomainCheckError::internal("Failed to acquire bootstrap cache lock"))?;
 
@@ -384,7 +385,7 @@ pub async fn get_rdap_endpoint(tld: &str, use_bootstrap: bool) -> Result<String,
         // 5. Still not found — add to negative cache and return error
         drop(cache);
         {
-            let mut cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
+            let mut cache = bootstrap_cache().lock().map_err(|_| {
                 DomainCheckError::internal("Failed to acquire bootstrap cache lock")
             })?;
             cache.no_rdap.insert(tld_lower.clone());
@@ -471,7 +472,7 @@ async fn fetch_full_bootstrap() -> Result<(), DomainCheckError> {
     }
 
     // Update cache atomically
-    let mut cache = BOOTSTRAP_CACHE
+    let mut cache = bootstrap_cache()
         .lock()
         .map_err(|_| DomainCheckError::internal("Failed to acquire bootstrap cache lock"))?;
 
@@ -492,7 +493,7 @@ async fn fetch_full_bootstrap() -> Result<(), DomainCheckError> {
 /// cache is still fresh (within the 24-hour TTL).
 pub async fn initialize_bootstrap() -> Result<(), DomainCheckError> {
     let needs_fetch = {
-        let cache = BOOTSTRAP_CACHE
+        let cache = bootstrap_cache()
             .lock()
             .map_err(|_| DomainCheckError::internal("Failed to acquire bootstrap cache lock"))?;
         !cache.rdap_loaded || cache.is_stale()
@@ -507,7 +508,7 @@ pub async fn initialize_bootstrap() -> Result<(), DomainCheckError> {
 
 /// Cache a discovered WHOIS server for a TLD.
 pub fn cache_whois_server(tld: &str, server: &str) -> Result<(), DomainCheckError> {
-    let mut cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
+    let mut cache = bootstrap_cache().lock().map_err(|_| {
         DomainCheckError::internal("Failed to acquire bootstrap cache lock for writing")
     })?;
 
@@ -531,7 +532,7 @@ pub fn cache_whois_server(tld: &str, server: &str) -> Result<(), DomainCheckErro
 ///
 /// The WHOIS server hostname if cached, or None.
 pub fn get_cached_whois_server(tld: &str) -> Option<String> {
-    let cache = BOOTSTRAP_CACHE.lock().ok()?;
+    let cache = bootstrap_cache().lock().ok()?;
     let server = cache.whois_servers.get(&tld.to_lowercase())?;
     if server.is_empty() {
         None // Empty string means "no server found" (negative cache)
@@ -542,7 +543,7 @@ pub fn get_cached_whois_server(tld: &str) -> Option<String> {
 
 /// Check if a TLD has been negatively cached for WHOIS (no server found).
 pub fn is_whois_negatively_cached(tld: &str) -> bool {
-    if let Ok(cache) = BOOTSTRAP_CACHE.lock() {
+    if let Ok(cache) = bootstrap_cache().lock() {
         matches!(cache.whois_servers.get(&tld.to_lowercase()), Some(s) if s.is_empty())
     } else {
         false
@@ -621,7 +622,7 @@ pub fn extract_tld(domain: &str) -> Result<String, DomainCheckError> {
 /// Clear the bootstrap cache (useful for testing).
 #[allow(dead_code)]
 pub fn clear_bootstrap_cache() -> Result<(), DomainCheckError> {
-    let mut cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
+    let mut cache = bootstrap_cache().lock().map_err(|_| {
         DomainCheckError::internal("Failed to acquire bootstrap cache lock for clearing")
     })?;
 
@@ -636,7 +637,7 @@ pub fn clear_bootstrap_cache() -> Result<(), DomainCheckError> {
 /// Get bootstrap cache statistics (useful for debugging).
 #[allow(dead_code)]
 pub fn get_bootstrap_cache_stats() -> Result<(usize, bool), DomainCheckError> {
-    let cache = BOOTSTRAP_CACHE.lock().map_err(|_| {
+    let cache = bootstrap_cache().lock().map_err(|_| {
         DomainCheckError::internal("Failed to acquire bootstrap cache lock for stats")
     })?;
 
@@ -647,14 +648,40 @@ pub fn get_bootstrap_cache_stats() -> Result<(usize, bool), DomainCheckError> {
 mod tests {
     use super::*;
 
+    // ── extract_tld ─────────────────────────────────────────────────────
+
     #[test]
-    fn test_extract_tld() {
+    fn test_extract_tld_basic() {
         assert_eq!(extract_tld("example.com").unwrap(), "com");
         assert_eq!(extract_tld("test.org").unwrap(), "org");
         assert_eq!(extract_tld("sub.example.com").unwrap(), "com");
+    }
+
+    #[test]
+    fn test_extract_tld_case_insensitive() {
+        assert_eq!(extract_tld("EXAMPLE.COM").unwrap(), "com");
+        assert_eq!(extract_tld("Test.ORG").unwrap(), "org");
+    }
+
+    #[test]
+    fn test_extract_tld_no_dot() {
         assert!(extract_tld("invalid").is_err());
+        let err = extract_tld("invalid").unwrap_err();
+        assert!(err.to_string().contains("at least one dot"));
+    }
+
+    #[test]
+    fn test_extract_tld_empty() {
         assert!(extract_tld("").is_err());
     }
+
+    #[test]
+    fn test_extract_tld_multi_level() {
+        // Returns last part only (simplified — doesn't handle co.uk)
+        assert_eq!(extract_tld("example.co.uk").unwrap(), "uk");
+    }
+
+    // ── get_rdap_registry_map ───────────────────────────────────────────
 
     #[test]
     fn test_registry_map_contains_common_tlds() {
@@ -663,18 +690,20 @@ mod tests {
         assert!(registry.contains_key("org"));
         assert!(registry.contains_key("net"));
         assert!(registry.contains_key("io"));
+        assert!(registry.contains_key("ai"));
+        assert!(registry.contains_key("dev"));
+        assert!(registry.contains_key("app"));
     }
 
-    #[tokio::test]
-    async fn test_get_rdap_endpoint_builtin() {
-        let endpoint = get_rdap_endpoint("com", false).await.unwrap();
-        assert!(endpoint.contains("verisign.com"));
-    }
-
-    #[tokio::test]
-    async fn test_get_rdap_endpoint_unknown_no_bootstrap() {
-        let result = get_rdap_endpoint("unknowntld123", false).await;
-        assert!(result.is_err());
+    #[test]
+    fn test_registry_map_size() {
+        let registry = get_rdap_registry_map();
+        // We have 32 hardcoded TLDs
+        assert!(
+            registry.len() >= 30,
+            "Expected at least 30 entries, got {}",
+            registry.len()
+        );
     }
 
     #[test]
@@ -697,6 +726,47 @@ mod tests {
     }
 
     #[test]
+    fn test_registry_does_not_contain_dead_cctlds() {
+        let registry = get_rdap_registry_map();
+        // These were removed because their RDAP endpoints are defunct
+        assert!(!registry.contains_key("co"));
+        assert!(!registry.contains_key("eu"));
+        assert!(!registry.contains_key("it"));
+        assert!(!registry.contains_key("jp"));
+        assert!(!registry.contains_key("es"));
+        assert!(!registry.contains_key("cn"));
+    }
+
+    // ── get_rdap_endpoint ───────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_rdap_endpoint_builtin() {
+        let endpoint = get_rdap_endpoint("com", false).await.unwrap();
+        assert!(endpoint.contains("verisign.com"));
+    }
+
+    #[tokio::test]
+    async fn test_get_rdap_endpoint_case_insensitive() {
+        let endpoint = get_rdap_endpoint("COM", false).await.unwrap();
+        assert!(endpoint.contains("verisign.com"));
+    }
+
+    #[tokio::test]
+    async fn test_get_rdap_endpoint_unknown_no_bootstrap() {
+        let result = get_rdap_endpoint("unknowntld123", false).await;
+        assert!(result.is_err());
+        // Should return a BootstrapError variant
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, DomainCheckError::BootstrapError { .. }),
+            "Expected BootstrapError, got: {:?}",
+            err
+        );
+    }
+
+    // ── BootstrapCache ──────────────────────────────────────────────────
+
+    #[test]
     fn test_bootstrap_cache_new() {
         let cache = BootstrapCache::new();
         assert!(!cache.rdap_loaded);
@@ -708,22 +778,156 @@ mod tests {
     }
 
     #[test]
+    fn test_bootstrap_cache_is_stale_no_fetch() {
+        let cache = BootstrapCache::new();
+        assert!(cache.is_stale()); // Never fetched = stale
+    }
+
+    #[test]
+    fn test_bootstrap_cache_is_stale_fresh() {
+        let mut cache = BootstrapCache::new();
+        cache.last_fetch = Some(Instant::now());
+        assert!(!cache.is_stale()); // Just fetched = not stale
+    }
+
+    // ── WHOIS server caching ────────────────────────────────────────────
+
+    #[test]
     fn test_whois_server_caching() {
         clear_bootstrap_cache().unwrap();
 
-        // Cache a server
         cache_whois_server("com", "whois.verisign-grs.com").unwrap();
         assert_eq!(
             get_cached_whois_server("com"),
             Some("whois.verisign-grs.com".to_string())
         );
 
-        // Cache negative result
+        clear_bootstrap_cache().unwrap();
+    }
+
+    #[test]
+    fn test_whois_negative_caching() {
+        clear_bootstrap_cache().unwrap();
+
         cache_whois_server("fake", "").unwrap();
         assert_eq!(get_cached_whois_server("fake"), None);
         assert!(is_whois_negatively_cached("fake"));
 
         clear_bootstrap_cache().unwrap();
+    }
+
+    #[test]
+    fn test_whois_cache_case_insensitive() {
+        clear_bootstrap_cache().unwrap();
+
+        cache_whois_server("COM", "whois.verisign-grs.com").unwrap();
+        assert_eq!(
+            get_cached_whois_server("com"),
+            Some("whois.verisign-grs.com".to_string())
+        );
+
+        clear_bootstrap_cache().unwrap();
+    }
+
+    #[test]
+    fn test_whois_not_negatively_cached_when_absent() {
+        clear_bootstrap_cache().unwrap();
+        assert!(!is_whois_negatively_cached("neverqueried"));
+        clear_bootstrap_cache().unwrap();
+    }
+
+    // ── clear_bootstrap_cache & stats ───────────────────────────────────
+
+    #[test]
+    fn test_clear_bootstrap_cache() {
+        // Populate some data
+        cache_whois_server("test", "whois.test.com").unwrap();
+        clear_bootstrap_cache().unwrap();
+
+        assert_eq!(get_cached_whois_server("test"), None);
+        assert!(!is_whois_negatively_cached("test"));
+    }
+
+    #[test]
+    fn test_get_bootstrap_cache_stats() {
+        clear_bootstrap_cache().unwrap();
+        let (count, stale) = get_bootstrap_cache_stats().unwrap();
+        assert_eq!(count, 0);
+        assert!(stale); // No fetch yet = stale
+        clear_bootstrap_cache().unwrap();
+    }
+
+    // ── validate_preset_tlds ────────────────────────────────────────────
+
+    #[test]
+    fn test_validate_preset_tlds_all_hardcoded() {
+        let tlds = vec!["com".to_string(), "org".to_string(), "net".to_string()];
+        assert!(validate_preset_tlds(&tlds));
+    }
+
+    #[test]
+    fn test_validate_preset_tlds_with_unknown() {
+        let tlds = vec!["com".to_string(), "unknowntld999".to_string()];
+        assert!(!validate_preset_tlds(&tlds));
+    }
+
+    #[test]
+    fn test_validate_preset_tlds_empty() {
+        assert!(validate_preset_tlds(&[]));
+    }
+
+    // ── get_preset_tlds_with_custom ─────────────────────────────────────
+
+    #[test]
+    fn test_custom_preset_takes_precedence() {
+        let mut custom = HashMap::new();
+        custom.insert(
+            "startup".to_string(),
+            vec!["custom1".to_string(), "custom2".to_string()],
+        );
+
+        let result = get_preset_tlds_with_custom("startup", Some(&custom)).unwrap();
+        assert_eq!(result, vec!["custom1", "custom2"]);
+    }
+
+    #[test]
+    fn test_custom_preset_fallback_to_builtin() {
+        let custom: HashMap<String, Vec<String>> = HashMap::new();
+        let result = get_preset_tlds_with_custom("startup", Some(&custom)).unwrap();
+        // Should fall back to built-in startup preset
+        assert!(result.contains(&"com".to_string()));
+    }
+
+    #[test]
+    fn test_custom_preset_exact_case_match() {
+        let mut custom = HashMap::new();
+        custom.insert("MyPreset".to_string(), vec!["com".to_string()]);
+
+        // Exact case match works
+        let result = get_preset_tlds_with_custom("MyPreset", Some(&custom)).unwrap();
+        assert_eq!(result, vec!["com"]);
+    }
+
+    #[test]
+    fn test_custom_preset_lowercase_key_matches_lowercase_query() {
+        let mut custom = HashMap::new();
+        custom.insert("mypreset".to_string(), vec!["org".to_string()]);
+
+        // Lowercase query matches lowercase key via preset_lower fallback
+        let result = get_preset_tlds_with_custom("MYPRESET", Some(&custom)).unwrap();
+        assert_eq!(result, vec!["org"]);
+    }
+
+    #[test]
+    fn test_custom_preset_none_map() {
+        let result = get_preset_tlds_with_custom("startup", None).unwrap();
+        assert!(result.contains(&"com".to_string()));
+    }
+
+    #[test]
+    fn test_custom_preset_unknown_returns_none() {
+        let result = get_preset_tlds_with_custom("nonexistent", None);
+        assert!(result.is_none());
     }
 }
 

@@ -404,24 +404,38 @@ fn extract_entity_identifier(entity: &serde_json::Value) -> Option<String> {
 mod tests {
     use super::*;
 
+    // ── RdapClient creation ─────────────────────────────────────────────
+
     #[tokio::test]
-    async fn test_rdap_client_creation() {
+    async fn test_rdap_client_new() {
         let client = RdapClient::new();
         assert!(client.is_ok());
+        let client = client.unwrap();
+        assert_eq!(client.timeout, Duration::from_secs(3));
+        assert!(!client.use_bootstrap);
+    }
+
+    #[tokio::test]
+    async fn test_rdap_client_with_config() {
+        let client = RdapClient::with_config(Duration::from_secs(10), true).unwrap();
+        assert_eq!(client.timeout, Duration::from_secs(10));
+        assert!(client.use_bootstrap);
     }
 
     #[test]
-    fn test_extract_domain_info_basic() {
+    fn test_rdap_client_default() {
+        let client = RdapClient::default();
+        assert_eq!(client.timeout, Duration::from_secs(3));
+    }
+
+    // ── extract_domain_info ─────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_domain_info_dates_and_status() {
         let json = serde_json::json!({
             "events": [
-                {
-                    "eventAction": "registration",
-                    "eventDate": "1995-08-14T04:00:00Z"
-                },
-                {
-                    "eventAction": "expiration",
-                    "eventDate": "2025-08-13T04:00:00Z"
-                }
+                {"eventAction": "registration", "eventDate": "1995-08-14T04:00:00Z"},
+                {"eventAction": "expiration", "eventDate": "2025-08-13T04:00:00Z"}
             ],
             "status": ["client delete prohibited", "client transfer prohibited"]
         });
@@ -433,20 +447,247 @@ mod tests {
             Some("2025-08-13T04:00:00Z".to_string())
         );
         assert_eq!(info.status.len(), 2);
+        assert!(info
+            .status
+            .contains(&"client delete prohibited".to_string()));
     }
 
     #[test]
-    fn test_extract_vcard_name() {
-        let entity = serde_json::json!({
-            "vcardArray": [
-                "vcard",
-                [
-                    ["fn", {}, "text", "Example Registrar Inc."]
-                ]
+    fn test_extract_domain_info_updated_date() {
+        let json = serde_json::json!({
+            "events": [
+                {"eventAction": "last changed", "eventDate": "2024-01-01T00:00:00Z"}
             ]
         });
+        let info = extract_domain_info(&json);
+        assert_eq!(info.updated_date, Some("2024-01-01T00:00:00Z".to_string()));
+    }
 
-        let name = extract_vcard_name(&entity);
-        assert_eq!(name, Some("Example Registrar Inc.".to_string()));
+    #[test]
+    fn test_extract_domain_info_rdap_database_update() {
+        let json = serde_json::json!({
+            "events": [
+                {"eventAction": "last update of RDAP database", "eventDate": "2024-06-15T00:00:00Z"}
+            ]
+        });
+        let info = extract_domain_info(&json);
+        assert_eq!(info.updated_date, Some("2024-06-15T00:00:00Z".to_string()));
+    }
+
+    #[test]
+    fn test_extract_domain_info_unknown_event_ignored() {
+        let json = serde_json::json!({
+            "events": [
+                {"eventAction": "transfer", "eventDate": "2024-01-01T00:00:00Z"}
+            ]
+        });
+        let info = extract_domain_info(&json);
+        assert!(info.creation_date.is_none());
+        assert!(info.expiration_date.is_none());
+        assert!(info.updated_date.is_none());
+    }
+
+    #[test]
+    fn test_extract_domain_info_nameservers() {
+        let json = serde_json::json!({
+            "nameservers": [
+                {"ldhName": "ns1.example.com"},
+                {"ldhName": "ns2.example.com"}
+            ]
+        });
+        let info = extract_domain_info(&json);
+        assert_eq!(info.nameservers.len(), 2);
+        assert!(info.nameservers.contains(&"ns1.example.com".to_string()));
+        assert!(info.nameservers.contains(&"ns2.example.com".to_string()));
+    }
+
+    #[test]
+    fn test_extract_domain_info_registrar_from_vcard() {
+        let json = serde_json::json!({
+            "entities": [{
+                "roles": ["registrar"],
+                "vcardArray": ["vcard", [
+                    ["fn", {}, "text", "GoDaddy LLC"]
+                ]]
+            }]
+        });
+        let info = extract_domain_info(&json);
+        assert_eq!(info.registrar, Some("GoDaddy LLC".to_string()));
+    }
+
+    #[test]
+    fn test_extract_domain_info_registrar_from_public_id() {
+        let json = serde_json::json!({
+            "entities": [{
+                "roles": ["registrar"],
+                "publicIds": [{"identifier": "292", "type": "IANA Registrar ID"}]
+            }]
+        });
+        let info = extract_domain_info(&json);
+        assert_eq!(info.registrar, Some("292".to_string()));
+    }
+
+    #[test]
+    fn test_extract_domain_info_registrar_from_handle() {
+        let json = serde_json::json!({
+            "entities": [{
+                "roles": ["registrar"],
+                "handle": "REG-123"
+            }]
+        });
+        let info = extract_domain_info(&json);
+        assert_eq!(info.registrar, Some("REG-123".to_string()));
+    }
+
+    #[test]
+    fn test_extract_domain_info_non_registrar_entity_skipped() {
+        let json = serde_json::json!({
+            "entities": [{
+                "roles": ["technical"],
+                "vcardArray": ["vcard", [["fn", {}, "text", "Tech Contact"]]]
+            }]
+        });
+        let info = extract_domain_info(&json);
+        assert!(info.registrar.is_none());
+    }
+
+    #[test]
+    fn test_extract_domain_info_empty_json() {
+        let json = serde_json::json!({});
+        let info = extract_domain_info(&json);
+        assert!(info.registrar.is_none());
+        assert!(info.creation_date.is_none());
+        assert!(info.expiration_date.is_none());
+        assert!(info.status.is_empty());
+        assert!(info.nameservers.is_empty());
+    }
+
+    #[test]
+    fn test_extract_domain_info_full_response() {
+        let json = serde_json::json!({
+            "entities": [{
+                "roles": ["registrar"],
+                "vcardArray": ["vcard", [["fn", {}, "text", "MarkMonitor Inc."]]]
+            }],
+            "events": [
+                {"eventAction": "registration", "eventDate": "1997-09-15T04:00:00Z"},
+                {"eventAction": "expiration", "eventDate": "2028-09-14T04:00:00Z"},
+                {"eventAction": "last changed", "eventDate": "2024-01-15T00:00:00Z"}
+            ],
+            "status": ["client delete prohibited", "server transfer prohibited"],
+            "nameservers": [
+                {"ldhName": "ns1.google.com"},
+                {"ldhName": "ns2.google.com"},
+                {"ldhName": "ns3.google.com"}
+            ]
+        });
+        let info = extract_domain_info(&json);
+        assert_eq!(info.registrar, Some("MarkMonitor Inc.".to_string()));
+        assert_eq!(info.creation_date, Some("1997-09-15T04:00:00Z".to_string()));
+        assert_eq!(
+            info.expiration_date,
+            Some("2028-09-14T04:00:00Z".to_string())
+        );
+        assert_eq!(info.updated_date, Some("2024-01-15T00:00:00Z".to_string()));
+        assert_eq!(info.status.len(), 2);
+        assert_eq!(info.nameservers.len(), 3);
+    }
+
+    // ── extract_vcard_name ──────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_vcard_name_standard() {
+        let entity = serde_json::json!({
+            "vcardArray": ["vcard", [["fn", {}, "text", "Example Registrar Inc."]]]
+        });
+        assert_eq!(
+            extract_vcard_name(&entity),
+            Some("Example Registrar Inc.".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_vcard_name_no_fn_field() {
+        let entity = serde_json::json!({
+            "vcardArray": ["vcard", [["org", {}, "text", "Some Org"]]]
+        });
+        assert_eq!(extract_vcard_name(&entity), None);
+    }
+
+    #[test]
+    fn test_extract_vcard_name_no_vcard() {
+        let entity = serde_json::json!({"handle": "test"});
+        assert_eq!(extract_vcard_name(&entity), None);
+    }
+
+    #[test]
+    fn test_extract_vcard_name_empty_vcard_array() {
+        let entity = serde_json::json!({"vcardArray": ["vcard", []]});
+        assert_eq!(extract_vcard_name(&entity), None);
+    }
+
+    #[test]
+    fn test_extract_vcard_name_short_item_array() {
+        let entity = serde_json::json!({
+            "vcardArray": ["vcard", [["fn", {}]]]
+        });
+        assert_eq!(extract_vcard_name(&entity), None);
+    }
+
+    // ── extract_entity_identifier ───────────────────────────────────────
+
+    #[test]
+    fn test_extract_entity_identifier_public_id() {
+        let entity = serde_json::json!({
+            "publicIds": [{"identifier": "292", "type": "IANA Registrar ID"}]
+        });
+        assert_eq!(extract_entity_identifier(&entity), Some("292".to_string()));
+    }
+
+    #[test]
+    fn test_extract_entity_identifier_handle_fallback() {
+        let entity = serde_json::json!({"handle": "REG-123"});
+        assert_eq!(
+            extract_entity_identifier(&entity),
+            Some("REG-123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_entity_identifier_name_fallback() {
+        let entity = serde_json::json!({"name": "Some Registrar"});
+        assert_eq!(
+            extract_entity_identifier(&entity),
+            Some("Some Registrar".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_entity_identifier_precedence() {
+        // publicIds should be preferred over handle
+        let entity = serde_json::json!({
+            "publicIds": [{"identifier": "292"}],
+            "handle": "REG-123",
+            "name": "Some Registrar"
+        });
+        assert_eq!(extract_entity_identifier(&entity), Some("292".to_string()));
+    }
+
+    #[test]
+    fn test_extract_entity_identifier_none() {
+        let entity = serde_json::json!({"roles": ["registrar"]});
+        assert_eq!(extract_entity_identifier(&entity), None);
+    }
+
+    #[test]
+    fn test_extract_entity_identifier_empty_public_ids() {
+        let entity = serde_json::json!({
+            "publicIds": [],
+            "handle": "FALLBACK"
+        });
+        assert_eq!(
+            extract_entity_identifier(&entity),
+            Some("FALLBACK".to_string())
+        );
     }
 }

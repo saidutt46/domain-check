@@ -431,86 +431,285 @@ pub async fn get_whois_version() -> Result<String, DomainCheckError> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_parse_availability_patterns() {
-        let client = WhoisClient::new();
-
-        // Test available patterns
-        let available_text = "No matching record found for example-not-registered.com";
-        assert!(client.parse_whois_availability(available_text).unwrap());
-
-        let available_text2 = "Domain not found";
-        assert!(client.parse_whois_availability(available_text2).unwrap());
-
-        // Test taken patterns
-        let taken_text = "Domain Status: clientTransferProhibited\nRegistrar: Example Registrar\nCreation Date: 2020-01-01";
-        assert!(!client.parse_whois_availability(taken_text).unwrap());
-    }
+    // ── WhoisClient creation ────────────────────────────────────────────
 
     #[test]
-    fn test_rate_limit_detection() {
-        let client = WhoisClient::new();
-
-        assert!(client.is_rate_limited("Rate limit exceeded. Try again later."));
-        assert!(client.is_rate_limited("Too many requests from your IP."));
-        assert!(!client.is_rate_limited("Normal whois response"));
-    }
-
-    #[test]
-    fn test_whois_client_creation() {
+    fn test_whois_client_new() {
         let client = WhoisClient::new();
         assert_eq!(client.timeout, Duration::from_secs(5));
-
-        let custom_client = WhoisClient::with_timeout(Duration::from_secs(10));
-        assert_eq!(custom_client.timeout, Duration::from_secs(10));
     }
 
     #[test]
-    fn test_parse_iana_refer_response() {
-        // Standard IANA response with refer line
-        let response = "% IANA WHOIS server\n% for more information on IANA, visit http://www.iana.org\n\nrefer:        whois.verisign-grs.com\n\ndomain:       COM\n";
+    fn test_whois_client_with_timeout() {
+        let client = WhoisClient::with_timeout(Duration::from_secs(10));
+        assert_eq!(client.timeout, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_whois_client_default() {
+        let client = WhoisClient::default();
+        assert_eq!(client.timeout, Duration::from_secs(5));
+    }
+
+    // ── parse_whois_availability: available patterns ────────────────────
+
+    #[test]
+    fn test_available_no_match() {
+        let client = WhoisClient::new();
+        assert!(client
+            .parse_whois_availability("No match for domain")
+            .unwrap());
+    }
+
+    #[test]
+    fn test_available_not_found() {
+        let client = WhoisClient::new();
+        assert!(client
+            .parse_whois_availability("Not found: example.com")
+            .unwrap());
+    }
+
+    #[test]
+    fn test_available_domain_not_found() {
+        let client = WhoisClient::new();
+        assert!(client.parse_whois_availability("Domain not found").unwrap());
+    }
+
+    #[test]
+    fn test_available_no_data_found() {
+        let client = WhoisClient::new();
+        assert!(client
+            .parse_whois_availability("No data found for this query")
+            .unwrap());
+    }
+
+    #[test]
+    fn test_available_no_entries_found() {
+        let client = WhoisClient::new();
+        assert!(client.parse_whois_availability("No entries found").unwrap());
+    }
+
+    #[test]
+    fn test_available_domain_available() {
+        let client = WhoisClient::new();
+        assert!(client
+            .parse_whois_availability("Domain available for registration")
+            .unwrap());
+    }
+
+    #[test]
+    fn test_available_status_free() {
+        let client = WhoisClient::new();
+        assert!(client.parse_whois_availability("Status: free").unwrap());
+    }
+
+    #[test]
+    fn test_available_not_registered() {
+        let client = WhoisClient::new();
+        assert!(client
+            .parse_whois_availability("This domain is not registered")
+            .unwrap());
+    }
+
+    #[test]
+    fn test_available_object_does_not_exist() {
+        let client = WhoisClient::new();
+        assert!(client
+            .parse_whois_availability("The queried object does not exist")
+            .unwrap());
+    }
+
+    #[test]
+    fn test_available_no_found() {
+        let client = WhoisClient::new();
+        assert!(client.parse_whois_availability("No found").unwrap());
+    }
+
+    #[test]
+    fn test_available_case_insensitive() {
+        let client = WhoisClient::new();
+        assert!(client
+            .parse_whois_availability("NO MATCH FOR DOMAIN")
+            .unwrap());
+        assert!(client.parse_whois_availability("DOMAIN NOT FOUND").unwrap());
+    }
+
+    // ── parse_whois_availability: taken patterns ────────────────────────
+
+    #[test]
+    fn test_taken_multiple_indicators() {
+        let client = WhoisClient::new();
+        let taken = "Domain Status: clientTransferProhibited\nRegistrar: GoDaddy\nCreation Date: 2020-01-01";
+        assert!(!client.parse_whois_availability(taken).unwrap());
+    }
+
+    #[test]
+    fn test_taken_registrar_and_nameserver() {
+        let client = WhoisClient::new();
+        let taken = "Registrar: MarkMonitor Inc.\nName Server: ns1.google.com";
+        assert!(!client.parse_whois_availability(taken).unwrap());
+    }
+
+    #[test]
+    fn test_taken_created_and_expires() {
+        let client = WhoisClient::new();
+        let taken = "Created: 2015-01-01\nExpires: 2025-01-01";
+        assert!(!client.parse_whois_availability(taken).unwrap());
+    }
+
+    #[test]
+    fn test_taken_single_indicator_not_enough() {
+        let client = WhoisClient::new();
+        // Only one "taken" pattern — needs >= 2 to confirm taken
+        let ambiguous = "Registrar: SomeRegistrar\nSome other random text that is long enough to exceed fifty characters";
+        // Single taken indicator + long text = error (ambiguous)
+        let result = client.parse_whois_availability(ambiguous);
+        assert!(result.is_err());
+    }
+
+    // ── parse_whois_availability: invalid TLD patterns ──────────────────
+
+    #[test]
+    fn test_invalid_tld_no_whois_server() {
+        let client = WhoisClient::new();
+        let result = client.parse_whois_availability("No whois server is known for this TLD");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_tld_unknown() {
+        let client = WhoisClient::new();
+        let result = client.parse_whois_availability("Unknown TLD: .fakext");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_tld_bad() {
+        let client = WhoisClient::new();
+        let result = client.parse_whois_availability("Bad TLD specified in query");
+        assert!(result.is_err());
+    }
+
+    // ── parse_whois_availability: short output = available ──────────────
+
+    #[test]
+    fn test_short_output_considered_available() {
+        let client = WhoisClient::new();
+        // < 50 chars, no patterns matched = available
+        assert!(client.parse_whois_availability("Some short text").unwrap());
+    }
+
+    #[test]
+    fn test_empty_output_considered_available() {
+        let client = WhoisClient::new();
+        assert!(client.parse_whois_availability("").unwrap());
+    }
+
+    // ── parse_whois_availability: ambiguous = error ─────────────────────
+
+    #[test]
+    fn test_ambiguous_output_returns_error() {
+        let client = WhoisClient::new();
+        // Long text, no available or taken patterns matched with >= 2 hits
+        let ambiguous = "This is some random whois response that doesn't match any known pattern and is longer than fifty characters total";
+        let result = client.parse_whois_availability(ambiguous);
+        assert!(result.is_err());
+        // Display renders as "WHOIS lookup failed" for generic errors
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("WHOIS lookup failed"));
+    }
+
+    // ── is_rate_limited ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_rate_limited_patterns() {
+        let client = WhoisClient::new();
+        assert!(client.is_rate_limited("Rate limit exceeded. Try again later."));
+        assert!(client.is_rate_limited("Too many requests from your IP."));
+        assert!(client.is_rate_limited("Quota exceeded for this connection"));
+        assert!(client.is_rate_limited("Request throttled, please wait"));
+        assert!(client.is_rate_limited("Your IP has been blocked"));
+        assert!(client.is_rate_limited("You have been rate-limited"));
+    }
+
+    #[test]
+    fn test_rate_limited_case_insensitive() {
+        let client = WhoisClient::new();
+        assert!(client.is_rate_limited("RATE LIMIT EXCEEDED"));
+        assert!(client.is_rate_limited("Too Many Requests"));
+    }
+
+    #[test]
+    fn test_not_rate_limited() {
+        let client = WhoisClient::new();
+        assert!(!client.is_rate_limited("Normal whois response"));
+        assert!(!client.is_rate_limited("Domain Status: active"));
+        assert!(!client.is_rate_limited(""));
+    }
+
+    // ── parse_iana_refer_response ───────────────────────────────────────
+
+    #[test]
+    fn test_iana_refer_standard() {
+        let response =
+            "% IANA WHOIS server\n\nrefer:        whois.verisign-grs.com\n\ndomain:       COM\n";
         assert_eq!(
             parse_iana_refer_response(response),
             Some("whois.verisign-grs.com".to_string())
         );
+    }
 
-        // Response without refer line
-        let no_refer = "% IANA WHOIS server\ndomain: TEST\nstatus: ACTIVE\n";
-        assert_eq!(parse_iana_refer_response(no_refer), None);
+    #[test]
+    fn test_iana_refer_none() {
+        let response = "% IANA WHOIS server\ndomain: TEST\nstatus: ACTIVE\n";
+        assert_eq!(parse_iana_refer_response(response), None);
+    }
 
-        // Empty refer line
-        let empty_refer = "refer:        \ndomain: COM\n";
-        assert_eq!(parse_iana_refer_response(empty_refer), None);
+    #[test]
+    fn test_iana_refer_empty_value() {
+        let response = "refer:        \ndomain: COM\n";
+        assert_eq!(parse_iana_refer_response(response), None);
+    }
 
-        // Response with whois: field instead of refer: (common in real IANA responses)
-        let whois_field = "% IANA WHOIS server\n\nwhois:        whois.verisign-grs.com\n\ndomain:       COM\nstatus:       ACTIVE\n";
+    #[test]
+    fn test_iana_whois_field_fallback() {
+        let response = "whois:        whois.verisign-grs.com\ndomain: COM\n";
         assert_eq!(
-            parse_iana_refer_response(whois_field),
+            parse_iana_refer_response(response),
             Some("whois.verisign-grs.com".to_string())
         );
+    }
 
-        // Response with both refer: and whois: — refer: should take precedence
-        let both_fields = "whois:        whois.old-server.com\nrefer:        whois.correct-server.com\ndomain:       COM\n";
+    #[test]
+    fn test_iana_refer_takes_precedence_over_whois() {
+        let response =
+            "whois:        whois.old-server.com\nrefer:        whois.correct-server.com\n";
         assert_eq!(
-            parse_iana_refer_response(both_fields),
+            parse_iana_refer_response(response),
             Some("whois.correct-server.com".to_string())
         );
-
-        // Empty whois: line should return None
-        let empty_whois = "whois:        \ndomain: COM\n";
-        assert_eq!(parse_iana_refer_response(empty_whois), None);
     }
+
+    #[test]
+    fn test_iana_empty_whois_field() {
+        let response = "whois:        \ndomain: COM\n";
+        assert_eq!(parse_iana_refer_response(response), None);
+    }
+
+    #[test]
+    fn test_iana_empty_response() {
+        assert_eq!(parse_iana_refer_response(""), None);
+    }
+
+    // ── Network-dependent test ──────────────────────────────────────────
 
     #[tokio::test]
     async fn test_whois_availability_check() {
-        // This test only runs if whois is available
         if is_whois_available().await {
             let client = WhoisClient::new();
-            // Test with a domain that should exist
             let result = client.check_domain("google.com").await;
-
-            // We don't assert the specific result since it depends on the system,
-            // but we verify that the function completes without error
             assert!(result.is_ok());
         }
     }

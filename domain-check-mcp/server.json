@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.saidutt46/domain-check",
+  "description": "Domain availability checking — single domains, batch checks, TLD presets, name generation, and detailed registration info via RDAP and WHOIS.",
+  "version": "0.9.1",
+  "packages": [
+    {
+      "registryType": "cargo",
+      "name": "domain-check-mcp",
+      "version": "0.9.1",
+      "runtimeHint": "cargo-install",
+      "transport": [
+        {
+          "type": "stdio"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "RUST_LOG",
+          "description": "Logging level (e.g., domain_check_mcp=debug). Logs go to stderr.",
+          "required": false
+        }
+      ]
+    }
+  ]
+}

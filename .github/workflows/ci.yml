@@ -83,15 +83,16 @@ jobs:
   test:
     name: Test Suite
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [stable, beta, 1.70.0]  # MSRV (Minimum Supported Rust Version)
+        rust: [stable, beta, 1.88.0]  # MSRV — rmcp requires edition 2024 (1.85+) and darling requires 1.88+
         exclude:
           # Only test MSRV on Ubuntu to save CI time
           - os: windows-latest
-            rust: 1.70.0
+            rust: 1.88.0
           - os: macos-latest
-            rust: 1.70.0
+            rust: 1.88.0
           # Only test beta on Ubuntu
           - os: windows-latest
             rust: beta
@@ -103,9 +104,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          toolchain: ${{ matrix.rust }}
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -134,6 +135,9 @@ jobs:
 
       - name: Test CLI
         run: cargo test -p domain-check --verbose
+
+      - name: Test MCP server
+        run: cargo test -p domain-check-mcp --verbose
 
       - name: Test workspace
         run: cargo test --workspace --verbose
@@ -168,8 +172,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-integration-
 
-      - name: Build release binary
-        run: cargo build --release -p domain-check
+      - name: Build release binaries
+        run: |
+          cargo build --release -p domain-check
+          cargo build --release -p domain-check-mcp
 
       - name: Test CLI functionality
         run: |
@@ -239,6 +245,9 @@ jobs:
 
       - name: Check CLI documentation
         run: cargo doc -p domain-check --no-deps --document-private-items
+
+      - name: Check MCP server documentation
+        run: cargo doc -p domain-check-mcp --no-deps --document-private-items
 
       - name: Check for broken links in docs
         run: cargo doc --workspace --no-deps

@@ -23,12 +23,12 @@ fn test_help_shows_new_flags() {
         .stdout(predicate::str::contains("--all"))
         .stdout(predicate::str::contains("--preset"))
         .stdout(predicate::str::contains("--list-presets"))
-        .stdout(predicate::str::contains("Domain Selection"))
-        .stdout(predicate::str::contains("Domain Generation"))
-        .stdout(predicate::str::contains("Output Format"))
-        .stdout(predicate::str::contains("Performance"))
-        .stdout(predicate::str::contains("Protocol"))
-        .stdout(predicate::str::contains("Configuration"));
+        .stdout(predicate::str::contains("DOMAIN SELECTION"))
+        .stdout(predicate::str::contains("DOMAIN GENERATION"))
+        .stdout(predicate::str::contains("OUTPUT FORMAT"))
+        .stdout(predicate::str::contains("PERFORMANCE"))
+        .stdout(predicate::str::contains("PROTOCOL"))
+        .stdout(predicate::str::contains("CONFIGURATION"));
 }
 
 #[test]

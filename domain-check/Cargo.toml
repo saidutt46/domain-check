@@ -44,14 +44,8 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-# Configuration file parsing
-toml = { workspace = true }
-
-# File I/O and text processing
-regex = { workspace = true }
-
 # Async utilities for streaming
-futures = { workspace = true }
+futures-util = { workspace = true }
 
 # Development dependencies
 [dev-dependencies]
@@ -59,7 +53,7 @@ tokio-test = { workspace = true }
 
 assert_cmd = "2.0"
 predicates = "3.0"  
-tempfile = "3.8"
+tempfile = { workspace = true }
 
 # CLI-specific features
 [features]

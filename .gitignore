@@ -19,9 +19,7 @@ target/
 
 # Local development files
 CLAUDE.md
-aagent.md
-BLUEPRINT.md
-dev-doc.md
+\!docs/
 
 # Demo recording artifacts (keep .svg, ignore .cast)
 assets/*.cast

@@ -1,5 +1,76 @@
 # Changelog
 
+## [Unreleased]
+
+### MCP Server, Custom Help Screen & Binary Size Optimization
+
+This release adds a new MCP (Model Context Protocol) server crate, making domain-check available as native tools for AI coding agents. It also overhauls the CLI help experience and dramatically reduces the release binary size.
+
+### Added
+
+#### **MCP Server (`domain-check-mcp`) — New Crate**
+- New workspace member: `domain-check-mcp` — an MCP server exposing domain checking as structured tools for AI agents
+- 6 tools: `check_domain`, `check_domains`, `check_with_preset`, `generate_names`, `list_presets`, `domain_info`
+- Stdio transport (JSON-RPC 2.0) — works with any MCP-compatible client
+- Built on [rmcp](https://crates.io/crates/rmcp) (official Rust MCP SDK)
+- All tools are read-only with structured JSON responses; errors returned as tool content for agent consumption
+- Safety limits: batch max 500 domains, pattern generation max 100,000 names
+- Compatible with: Claude Code, Claude Desktop, VS Code Copilot, Cursor, Windsurf, JetBrains, OpenAI Codex CLI, Gemini CLI
+- `server.json` for official MCP registry submission
+- `smithery.yaml` for Smithery registry
+- 39 tests (31 unit + 8 integration via duplex transport)
+
+#### Binary Size Report (macOS arm64)
+| Build | Size | Notes |
+|-------|------|-------|
+| v0.9.1 (`main`) | 5.88 MB | Before optimizations |
+| This release (CLI) | 2.71 MB | After LTO, strip, dependency cleanup |
+| This release (MCP) | 4.2 MB | New MCP server binary |
+| **CLI Reduction** | **54% smaller** | **3.17 MB saved** |
+
+### Changed
+
+#### **Dual License: MIT OR Apache-2.0**
+- Changed license from Apache-2.0 only to dual MIT OR Apache-2.0
+- Users may choose either license at their option
+- Aligns with Rust ecosystem convention (used by the Rust compiler, serde, tokio, clap, etc.)
+- Added `LICENSE-MIT`; renamed `LICENSE` → `LICENSE-APACHE`
+
+#### **Custom `--help` Screen**
+- Replaced clap's default help renderer with a fully custom help screen
+- ASCII art banner (figlet `standard` font) in cyan bold
+- Compact one-liner flag table organized into 7 sections: Domain Selection, Domain Generation, Output Format, Performance, Protocol, Configuration, General
+- Usage patterns with colored `domain-check` command name
+- Example commands section with green syntax highlighting
+- Modern color palette: cyan flags, magenta section headers, dim descriptions
+- `--version` still handled natively by clap
+
+#### **Binary Size: 5.9 MB → 2.7 MB (54% reduction)**
+- Added release profile: LTO, single codegen unit, symbol stripping, abort-on-panic
+- Removed unused `regex` dependency (eliminated 4 crates: regex, regex-automata, regex-syntax, aho-corasick)
+- Narrowed tokio features from `"full"` to only what's used (rt, rt-multi-thread, time, sync, macros, process, io-util)
+- Replaced `futures` meta-crate with `futures-util` (only StreamExt and stream::iter were used)
+- Removed unused `toml` dependency from CLI crate (config parsing is in the library)
+- Replaced `lazy_static` with `std::sync::OnceLock` (stable since Rust 1.70, our MSRV)
+
+#### **CI/CD Pipeline**
+- CI workflow now tests `domain-check-mcp` alongside library and CLI
+- Release pipeline builds MCP server binaries for all 5 platforms (Linux x86_64, Linux musl, macOS x86_64, macOS aarch64, Windows)
+- Release publishes `domain-check-mcp` to crates.io (lib → CLI → MCP publish order)
+- GitHub release notes include MCP server installation instructions
+
+### Removed
+- `domain-check/src/main.rs.old` — 52 KB of dead legacy code
+- `regex` dependency from both crates (only a dead `From<regex::Error>` impl existed)
+- `lazy_static` dependency (replaced with stdlib)
+- `futures` meta-crate (replaced with `futures-util`)
+- Clap styling imports and custom `STYLES` constant (superseded by custom help)
+
+### Fixed
+- `--pattern` help text now correctly documents all 3 wildcards: `\w=letter`, `\d=digit`, `?=either` (was missing `?=either`)
+
+---
+
 ## [0.9.1] - 2026-02-17
 
 ### Documentation Overhaul

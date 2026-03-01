@@ -13,7 +13,184 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{Args, ErrorStats};
+use crate::Args;
+
+// ── Custom help ─────────────────────────────────────────────────────────────
+
+/// Print a fully custom help screen with ASCII art, compact flags, and examples.
+pub fn print_custom_help() {
+    // ASCII art banner — cyan bold
+    let banner = r#"     _                       _                  _               _
+  __| | ___  _ __ ___   __ _(_)_ __         ___| |__   ___  ___| | __
+ / _` |/ _ \| '_ ` _ \ / _` | | '_ \ _____ / __| '_ \ / _ \/ __| |/ /
+| (_| | (_) | | | | | | (_| | | | | |_____| (__| | | |  __/ (__|   <
+ \__,_|\___/|_| |_| |_|\__,_|_|_| |_|      \___|_| |_|\___|\___|_|\_\"#;
+
+    println!("{}", style(banner).cyan().bold());
+    println!();
+    println!(
+        " {} {}",
+        style("domain-check").white().bold(),
+        style(format!("v{}", env!("CARGO_PKG_VERSION"))).dim(),
+    );
+    println!(
+        " {}",
+        style("Check domain availability using RDAP with WHOIS fallback").dim()
+    );
+
+    // USAGE
+    print_section("USAGE");
+    println!(
+        "   {} {} {}",
+        style("domain-check").cyan().bold(),
+        style("[DOMAINS]").white(),
+        style("[--flags]").dim()
+    );
+    println!(
+        "   {} {} {}",
+        style("domain-check").cyan().bold(),
+        style("--file <FILE>").white(),
+        style("[--flags]").dim()
+    );
+    println!(
+        "   {} {} {}",
+        style("domain-check").cyan().bold(),
+        style("--pattern <PATTERN>").white(),
+        style("[--flags]").dim()
+    );
+
+    // DOMAIN SELECTION
+    print_section("DOMAIN SELECTION");
+    print_flag(
+        "",
+        "[DOMAINS]",
+        "Domain names to check (base names or FQDNs)",
+    );
+    print_flag(
+        "-t",
+        "--tld <TLD>",
+        "TLDs to check (comma-separated or multiple -t)",
+    );
+    print_flag("", "--all", "Check against all known TLDs");
+    print_flag("", "--preset <NAME>", "Use a predefined TLD preset");
+    print_flag(
+        "",
+        "--list-presets",
+        "List all available TLD presets and exit",
+    );
+    print_flag(
+        "-f",
+        "--file <FILE>",
+        "Input file with domains (one per line)",
+    );
+
+    // DOMAIN GENERATION
+    print_section("DOMAIN GENERATION");
+    print_flag(
+        "",
+        "--pattern <PATTERN>",
+        "Pattern for name generation (\\w=letter, \\d=digit, ?=either)",
+    );
+    print_flag(
+        "",
+        "--prefix <PREFIX>",
+        "Prefixes to prepend (comma-separated)",
+    );
+    print_flag(
+        "",
+        "--suffix <SUFFIX>",
+        "Suffixes to append (comma-separated)",
+    );
+    print_flag(
+        "",
+        "--dry-run",
+        "Preview generated domains without checking",
+    );
+
+    // OUTPUT FORMAT
+    print_section("OUTPUT FORMAT");
+    print_flag("-j", "--json", "Output results in JSON format");
+    print_flag("", "--csv", "Output results in CSV format");
+    print_flag("-p", "--pretty", "Grouped output with section headers");
+    print_flag("-i", "--info", "Show detailed domain information");
+    print_flag("", "--batch", "Collect all results before displaying");
+    print_flag("", "--streaming", "Show results as they complete");
+
+    // PERFORMANCE
+    print_section("PERFORMANCE");
+    print_flag(
+        "-c",
+        "--concurrency <N>",
+        "Max concurrent checks (default: 20, max: 100)",
+    );
+    print_flag("", "--force", "Override the 5000 domain limit");
+    print_flag("-y", "--yes", "Skip confirmation prompts");
+
+    // PROTOCOL
+    print_section("PROTOCOL");
+    print_flag(
+        "",
+        "--no-bootstrap",
+        "Disable IANA bootstrap (hardcoded TLDs only)",
+    );
+    print_flag("", "--no-whois", "Disable automatic WHOIS fallback");
+
+    // CONFIGURATION
+    print_section("CONFIGURATION");
+    print_flag("", "--config <FILE>", "Use specific config file");
+    print_flag("-d", "--debug", "Show detailed debug info and errors");
+    print_flag("-v", "--verbose", "Verbose logging");
+
+    // GENERAL
+    print_section("GENERAL");
+    print_flag("-h", "--help", "Show this help message");
+    print_flag("-V", "--version", "Show version");
+
+    // EXAMPLES
+    print_section("EXAMPLES");
+    print_example("domain-check myapp", "Check myapp.com (default TLD)");
+    print_example("domain-check myapp -t com,io,dev", "Check specific TLDs");
+    print_example(
+        "domain-check myapp --preset startup",
+        "Use the startup TLD preset",
+    );
+    print_example(
+        "domain-check --pattern \"app\\d\" --dry-run",
+        "Preview pattern-generated names",
+    );
+
+    println!();
+}
+
+/// Print a magenta bold section header.
+fn print_section(name: &str) {
+    println!();
+    println!(" {}", style(name).magenta().bold());
+}
+
+/// Print a compact flag line with aligned columns.
+fn print_flag(short: &str, long: &str, desc: &str) {
+    if short.is_empty() {
+        // No short flag — 6 chars of padding
+        println!("       {:<24} {}", style(long).cyan(), desc);
+    } else {
+        println!(
+            "   {}  {:<24} {}",
+            style(short).cyan(),
+            style(long).cyan(),
+            desc,
+        );
+    }
+}
+
+/// Print an example line with green command and dim description.
+fn print_example(cmd: &str, desc: &str) {
+    println!(
+        "   {} {}",
+        style(format!("$ {:<44}", cmd)).green(),
+        style(desc).dim(),
+    );
+}
 
 // ── Spinner ──────────────────────────────────────────────────────────────────
 
@@ -368,101 +545,6 @@ pub fn print_summary(
     );
 }
 
-// ── Error summary ────────────────────────────────────────────────────────────
-
-/// Print a categorized error summary using colors.
-pub fn print_error_summary(error_stats: &ErrorStats, args: &Args) {
-    if !error_stats.has_errors() {
-        return;
-    }
-
-    println!("  {}", style("Some domains could not be checked:").yellow());
-
-    let format_list = |domains: &[String], max_show: usize| -> String {
-        if domains.len() <= max_show {
-            domains.join(", ")
-        } else {
-            let shown = &domains[..max_show];
-            let remaining = domains.len() - max_show;
-            format!("{}, ... and {} more", shown.join(", "), remaining)
-        }
-    };
-
-    if !error_stats.timeouts.is_empty() {
-        println!(
-            "  {} {} timeout{}: {}",
-            style("•").dim(),
-            error_stats.timeouts.len(),
-            if error_stats.timeouts.len() == 1 {
-                ""
-            } else {
-                "s"
-            },
-            format_list(&error_stats.timeouts, 5),
-        );
-    }
-    if !error_stats.network_errors.is_empty() {
-        println!(
-            "  {} {} network error{}: {}",
-            style("•").dim(),
-            error_stats.network_errors.len(),
-            if error_stats.network_errors.len() == 1 {
-                ""
-            } else {
-                "s"
-            },
-            format_list(&error_stats.network_errors, 5),
-        );
-    }
-    if !error_stats.parsing_errors.is_empty() {
-        println!(
-            "  {} {} parsing error{}: {}",
-            style("•").dim(),
-            error_stats.parsing_errors.len(),
-            if error_stats.parsing_errors.len() == 1 {
-                ""
-            } else {
-                "s"
-            },
-            format_list(&error_stats.parsing_errors, 5),
-        );
-    }
-    if !error_stats.unknown_tld_errors.is_empty() {
-        println!(
-            "  {} {} unknown TLD error{}: {}",
-            style("•").dim(),
-            error_stats.unknown_tld_errors.len(),
-            if error_stats.unknown_tld_errors.len() == 1 {
-                ""
-            } else {
-                "s"
-            },
-            format_list(&error_stats.unknown_tld_errors, 5),
-        );
-    }
-    if !error_stats.other_errors.is_empty() {
-        println!(
-            "  {} {} other error{}: {}",
-            style("•").dim(),
-            error_stats.other_errors.len(),
-            if error_stats.other_errors.len() == 1 {
-                ""
-            } else {
-                "s"
-            },
-            format_list(&error_stats.other_errors, 5),
-        );
-    }
-
-    if args.debug && error_stats.has_errors() {
-        println!(
-            "  {} {}",
-            style("•").dim(),
-            style("All errors attempted WHOIS fallback where possible").dim(),
-        );
-    }
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Format domain info (registrar, dates) into a concise string.
@@ -527,6 +609,19 @@ mod tests {
         }
     }
 
+    fn make_result_with_error(error: &str) -> DomainResult {
+        DomainResult {
+            domain: "test.com".to_string(),
+            available: None,
+            info: None,
+            check_duration: None,
+            method_used: CheckMethod::Unknown,
+            error_message: Some(error.to_string()),
+        }
+    }
+
+    // ── brief_error ─────────────────────────────────────────────────────
+
     #[test]
     fn test_brief_error_timeout() {
         let r = make_result("a.com", None);
@@ -534,22 +629,69 @@ mod tests {
     }
 
     #[test]
+    fn test_brief_error_timed_out() {
+        let r = make_result_with_error("request timed out after 5s");
+        assert_eq!(brief_error(&r), "(timeout)");
+    }
+
+    #[test]
     fn test_brief_error_network() {
-        let r = DomainResult {
-            error_message: Some("dns lookup failed".to_string()),
-            ..make_result("a.com", None)
-        };
+        let r = make_result_with_error("dns lookup failed");
         assert_eq!(brief_error(&r), "(network error)");
     }
 
     #[test]
-    fn test_brief_error_unknown_status() {
+    fn test_brief_error_connect() {
+        let r = make_result_with_error("failed to connect to server");
+        assert_eq!(brief_error(&r), "(network error)");
+    }
+
+    #[test]
+    fn test_brief_error_parsing() {
+        let r = make_result_with_error("failed to parse json response");
+        assert_eq!(brief_error(&r), "(parsing error)");
+    }
+
+    #[test]
+    fn test_brief_error_json() {
+        let r = make_result_with_error("invalid JSON in response");
+        assert_eq!(brief_error(&r), "(parsing error)");
+    }
+
+    #[test]
+    fn test_brief_error_unknown_tld() {
+        let r = make_result_with_error("unknown TLD .xyz123");
+        assert_eq!(brief_error(&r), "(unknown TLD)");
+    }
+
+    #[test]
+    fn test_brief_error_bootstrap() {
+        let r = make_result_with_error("bootstrap registry failed");
+        assert_eq!(brief_error(&r), "(unknown TLD)");
+    }
+
+    #[test]
+    fn test_brief_error_generic() {
+        let r = make_result_with_error("something unexpected happened");
+        assert_eq!(brief_error(&r), "(error)");
+    }
+
+    #[test]
+    fn test_brief_error_no_message() {
         let r = DomainResult {
             error_message: None,
             ..make_result("a.com", None)
         };
         assert_eq!(brief_error(&r), "(unknown status)");
     }
+
+    #[test]
+    fn test_brief_error_case_insensitive() {
+        let r = make_result_with_error("TIMEOUT occurred");
+        assert_eq!(brief_error(&r), "(timeout)");
+    }
+
+    // ── format_domain_info ──────────────────────────────────────────────
 
     #[test]
     fn test_format_domain_info_all_fields() {
@@ -572,11 +714,35 @@ mod tests {
     }
 
     #[test]
-    fn test_format_domain_info_partial() {
+    fn test_format_domain_info_registrar_only() {
         let info = DomainInfo {
             registrar: Some("Namecheap".to_string()),
             ..Default::default()
         };
         assert_eq!(format_domain_info(&info), "Registrar: Namecheap");
+    }
+
+    #[test]
+    fn test_format_domain_info_dates_only() {
+        let info = DomainInfo {
+            creation_date: Some("2020-01-01".to_string()),
+            expiration_date: Some("2025-01-01".to_string()),
+            ..Default::default()
+        };
+        let formatted = format_domain_info(&info);
+        assert!(formatted.contains("Created: 2020-01-01"));
+        assert!(formatted.contains("Expires: 2025-01-01"));
+        assert!(!formatted.contains("Registrar"));
+    }
+
+    #[test]
+    fn test_format_domain_info_comma_separated() {
+        let info = DomainInfo {
+            registrar: Some("Reg".to_string()),
+            creation_date: Some("2020".to_string()),
+            ..Default::default()
+        };
+        let formatted = format_domain_info(&info);
+        assert!(formatted.contains(", "));
     }
 }
