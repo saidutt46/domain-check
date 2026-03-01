@@ -1,10 +1,11 @@
 # domain-check
 
-Universal domain exploration engine: fast domain availability checks across the internet, as both a CLI and Rust library.
+Universal domain exploration engine: fast domain availability checks across the internet — as a CLI, Rust library, and MCP server for AI agents.
 
 [![Homebrew](https://img.shields.io/badge/Homebrew-available-brightgreen)](https://github.com/saidutt46/homebrew-domain-check)
 [![CLI Crate](https://img.shields.io/crates/v/domain-check.svg?label=CLI)](https://crates.io/crates/domain-check)
 [![Library Crate](https://img.shields.io/crates/v/domain-check-lib.svg?label=Library)](https://crates.io/crates/domain-check-lib)
+[![MCP Server](https://img.shields.io/crates/v/domain-check-mcp.svg?label=MCP)](https://crates.io/crates/domain-check-mcp)
 [![Downloads](https://img.shields.io/crates/d/domain-check.svg)](https://crates.io/crates/domain-check)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
@@ -12,7 +13,7 @@ Universal domain exploration engine: fast domain availability checks across the 
   <img src="https://raw.githubusercontent.com/saidutt46/domain-check/main/assets/demo.svg" alt="domain-check demo" width="700"/>
 </p>
 
-Quick Links: [Installation](#installation) | [Quick Start](#quick-start) | [Use Cases](#use-cases) | [Output Formats](#output-formats) | [Presets](#smart-presets) | [Configuration](#configuration) | [Automation](#automation--ci) | [Library](#library) | [FAQ](./docs/FAQ.md) | [Contributing](./CONTRIBUTING.md)
+Quick Links: [Installation](#installation) | [Quick Start](#quick-start) | [Use Cases](#use-cases) | [Output Formats](#output-formats) | [Presets](#smart-presets) | [Configuration](#configuration) | [Automation](#automation--ci) | [Library](#library) | [MCP Server](#mcp-server) | [FAQ](./docs/FAQ.md) | [Contributing](./CONTRIBUTING.md)
 
 ## Why domain-check
 
@@ -24,15 +25,17 @@ Quick Links: [Installation](#installation) | [Quick Start](#quick-start) | [Use 
 - **Rich output** — grouped pretty display, JSON, CSV. Registrar info, creation/expiration dates, and status codes with `--info`.
 - **CI and automation friendly** — `--json`/`--csv` to stdout, `--yes` to skip prompts, `--force` for large runs, automatic non-TTY detection.
 - **Configurable** — TOML config files, `DC_*` environment variables, custom presets, and clear precedence rules.
-- **CLI + library** — same engine powers both `domain-check` (CLI) and [`domain-check-lib`](https://crates.io/crates/domain-check-lib) (Rust library).
+- **Agent-native** — MCP server exposes all tools to AI coding agents (Claude, Codex, Gemini, Cursor, VS Code Copilot, and any MCP client).
+- **CLI + library + MCP** — same engine powers the CLI, [`domain-check-lib`](https://crates.io/crates/domain-check-lib) (Rust library), and [`domain-check-mcp`](./domain-check-mcp/) (MCP server).
 
 ## Installation
 
 | Method | Command | Notes |
 |---|---|---|
 | Homebrew (macOS) | `brew install domain-check` | Easiest install for macOS users |
-| Cargo | `cargo install domain-check` | Works on all Rust-supported platforms |
-| GitHub Releases | [Download binaries](https://github.com/saidutt46/domain-check/releases) | Prebuilt for macOS, Linux, and Windows |
+| Cargo (CLI) | `cargo install domain-check` | Works on all Rust-supported platforms |
+| Cargo (MCP) | `cargo install domain-check-mcp` | MCP server for AI agents |
+| GitHub Releases | [Download binaries](https://github.com/saidutt46/domain-check/releases) | CLI + MCP binaries for macOS, Linux, Windows |
 
 ## Quick Start
 
@@ -266,6 +269,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Library docs: [domain-check-lib/README.md](./domain-check-lib/README.md) | [docs.rs](https://docs.rs/domain-check-lib)
 
+## MCP Server
+
+`domain-check-mcp` exposes domain checking as tools for AI coding agents via the [Model Context Protocol](https://modelcontextprotocol.io). Works with any MCP-compatible client.
+
+```bash
+# Install
+cargo install domain-check-mcp
+
+# Add to your agent (Claude Code example — works similarly for Codex, Gemini CLI, etc.)
+claude mcp add domain-check -- domain-check-mcp
+```
+
+6 tools available: `check_domain`, `check_domains`, `check_with_preset`, `generate_names`, `list_presets`, `domain_info`.
+
+Then ask your agent naturally: *"Is coolstartup.com available?"* or *"Check mybrand across the startup preset"*.
+
+Supports: Claude Code, Claude Desktop, VS Code Copilot, Cursor, Windsurf, JetBrains, OpenAI Codex CLI, Gemini CLI, and any MCP stdio client.
+
+Full setup: [domain-check-mcp/README.md](./domain-check-mcp/README.md)
+
 ## Reliability Notes
 
 - Domain status is network- and registry-dependent. Temporary errors can produce `UNKNOWN` states.
@@ -277,6 +300,7 @@ Troubleshooting and expected edge cases: [docs/FAQ.md](./docs/FAQ.md)
 ## Project Docs
 
 - CLI reference: [docs/CLI.md](./docs/CLI.md)
+- MCP server: [domain-check-mcp/README.md](./domain-check-mcp/README.md)
 - Examples and workflows: [docs/EXAMPLES.md](./docs/EXAMPLES.md)
 - Automation usage: [docs/AUTOMATION.md](./docs/AUTOMATION.md)
 - FAQ: [docs/FAQ.md](./docs/FAQ.md)

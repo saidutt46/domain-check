@@ -19,7 +19,7 @@ target/
 
 # Local development files
 CLAUDE.md
-!docs/
+\!docs/
 
 # Demo recording artifacts (keep .svg, ignore .cast)
 assets/*.cast
