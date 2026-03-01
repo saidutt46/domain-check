@@ -730,6 +730,26 @@ jobs:
       - name: Authenticate to MCP Registry
         run: ./mcp-publisher login github-oidc
 
+      - name: Verify MCPB assets are publicly accessible
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          TAG="v${VERSION}"
+          URL="https://github.com/saidutt46/domain-check/releases/download/${TAG}/domain-check-mcp-linux-x86_64.mcpb"
+          echo "Verifying ${URL} is accessible..."
+          for i in {1..6}; do
+            STATUS=$(curl -sL -o /dev/null -w "%{http_code}" "$URL")
+            if [ "$STATUS" = "200" ]; then
+              echo "MCPB assets are accessible (HTTP $STATUS)"
+              break
+            fi
+            echo "Attempt $i: HTTP $STATUS, waiting 10s..."
+            sleep 10
+          done
+          if [ "$STATUS" != "200" ]; then
+            echo "ERROR: MCPB assets not accessible after 60s"
+            exit 1
+          fi
+
       - name: Publish to MCP Registry
         run: |
           cd domain-check-mcp
