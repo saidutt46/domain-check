@@ -678,7 +678,7 @@ jobs:
           {
             "\$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
             "name": "io.github.saidutt46/domain-check",
-            "description": "Domain availability checking — single domains, batch checks, TLD presets, name generation, and detailed registration info via RDAP and WHOIS.",
+            "description": "Fast domain availability checker with RDAP/WHOIS — batch checks, TLD presets, and name generation.",
             "repository": {
               "url": "https://github.com/saidutt46/domain-check.git",
               "source": "github"
