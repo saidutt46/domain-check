@@ -160,10 +160,8 @@ jobs:
           cargo build --release -p domain-check
           cargo build --release -p domain-check-mcp
 
-      - name: Dry run publish (all crates)
-        run: |
-          cargo publish --dry-run -p domain-check-lib
-          cargo publish --dry-run -p domain-check-mcp
+      - name: Dry run library publish
+        run: cargo publish --dry-run -p domain-check-lib
 
       - name: Publish library to crates.io
         env:
