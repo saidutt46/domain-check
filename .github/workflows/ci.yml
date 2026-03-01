@@ -135,6 +135,9 @@ jobs:
       - name: Test CLI
         run: cargo test -p domain-check --verbose
 
+      - name: Test MCP server
+        run: cargo test -p domain-check-mcp --verbose
+
       - name: Test workspace
         run: cargo test --workspace --verbose
 
@@ -168,8 +171,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-integration-
 
-      - name: Build release binary
-        run: cargo build --release -p domain-check
+      - name: Build release binaries
+        run: |
+          cargo build --release -p domain-check
+          cargo build --release -p domain-check-mcp
 
       - name: Test CLI functionality
         run: |
@@ -239,6 +244,9 @@ jobs:
 
       - name: Check CLI documentation
         run: cargo doc -p domain-check --no-deps --document-private-items
+
+      - name: Check MCP server documentation
+        run: cargo doc -p domain-check-mcp --no-deps --document-private-items
 
       - name: Check for broken links in docs
         run: cargo doc --workspace --no-deps

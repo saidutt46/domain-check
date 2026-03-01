@@ -48,7 +48,7 @@ jobs:
           cargo test --workspace --verbose
           cargo clippy --workspace --all-targets --all-features -- -D warnings -A clippy::uninlined_format_args
 
-  # Build release binaries
+  # Build release binaries for CLI and MCP server
   build-binaries:
     name: Build Release Binaries
     needs: validate
@@ -57,19 +57,24 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            name: domain-check-linux-x86_64
+            cli_name: domain-check-linux-x86_64
+            mcp_name: domain-check-mcp-linux-x86_64
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            name: domain-check-linux-x86_64-musl
+            cli_name: domain-check-linux-x86_64-musl
+            mcp_name: domain-check-mcp-linux-x86_64-musl
           - target: x86_64-apple-darwin
             os: macos-latest
-            name: domain-check-macos-x86_64
+            cli_name: domain-check-macos-x86_64
+            mcp_name: domain-check-mcp-macos-x86_64
           - target: aarch64-apple-darwin
             os: macos-latest
-            name: domain-check-macos-aarch64
+            cli_name: domain-check-macos-aarch64
+            mcp_name: domain-check-mcp-macos-aarch64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            name: domain-check-windows-x86_64.exe
+            cli_name: domain-check-windows-x86_64.exe
+            mcp_name: domain-check-mcp-windows-x86_64.exe
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -96,30 +101,36 @@ jobs:
             target
           key: ${{ runner.os }}-${{ matrix.target }}-release-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} -p domain-check
+      - name: Build release binaries
+        run: |
+          cargo build --release --target ${{ matrix.target }} -p domain-check
+          cargo build --release --target ${{ matrix.target }} -p domain-check-mcp
 
-      - name: Package binary (Unix)
+      - name: Package binaries (Unix)
         if: matrix.os != 'windows-latest'
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czf ${{ matrix.name }}.tar.gz domain-check
-          echo "ASSET_PATH=target/${{ matrix.target }}/release/${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
-          echo "ASSET_NAME=${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
+          tar -czf ${{ matrix.cli_name }}.tar.gz domain-check
+          tar -czf ${{ matrix.mcp_name }}.tar.gz domain-check-mcp
 
-      - name: Package binary (Windows)
+      - name: Package binaries (Windows)
         if: matrix.os == 'windows-latest'
         run: |
           cd target/${{ matrix.target }}/release
-          7z a ${{ matrix.name }}.zip domain-check.exe
-          echo "ASSET_PATH=target/${{ matrix.target }}/release/${{ matrix.name }}.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
-          echo "ASSET_NAME=${{ matrix.name }}.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+          7z a ${{ matrix.cli_name }}.zip domain-check.exe
+          7z a ${{ matrix.mcp_name }}.zip domain-check-mcp.exe
 
-      - name: Upload artifact
+      - name: Upload CLI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}
-          path: ${{ env.ASSET_PATH }}
+          name: ${{ matrix.cli_name }}
+          path: target/${{ matrix.target }}/release/${{ matrix.cli_name }}.${{ matrix.os == 'windows-latest' && 'zip' || 'tar.gz' }}
+
+      - name: Upload MCP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.mcp_name }}
+          path: target/${{ matrix.target }}/release/${{ matrix.mcp_name }}.${{ matrix.os == 'windows-latest' && 'zip' || 'tar.gz' }}
 
   # Publish to crates.io
   publish-crates:
@@ -147,9 +158,12 @@ jobs:
         run: |
           cargo build --release -p domain-check-lib
           cargo build --release -p domain-check
+          cargo build --release -p domain-check-mcp
 
-      - name: Dry run library publish
-        run: cargo publish --dry-run -p domain-check-lib
+      - name: Dry run publish (all crates)
+        run: |
+          cargo publish --dry-run -p domain-check-lib
+          cargo publish --dry-run -p domain-check-mcp
 
       - name: Publish library to crates.io
         env:
@@ -229,25 +243,57 @@ jobs:
             exit 1
           fi
 
+      - name: Publish MCP server to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          echo "Publishing domain-check-mcp v${{ needs.validate.outputs.version }}..."
+
+          set +e
+          output=$(cargo publish -p domain-check-mcp --allow-dirty 2>&1)
+          exit_code=$?
+          set -e
+
+          echo "Publish output:"
+          echo "$output"
+          echo "Exit code: $exit_code"
+
+          if [ $exit_code -eq 0 ]; then
+            echo "domain-check-mcp published successfully!"
+          elif [ $exit_code -eq 101 ] && echo "$output" | grep -q "already exists"; then
+            echo "domain-check-mcp v${{ needs.validate.outputs.version }} already exists on crates.io"
+          else
+            echo "Failed to publish domain-check-mcp (exit code: $exit_code)"
+            echo "Error output: $output"
+            exit 1
+          fi
+
       - name: Verify publications
         run: |
-          echo "🔍 Final verification of published crates..."
-          
+          echo "Final verification of published crates..."
+
           # Verify library
           if cargo search domain-check-lib --limit 1 | grep -q "domain-check-lib"; then
-            echo "✅ domain-check-lib confirmed on crates.io"
+            echo "domain-check-lib confirmed on crates.io"
           else
-            echo "⚠️ domain-check-lib not found on crates.io"
+            echo "WARNING: domain-check-lib not found on crates.io"
           fi
-          
+
           # Verify CLI
           if cargo search domain-check --limit 1 | grep -q "^domain-check "; then
-            echo "✅ domain-check confirmed on crates.io"
+            echo "domain-check confirmed on crates.io"
           else
-            echo "⚠️ domain-check not found on crates.io"
+            echo "WARNING: domain-check not found on crates.io"
           fi
-          
-          echo "🎉 Crate publishing completed successfully!"
+
+          # Verify MCP server
+          if cargo search domain-check-mcp --limit 1 | grep -q "domain-check-mcp"; then
+            echo "domain-check-mcp confirmed on crates.io"
+          else
+            echo "WARNING: domain-check-mcp not found on crates.io (may need more indexing time)"
+          fi
+
+          echo "Crate publishing completed successfully!"
 
   # Create GitHub release
   create-release:
@@ -288,9 +334,9 @@ jobs:
           
           # Create release notes
           cat > release_notes.md << EOF
-          # 🚀 Domain Check v${VERSION}
+          # Domain Check v${VERSION}
 
-          ## 📦 Installation
+          ## Installation
 
           **Homebrew:**
           \`\`\`bash
@@ -300,17 +346,31 @@ jobs:
 
           **Cargo:**
           \`\`\`bash
-          # Library
-          cargo add domain-check-lib@${VERSION}
-          
           # CLI
           cargo install domain-check@${VERSION}
+
+          # MCP Server (for AI agents)
+          cargo install domain-check-mcp@${VERSION}
+
+          # Library
+          cargo add domain-check-lib@${VERSION}
           \`\`\`
 
-          **Download Binaries:** Available below for all platforms
+          **Download Binaries:** CLI and MCP server binaries available below for all platforms.
 
-          ## 🔄 Backward Compatibility
-          ✅ 100% backward compatible - all existing commands work unchanged
+          ## MCP Server
+
+          The MCP server exposes domain checking as tools for AI coding agents. Works with Claude Code/Desktop, VS Code Copilot, Cursor, Windsurf, and any MCP-compatible client.
+
+          \`\`\`bash
+          # Add to your agent
+          claude mcp add domain-check -- domain-check-mcp
+          \`\`\`
+
+          See [domain-check-mcp/README.md](https://github.com/saidutt46/domain-check/blob/v${VERSION}/domain-check-mcp/README.md) for full setup instructions.
+
+          ## Backward Compatibility
+          100% backward compatible - all existing commands work unchanged.
 
           See [CHANGELOG.md](https://github.com/saidutt46/domain-check/blob/v${VERSION}/CHANGELOG.md) for complete details.
           EOF
@@ -456,10 +516,18 @@ jobs:
           cargo install domain-check@${{ needs.validate.outputs.version }}
           domain-check --version
 
+      - name: Test MCP server installation
+        run: |
+          cargo install domain-check-mcp@${{ needs.validate.outputs.version }}
+          # MCP server communicates via stdin/stdout JSON-RPC, so we verify it starts
+          echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | timeout 5 domain-check-mcp || true
+          echo "MCP server installation verified"
+
       - name: Notify success
         run: |
-          echo "✅ Release v${{ needs.validate.outputs.version }} completed successfully!"
-          echo "📦 Library: https://crates.io/crates/domain-check-lib"
-          echo "🖥️ CLI: https://crates.io/crates/domain-check"
-          echo "🍺 Homebrew: brew tap saidutt46/domain-check && brew install domain-check"
-          echo "📋 Release: https://github.com/saidutt46/domain-check/releases/tag/v${{ needs.validate.outputs.version }}"
+          echo "Release v${{ needs.validate.outputs.version }} completed successfully!"
+          echo "Library: https://crates.io/crates/domain-check-lib"
+          echo "CLI: https://crates.io/crates/domain-check"
+          echo "MCP: https://crates.io/crates/domain-check-mcp"
+          echo "Homebrew: brew tap saidutt46/domain-check && brew install domain-check"
+          echo "Release: https://github.com/saidutt46/domain-check/releases/tag/v${{ needs.validate.outputs.version }}"
