@@ -13,7 +13,7 @@ Universal domain exploration engine: fast domain availability checks across the 
   <img src="https://raw.githubusercontent.com/saidutt46/domain-check/main/assets/demo.svg" alt="domain-check demo" width="700"/>
 </p>
 
-Quick Links: [Installation](#installation) | [Quick Start](#quick-start) | [Use Cases](#use-cases) | [Output Formats](#output-formats) | [Presets](#smart-presets) | [Configuration](#configuration) | [Automation](#automation--ci) | [Library](#library) | [MCP Server](#mcp-server) | [FAQ](./docs/FAQ.md) | [Contributing](./CONTRIBUTING.md)
+Quick Links: [Installation](#installation) | [Quick Start](#quick-start) | [Use Cases](#use-cases) | [Output Formats](#output-formats) | [Presets](#smart-presets) | [Configuration](#configuration) | [Automation](#automation--ci) | [Library](#library) | [MCP Server](#mcp-server) | [FAQ](https://github.com/saidutt46/domain-check/blob/main/docs/FAQ.md) | [Contributing](https://github.com/saidutt46/domain-check/blob/main/CONTRIBUTING.md)
 
 ## Why domain-check
 
@@ -26,7 +26,7 @@ Quick Links: [Installation](#installation) | [Quick Start](#quick-start) | [Use 
 - **CI and automation friendly** — `--json`/`--csv` to stdout, `--yes` to skip prompts, `--force` for large runs, automatic non-TTY detection.
 - **Configurable** — TOML config files, `DC_*` environment variables, custom presets, and clear precedence rules.
 - **Agent-native** — MCP server exposes all tools to AI coding agents (Claude, Codex, Gemini, Cursor, VS Code Copilot, and any MCP client).
-- **CLI + library + MCP** — same engine powers the CLI, [`domain-check-lib`](https://crates.io/crates/domain-check-lib) (Rust library), and [`domain-check-mcp`](./domain-check-mcp/) (MCP server).
+- **CLI + library + MCP** — same engine powers the CLI, [`domain-check-lib`](https://crates.io/crates/domain-check-lib) (Rust library), and [`domain-check-mcp`](https://crates.io/crates/domain-check-mcp) (MCP server).
 
 ## Installation
 
@@ -159,7 +159,7 @@ myapp.com TAKEN
   Status: clientTransferProhibited
 ```
 
-Full reference: [docs/CLI.md](./docs/CLI.md)
+Full reference: [docs/CLI.md](https://github.com/saidutt46/domain-check/blob/main/docs/CLI.md)
 
 ## Smart Presets
 
@@ -244,7 +244,7 @@ CI-friendly behavior:
 - Spinner writes to stderr; stdout stays clean for piping
 - `--no-bootstrap` for deterministic, offline-safe checks against 32 hardcoded TLDs
 
-Automation guide: [docs/AUTOMATION.md](./docs/AUTOMATION.md)
+Automation guide: [docs/AUTOMATION.md](https://github.com/saidutt46/domain-check/blob/main/docs/AUTOMATION.md)
 
 ## Library
 
@@ -267,7 +267,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Library docs: [domain-check-lib/README.md](./domain-check-lib/README.md) | [docs.rs](https://docs.rs/domain-check-lib)
+Library docs: [domain-check-lib/README.md](https://github.com/saidutt46/domain-check/blob/main/domain-check-lib/README.md) | [docs.rs](https://docs.rs/domain-check-lib)
 
 ## MCP Server
 
@@ -287,7 +287,7 @@ Then ask your agent naturally: *"Is coolstartup.com available?"* or *"Check mybr
 
 Supports: Claude Code, Claude Desktop, VS Code Copilot, Cursor, Windsurf, JetBrains, OpenAI Codex CLI, Gemini CLI, and any MCP stdio client.
 
-Full setup: [domain-check-mcp/README.md](./domain-check-mcp/README.md)
+Full setup: [domain-check-mcp/README.md](https://github.com/saidutt46/domain-check/blob/main/domain-check-mcp/README.md)
 
 ## Reliability Notes
 
@@ -295,24 +295,25 @@ Full setup: [domain-check-mcp/README.md](./domain-check-mcp/README.md)
 - WHOIS output is less standardized than RDAP; parsing quality varies by registry.
 - For repeatable CI workflows, pin behavior with explicit flags (`--batch`, `--json`, `--no-bootstrap`, `--concurrency`).
 
-Troubleshooting and expected edge cases: [docs/FAQ.md](./docs/FAQ.md)
+Troubleshooting and expected edge cases: [docs/FAQ.md](https://github.com/saidutt46/domain-check/blob/main/docs/FAQ.md)
 
 ## Project Docs
 
-- CLI reference: [docs/CLI.md](./docs/CLI.md)
-- MCP server: [domain-check-mcp/README.md](./domain-check-mcp/README.md)
-- Examples and workflows: [docs/EXAMPLES.md](./docs/EXAMPLES.md)
-- Automation usage: [docs/AUTOMATION.md](./docs/AUTOMATION.md)
-- FAQ: [docs/FAQ.md](./docs/FAQ.md)
-- Changelog: [CHANGELOG.md](./CHANGELOG.md)
-- Contributing: [CONTRIBUTING.md](./CONTRIBUTING.md)
-- Security policy: [SECURITY.md](./SECURITY.md)
+- CLI reference: [docs/CLI.md](https://github.com/saidutt46/domain-check/blob/main/docs/CLI.md)
+- Library: [domain-check-lib/README.md](https://github.com/saidutt46/domain-check/blob/main/domain-check-lib/README.md) | [docs.rs](https://docs.rs/domain-check-lib)
+- MCP server: [domain-check-mcp/README.md](https://github.com/saidutt46/domain-check/blob/main/domain-check-mcp/README.md)
+- Examples and workflows: [docs/EXAMPLES.md](https://github.com/saidutt46/domain-check/blob/main/docs/EXAMPLES.md)
+- Automation usage: [docs/AUTOMATION.md](https://github.com/saidutt46/domain-check/blob/main/docs/AUTOMATION.md)
+- FAQ: [docs/FAQ.md](https://github.com/saidutt46/domain-check/blob/main/docs/FAQ.md)
+- Changelog: [CHANGELOG.md](https://github.com/saidutt46/domain-check/blob/main/CHANGELOG.md)
+- Contributing: [CONTRIBUTING.md](https://github.com/saidutt46/domain-check/blob/main/CONTRIBUTING.md)
+- Security policy: [SECURITY.md](https://github.com/saidutt46/domain-check/blob/main/SECURITY.md)
 
 ## License
 
 Licensed under either of
 
-- [Apache License, Version 2.0](./LICENSE-APACHE)
-- [MIT License](./LICENSE-MIT)
+- [Apache License, Version 2.0](https://github.com/saidutt46/domain-check/blob/main/LICENSE-APACHE)
+- [MIT License](https://github.com/saidutt46/domain-check/blob/main/LICENSE-MIT)
 
 at your option.

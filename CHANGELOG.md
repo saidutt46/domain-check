@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.1] - 2026-03-01
+
+### Fixed
+- Fixed broken documentation links on crates.io — relative paths resolved incorrectly when the root README was rendered under the CLI crate's directory; all links now use absolute GitHub URLs
+- Added library docs link to the Project Docs section in root README
+
+### Added
+- MCPB bundles (`.mcpb`) attached to GitHub releases for each platform (Linux x86_64, Linux musl, macOS x86_64, macOS aarch64, Windows x86_64) — enables listing on the official MCP Registry
+- Automated MCP Registry publishing via `mcp-publisher` with GitHub OIDC authentication in the release pipeline
+- Updated `server.json` from `registryType: "cargo"` (unsupported) to `registryType: "mcpb"` with per-platform entries and SHA-256 verification
+
 ## [1.0.0] - 2026-03-01
 
 ### MCP Server, Custom Help Screen & Binary Size Optimization

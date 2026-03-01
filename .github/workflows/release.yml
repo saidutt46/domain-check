@@ -59,22 +59,32 @@ jobs:
             os: ubuntu-latest
             cli_name: domain-check-linux-x86_64
             mcp_name: domain-check-mcp-linux-x86_64
+            mcpb_name: domain-check-mcp-linux-x86_64.mcpb
+            mcpb_platform: linux
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             cli_name: domain-check-linux-x86_64-musl
             mcp_name: domain-check-mcp-linux-x86_64-musl
+            mcpb_name: domain-check-mcp-linux-x86_64-musl.mcpb
+            mcpb_platform: linux
           - target: x86_64-apple-darwin
             os: macos-latest
             cli_name: domain-check-macos-x86_64
             mcp_name: domain-check-mcp-macos-x86_64
+            mcpb_name: domain-check-mcp-macos-x86_64.mcpb
+            mcpb_platform: darwin
           - target: aarch64-apple-darwin
             os: macos-latest
             cli_name: domain-check-macos-aarch64
             mcp_name: domain-check-mcp-macos-aarch64
+            mcpb_name: domain-check-mcp-macos-aarch64.mcpb
+            mcpb_platform: darwin
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             cli_name: domain-check-windows-x86_64.exe
             mcp_name: domain-check-mcp-windows-x86_64.exe
+            mcpb_name: domain-check-mcp-windows-x86_64.mcpb
+            mcpb_platform: win32
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -120,6 +130,103 @@ jobs:
           7z a ${{ matrix.cli_name }}.zip domain-check.exe
           7z a ${{ matrix.mcp_name }}.zip domain-check-mcp.exe
 
+      - name: Create MCPB bundle (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          MCPB_DIR=$(mktemp -d)
+          mkdir -p "$MCPB_DIR/server"
+          cp target/${{ matrix.target }}/release/domain-check-mcp "$MCPB_DIR/server/"
+          cat > "$MCPB_DIR/manifest.json" << EOF
+          {
+            "manifest_version": "0.3",
+            "name": "domain-check-mcp",
+            "version": "${VERSION}",
+            "description": "Domain availability checking via RDAP and WHOIS. Single domains, batch checks, TLD presets, pattern generation, and detailed registration info.",
+            "author": {
+              "name": "Sai Dutt G.V.",
+              "url": "https://github.com/saidutt46"
+            },
+            "repository": {
+              "type": "git",
+              "url": "https://github.com/saidutt46/domain-check.git"
+            },
+            "server": {
+              "type": "binary",
+              "entry_point": "server/domain-check-mcp",
+              "mcp_config": {
+                "command": "\${__dirname}/server/domain-check-mcp",
+                "args": [],
+                "env": {}
+              }
+            },
+            "tools": [
+              {"name": "check_domain", "description": "Check availability of a single domain"},
+              {"name": "check_domains", "description": "Batch check multiple domains concurrently"},
+              {"name": "check_with_preset", "description": "Check a base name across all TLDs in a preset"},
+              {"name": "generate_names", "description": "Generate domain name candidates from patterns"},
+              {"name": "list_presets", "description": "List all available TLD presets"},
+              {"name": "domain_info", "description": "Get detailed registration info for a domain"}
+            ],
+            "keywords": ["domain", "availability", "rdap", "whois", "mcp"],
+            "license": "MIT OR Apache-2.0",
+            "compatibility": {
+              "platforms": ["${{ matrix.mcpb_platform }}"]
+            }
+          }
+          EOF
+          cd "$MCPB_DIR"
+          zip -r "$GITHUB_WORKSPACE/${{ matrix.mcpb_name }}" manifest.json server/
+
+      - name: Create MCPB bundle (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $VERSION = "${{ needs.validate.outputs.version }}"
+          $MCPB_DIR = New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\mcpb" -Force
+          New-Item -ItemType Directory -Path "$MCPB_DIR\server" -Force
+          Copy-Item "target\${{ matrix.target }}\release\domain-check-mcp.exe" "$MCPB_DIR\server\"
+          $manifest = @"
+          {
+            "manifest_version": "0.3",
+            "name": "domain-check-mcp",
+            "version": "$VERSION",
+            "description": "Domain availability checking via RDAP and WHOIS. Single domains, batch checks, TLD presets, pattern generation, and detailed registration info.",
+            "author": {
+              "name": "Sai Dutt G.V.",
+              "url": "https://github.com/saidutt46"
+            },
+            "repository": {
+              "type": "git",
+              "url": "https://github.com/saidutt46/domain-check.git"
+            },
+            "server": {
+              "type": "binary",
+              "entry_point": "server/domain-check-mcp.exe",
+              "mcp_config": {
+                "command": "`${__dirname}/server/domain-check-mcp.exe",
+                "args": [],
+                "env": {}
+              }
+            },
+            "tools": [
+              {"name": "check_domain", "description": "Check availability of a single domain"},
+              {"name": "check_domains", "description": "Batch check multiple domains concurrently"},
+              {"name": "check_with_preset", "description": "Check a base name across all TLDs in a preset"},
+              {"name": "generate_names", "description": "Generate domain name candidates from patterns"},
+              {"name": "list_presets", "description": "List all available TLD presets"},
+              {"name": "domain_info", "description": "Get detailed registration info for a domain"}
+            ],
+            "keywords": ["domain", "availability", "rdap", "whois", "mcp"],
+            "license": "MIT OR Apache-2.0",
+            "compatibility": {
+              "platforms": ["win32"]
+            }
+          }
+          "@
+          Set-Content -Path "$MCPB_DIR\manifest.json" -Value $manifest
+          Compress-Archive -Path "$MCPB_DIR\manifest.json", "$MCPB_DIR\server" -DestinationPath "${{ matrix.mcpb_name }}"
+
       - name: Upload CLI artifact
         uses: actions/upload-artifact@v4
         with:
@@ -131,6 +238,12 @@ jobs:
         with:
           name: ${{ matrix.mcp_name }}
           path: target/${{ matrix.target }}/release/${{ matrix.mcp_name }}.${{ matrix.os == 'windows-latest' && 'zip' || 'tar.gz' }}
+
+      - name: Upload MCPB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.mcpb_name }}
+          path: ${{ matrix.mcpb_name }}
 
   # Publish to crates.io
   publish-crates:
@@ -316,10 +429,10 @@ jobs:
         run: |
           # Move all artifacts to a single directory
           mkdir -p release-assets
-          find artifacts -name "*.tar.gz" -o -name "*.zip" | while read file; do
+          find artifacts -name "*.tar.gz" -o -name "*.zip" -o -name "*.mcpb" | while read file; do
             cp "$file" release-assets/
           done
-          
+
           ls -la release-assets/
 
       - name: Create release with GitHub CLI
@@ -529,3 +642,96 @@ jobs:
           echo "MCP: https://crates.io/crates/domain-check-mcp"
           echo "Homebrew: brew tap saidutt46/domain-check && brew install domain-check"
           echo "Release: https://github.com/saidutt46/domain-check/releases/tag/v${{ needs.validate.outputs.version }}"
+
+  # Publish to official MCP Registry
+  publish-mcp-registry:
+    name: Publish to MCP Registry
+    needs: [validate, create-release]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download MCPB artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: mcpb-artifacts
+          pattern: '*.mcpb'
+
+      - name: Generate server.json with SHA-256 hashes
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          TAG="v${VERSION}"
+          BASE_URL="https://github.com/saidutt46/domain-check/releases/download/${TAG}"
+
+          # Compute SHA-256 for each MCPB bundle
+          LINUX_SHA=$(sha256sum mcpb-artifacts/domain-check-mcp-linux-x86_64.mcpb/domain-check-mcp-linux-x86_64.mcpb | cut -d' ' -f1)
+          MUSL_SHA=$(sha256sum mcpb-artifacts/domain-check-mcp-linux-x86_64-musl.mcpb/domain-check-mcp-linux-x86_64-musl.mcpb | cut -d' ' -f1)
+          MACOS_X86_SHA=$(sha256sum mcpb-artifacts/domain-check-mcp-macos-x86_64.mcpb/domain-check-mcp-macos-x86_64.mcpb | cut -d' ' -f1)
+          MACOS_ARM_SHA=$(sha256sum mcpb-artifacts/domain-check-mcp-macos-aarch64.mcpb/domain-check-mcp-macos-aarch64.mcpb | cut -d' ' -f1)
+          WINDOWS_SHA=$(sha256sum mcpb-artifacts/domain-check-mcp-windows-x86_64.mcpb/domain-check-mcp-windows-x86_64.mcpb | cut -d' ' -f1)
+
+          cat > domain-check-mcp/server.json << EOF
+          {
+            "\$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+            "name": "io.github.saidutt46/domain-check",
+            "description": "Domain availability checking — single domains, batch checks, TLD presets, name generation, and detailed registration info via RDAP and WHOIS.",
+            "repository": {
+              "url": "https://github.com/saidutt46/domain-check.git",
+              "source": "github"
+            },
+            "version": "${VERSION}",
+            "packages": [
+              {
+                "registryType": "mcpb",
+                "identifier": "${BASE_URL}/domain-check-mcp-linux-x86_64.mcpb",
+                "fileSha256": "${LINUX_SHA}",
+                "transport": { "type": "stdio" }
+              },
+              {
+                "registryType": "mcpb",
+                "identifier": "${BASE_URL}/domain-check-mcp-linux-x86_64-musl.mcpb",
+                "fileSha256": "${MUSL_SHA}",
+                "transport": { "type": "stdio" }
+              },
+              {
+                "registryType": "mcpb",
+                "identifier": "${BASE_URL}/domain-check-mcp-macos-x86_64.mcpb",
+                "fileSha256": "${MACOS_X86_SHA}",
+                "transport": { "type": "stdio" }
+              },
+              {
+                "registryType": "mcpb",
+                "identifier": "${BASE_URL}/domain-check-mcp-macos-aarch64.mcpb",
+                "fileSha256": "${MACOS_ARM_SHA}",
+                "transport": { "type": "stdio" }
+              },
+              {
+                "registryType": "mcpb",
+                "identifier": "${BASE_URL}/domain-check-mcp-windows-x86_64.mcpb",
+                "fileSha256": "${WINDOWS_SHA}",
+                "transport": { "type": "stdio" }
+              }
+            ]
+          }
+          EOF
+
+          echo "Generated server.json:"
+          cat domain-check-mcp/server.json
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          chmod +x mcp-publisher
+
+      - name: Authenticate to MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        run: |
+          cd domain-check-mcp
+          ../mcp-publisher publish
+          echo "Published to MCP Registry!"
