@@ -429,7 +429,7 @@ jobs:
         run: |
           # Move all artifacts to a single directory
           mkdir -p release-assets
-          find artifacts -name "*.tar.gz" -o -name "*.zip" -o -name "*.mcpb" | while read file; do
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.mcpb" \) | while read file; do
             cp "$file" release-assets/
           done
 
