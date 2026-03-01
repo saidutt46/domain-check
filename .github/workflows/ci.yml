@@ -86,13 +86,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [stable, beta, 1.78.0]  # MSRV — 1.78.0 required for Cargo.lock v4 + rmcp dep chain
+        rust: [stable, beta, 1.88.0]  # MSRV — rmcp requires edition 2024 (1.85+) and darling requires 1.88+
         exclude:
           # Only test MSRV on Ubuntu to save CI time
           - os: windows-latest
-            rust: 1.78.0
+            rust: 1.88.0
           - os: macos-latest
-            rust: 1.78.0
+            rust: 1.88.0
           # Only test beta on Ubuntu
           - os: windows-latest
             rust: beta
