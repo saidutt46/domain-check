@@ -1,0 +1,10 @@
+startCommand:
+  type: stdio
+  command: domain-check-mcp
+  configSchema:
+    type: object
+    properties:
+      RUST_LOG:
+        type: string
+        description: "Logging level (e.g., domain_check_mcp=debug). Logs go to stderr."
+    required: []
