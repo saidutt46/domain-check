@@ -14,7 +14,7 @@ name = "domain-check-mcp"
 path = "src/main.rs"
 
 [dependencies]
-domain-check-lib = { path = "../domain-check-lib", version = "0.9.1" }
+domain-check-lib = { path = "../domain-check-lib", version = "1.0.0" }
 rmcp = { version = "0.16", features = ["server", "macros", "transport-io"] }
 tokio = { workspace = true }
 serde = { workspace = true }

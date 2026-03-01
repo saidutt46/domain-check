@@ -252,7 +252,7 @@ Use `domain-check-lib` directly in Rust projects:
 
 ```toml
 [dependencies]
-domain-check-lib = "0.9.1"
+domain-check-lib = "1.0.0"
 ```
 
 ```rust
