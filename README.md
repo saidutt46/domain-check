@@ -65,7 +65,7 @@ domain-check brand --all --batch
 Pretty output:
 
 ```text
-domain-check v0.9.1 — Checking 8 domains
+domain-check v1.0.2 — Checking 8 domains
 Preset: startup | Concurrency: 20
 
 ── Available (3) ──────────────────────────────

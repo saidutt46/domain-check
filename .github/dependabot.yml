@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # Rust dependencies (Cargo.toml + Cargo.lock across the workspace)
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      # Batch routine updates into one PR; major bumps still get their own PR
+      cargo-minor-patch:
+        update-types: [minor, patch]
+
+  # GitHub Actions used in .github/workflows
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      github-actions:
+        patterns: ["*"]

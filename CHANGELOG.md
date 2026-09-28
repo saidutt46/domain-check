@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.0.3] - 2026-09-27
+
+### Security & Maintenance Release
+
+No behavior changes to the CLI or library API. This release clears new security advisories and fixes the daily CI failures.
+
+### Security
+- **rmcp 0.16 → 3.5** (MCP server) — clears RUSTSEC-2026-0189 (DNS rebinding in rmcp's Streamable HTTP transport). `domain-check-mcp` uses the stdio transport only, so it was not exposed, but the vulnerable version is no longer in the dependency tree
+- **quinn-proto → 0.11.15+** — clears RUSTSEC-2026-0185 (remote memory exhaustion via out-of-order stream reassembly)
+- **rustls → 0.23.45+** — clears RUSTSEC-2026-0285 (TLS 1.3 handshake messages accepted across encryption levels)
+
+### Changed
+- `toml` 0.9 → 1.x and `console` 0.15 → 0.16
+- Refreshed all semver-compatible dependencies in `Cargo.lock`
+- Declared `rust-version = "1.88"` (MSRV) for all crates so Cargo enforces it
+
+### Fixed
+- `domain-check-lib` no longer warns when built with `--no-default-features`
+
+### CI & Tooling
+- Added Dependabot for weekly grouped Cargo and GitHub Actions updates
+- Removed the duplicate `cargo audit` job from `ci.yml` (`security.yml` owns it) and switched tool installs to prebuilt binaries
+- Collapsed six redundant `cargo test` invocations per matrix leg into a single `cargo test --workspace --all-features`
+- Replaced the misnamed "Minimal Dependency Versions" job with a real lib feature-powerset check
+- Updated GitHub Actions to current majors (Node 24 runtime); CI schedule moved from daily to weekly and superseded runs now cancel
+- Removed the code coverage job: its Codecov uploads were being rejected because no `CODECOV_TOKEN` is configured. Coverage reporting will return with a proper Codecov setup
+- Tests that use `--all` now pass `--no-bootstrap` unless bootstrap is under test, cutting CLI integration tests from ~6 min to ~12 s and fixing the macOS `test_all_flag_performance` timeout
+- Replaced a no-op bootstrap test with two `--dry-run` tests that assert `--all` expands past the 32 hardcoded TLDs with bootstrap and stays at exactly 32 without it
+
+---
+
 ## [1.0.2] - 2026-03-22
 
 ### RDAP 404 False Positive Fix (Issue #30)

@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 keywords = ["mcp", "mcp-server", "domain", "ai", "llm"]
 categories = ["command-line-utilities"]
 
@@ -15,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 domain-check-lib = { path = "../domain-check-lib", version = "1.0.2" }
-rmcp = { version = "0.16", features = ["server", "macros", "transport-io"] }
+rmcp = { version = "3", features = ["server", "macros", "transport-io"] }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -23,4 +24,4 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
-rmcp = { version = "0.16", features = ["client", "server", "macros", "transport-io"] }
+rmcp = { version = "3", features = ["client", "server", "macros", "transport-io"] }

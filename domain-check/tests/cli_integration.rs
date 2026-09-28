@@ -64,7 +64,12 @@ fn test_list_presets_no_domains_required() {
 #[test]
 fn test_all_flag_functionality() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(["nonexistentdomain12345", "--all", "--batch"]);
+    cmd.args([
+        "nonexistentdomain12345",
+        "--all",
+        "--batch",
+        "--no-bootstrap",
+    ]);
 
     cmd.assert()
         .success()
@@ -77,7 +82,14 @@ fn test_all_flag_functionality() {
 fn test_all_flag_shows_info_message() {
     // Use multiple domains to trigger the informational message
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(["test1", "test2", "--all", "--batch", "--pretty"]);
+    cmd.args([
+        "test1",
+        "test2",
+        "--all",
+        "--batch",
+        "--pretty",
+        "--no-bootstrap",
+    ]);
 
     cmd.assert()
         .success()
@@ -178,7 +190,12 @@ fn test_explicit_tld_works_alone() {
 #[test]
 fn test_json_output_with_all_flag() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(["nonexistentdomain12345", "--all", "--json"]);
+    cmd.args([
+        "nonexistentdomain12345",
+        "--all",
+        "--json",
+        "--no-bootstrap",
+    ]);
 
     cmd.assert()
         .success()
@@ -203,7 +220,13 @@ fn test_file_input_with_all_flag() {
     let file = create_test_domains_file(&domains);
 
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(["--file", file.path().to_str().unwrap(), "--all", "--batch"]);
+    cmd.args([
+        "--file",
+        file.path().to_str().unwrap(),
+        "--all",
+        "--batch",
+        "--no-bootstrap",
+    ]);
 
     cmd.assert()
         .success()
@@ -254,7 +277,14 @@ fn test_file_input_with_preset_shows_message() {
 #[test]
 fn test_multiple_domains_with_all_flag() {
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(["test1", "test2", "test3", "--all", "--batch"]);
+    cmd.args([
+        "test1",
+        "test2",
+        "test3",
+        "--all",
+        "--batch",
+        "--no-bootstrap",
+    ]);
 
     cmd.assert()
         .success()
@@ -264,15 +294,29 @@ fn test_multiple_domains_with_all_flag() {
 }
 
 #[test]
-fn test_bootstrap_auto_enable_with_verbose() {
+fn test_all_flag_expands_beyond_hardcoded_tlds_with_bootstrap() {
+    // Bootstrap is on by default, so --all should cover the full IANA list,
+    // not just the 32 hardcoded TLDs. --dry-run avoids checking each domain.
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(["test", "--all", "--verbose"]);
+    cmd.args(["test", "--all", "--dry-run"]);
 
-    cmd.assert().success().stderr(
-        predicate::str::contains("Auto-enabled bootstrap registry").or(
-            predicate::str::contains("bootstrap").not(), // It's fine if bootstrap doesn't auto-enable in test
-        ),
+    let output = cmd.assert().success().get_output().stdout.clone();
+    let count = String::from_utf8(output).unwrap().lines().count();
+    assert!(
+        count > 32,
+        "expected bootstrap to expand --all past 32 TLDs, got {}",
+        count
     );
+}
+
+#[test]
+fn test_all_flag_no_bootstrap_uses_hardcoded_tlds() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["test", "--all", "--dry-run", "--no-bootstrap"]);
+
+    cmd.assert()
+        .success()
+        .stderr(predicate::str::contains("32 domains would be checked"));
 }
 
 #[test]

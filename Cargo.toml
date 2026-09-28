@@ -32,6 +32,7 @@ keywords = ["cli", "domain", "whois", "rdap", "availability"]
 categories = ["command-line-utilities", "network-programming"]
 readme = "README.md"
 edition = "2021"
+rust-version = "1.88"
 
 # Shared dependencies across all crates in the workspace
 # This ensures version consistency and reduces build times
@@ -47,14 +48,14 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # Configuration file parsing
-toml = "0.9.2"
+toml = "1"
 
 # Async stream utilities (lightweight alternative to full futures crate)
 futures-util = "0.3"
 
 # CLI-specific dependencies (only used by domain-check crate)
 clap = { version = "4.5", features = ["derive"] }
-console = "0.15"
+console = "0.16"
 
 # Logging / tracing
 tracing = "0.1"
