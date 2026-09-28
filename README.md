@@ -2,7 +2,7 @@
 
 Universal domain exploration engine: fast domain availability checks across the internet — as a CLI, Rust library, and MCP server for AI agents.
 
-[![Homebrew](https://img.shields.io/badge/Homebrew-available-brightgreen)](https://github.com/saidutt46/homebrew-domain-check)
+[![Homebrew](https://img.shields.io/homebrew/v/domain-check?label=Homebrew)](https://formulae.brew.sh/formula/domain-check)
 [![CLI Crate](https://img.shields.io/crates/v/domain-check.svg?label=CLI)](https://crates.io/crates/domain-check)
 [![Library Crate](https://img.shields.io/crates/v/domain-check-lib.svg?label=Library)](https://crates.io/crates/domain-check-lib)
 [![MCP Server](https://img.shields.io/crates/v/domain-check-mcp.svg?label=MCP)](https://crates.io/crates/domain-check-mcp)
