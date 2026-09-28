@@ -1,4 +1,4 @@
-// domain-check/tests/performance.rs with more realistic data ?? may be not sure will see
+// Performance smoke tests for the CLI. These hit live registries, so bounds are generous.
 
 use assert_cmd::Command;
 use std::time::Instant;
@@ -8,14 +8,16 @@ fn test_all_flag_performance() {
     let start = Instant::now();
 
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
-    cmd.args(["testdomain12345", "--all", "--batch"])
-        .timeout(std::time::Duration::from_secs(45)); // More realistic timeout
+    // --no-bootstrap limits --all to the hardcoded TLD list; with bootstrap enabled
+    // --all expands to 1,200+ TLDs, which is a network sweep, not a perf smoke test.
+    cmd.args(["testdomain12345", "--all", "--batch", "--no-bootstrap"])
+        .timeout(std::time::Duration::from_secs(45));
 
     cmd.assert().success();
 
     let duration = start.elapsed();
 
-    // Should complete within reasonable time for single domain × all TLDs
+    // Should complete within reasonable time for single domain × hardcoded TLDs
     assert!(
         duration.as_secs() < 45,
         "All TLD check took too long: {:?}",
@@ -35,7 +37,7 @@ fn test_preset_performance() {
 
     let duration = start.elapsed();
 
-    // Preset should be faster than --all (8 TLDs vs 42)
+    // Preset should be faster than --all (8 TLDs vs 32)
     assert!(
         duration.as_secs() < 15,
         "Preset check took too long: {:?}",
