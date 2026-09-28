@@ -25,6 +25,7 @@ No behavior changes to the CLI or library API. This release clears new security 
 - Collapsed six redundant `cargo test` invocations per matrix leg into a single `cargo test --workspace --all-features`
 - Replaced the misnamed "Minimal Dependency Versions" job with a real lib feature-powerset check
 - Updated GitHub Actions to current majors (Node 24 runtime); CI schedule moved from daily to weekly and superseded runs now cancel
+- Removed the code coverage job: its Codecov uploads were being rejected because no `CODECOV_TOKEN` is configured. Coverage reporting will return with a proper Codecov setup
 - Tests that use `--all` now pass `--no-bootstrap` unless bootstrap is under test, cutting CLI integration tests from ~6 min to ~12 s and fixing the macOS `test_all_flag_performance` timeout
 - Replaced a no-op bootstrap test with two `--dry-run` tests that assert `--all` expands past the 32 hardcoded TLDs with bootstrap and stays at exactly 32 without it
 
