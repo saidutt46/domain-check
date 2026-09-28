@@ -65,7 +65,7 @@ domain-check brand --all --batch
 Pretty output:
 
 ```text
-domain-check v1.0.2 — Checking 8 domains
+domain-check v1.0.3 — Checking 8 domains
 Preset: startup | Concurrency: 20
 
 ── Available (3) ──────────────────────────────
@@ -252,7 +252,7 @@ Use `domain-check-lib` directly in Rust projects:
 
 ```toml
 [dependencies]
-domain-check-lib = "1.0.2"
+domain-check-lib = "1.0.3"
 ```
 
 ```rust
