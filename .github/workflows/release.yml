@@ -19,7 +19,7 @@ jobs:
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -88,7 +88,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -102,7 +102,7 @@ jobs:
           sudo apt-get install -y musl-tools
 
       - name: Cache dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -228,19 +228,19 @@ jobs:
           Compress-Archive -Path "$MCPB_DIR\manifest.json", "$MCPB_DIR\server" -DestinationPath "${{ matrix.mcpb_name }}"
 
       - name: Upload CLI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.cli_name }}
           path: target/${{ matrix.target }}/release/${{ matrix.cli_name }}.${{ matrix.os == 'windows-latest' && 'zip' || 'tar.gz' }}
 
       - name: Upload MCP artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.mcp_name }}
           path: target/${{ matrix.target }}/release/${{ matrix.mcp_name }}.${{ matrix.os == 'windows-latest' && 'zip' || 'tar.gz' }}
 
       - name: Upload MCPB artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.mcpb_name }}
           path: ${{ matrix.mcpb_name }}
@@ -252,13 +252,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -418,10 +418,10 @@ jobs:
       release_id: ${{ steps.create_release.outputs.id }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -504,7 +504,7 @@ jobs:
           echo "id=$RELEASE_ID" >> $GITHUB_OUTPUT
           echo "✅ GitHub release completed!"
 
-  # NEW: Update Homebrew formula
+  # Update Homebrew formula
   update-homebrew:
     name: Update Homebrew Formula
     needs: [validate, create-release]
@@ -512,16 +512,16 @@ jobs:
     if: needs.validate.outputs.prerelease == 'false'  # Only for stable releases
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download macOS artifacts for Homebrew
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: domain-check-macos-x86_64
           path: ./macos-x86_64
 
       - name: Download macOS ARM artifacts for Homebrew  
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: domain-check-macos-aarch64
           path: ./macos-aarch64
@@ -541,7 +541,7 @@ jobs:
 
       - name: Update Homebrew formula
         env:
-          GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}  # New secret needed
+          GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           VERSION="${{ needs.validate.outputs.version }}"
           X86_64_SHA="${{ steps.checksums.outputs.x86_64_sha }}"
@@ -653,10 +653,10 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download MCPB artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: mcpb-artifacts
           pattern: '*.mcpb'

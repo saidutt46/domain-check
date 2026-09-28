@@ -6,8 +6,12 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    # Run CI daily to catch regressions
-    - cron: '0 2 * * *'
+    # Weekly run to catch toolchain/registry regressions (security audit runs daily in security.yml)
+    - cron: '0 2 * * 1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -36,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -44,7 +48,7 @@ jobs:
           components: clippy
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -55,7 +59,7 @@ jobs:
             ${{ runner.os }}-cargo-registry-
 
       - name: Cache cargo build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
@@ -65,20 +69,6 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings -A clippy::uninlined_format_args
 
-  # Security audit
-  audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-
-      - name: Run security audit
-        run: cargo audit
-
   # Test on multiple Rust versions
   test:
     name: Test Suite
@@ -86,7 +76,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [stable, beta, 1.88.0]  # MSRV — rmcp requires edition 2024 (1.85+) and darling requires 1.88+
+        rust: [stable, beta, 1.88.0]  # 1.88.0 = MSRV (rust-version in Cargo.toml)
         exclude:
           # Only test MSRV on Ubuntu to save CI time
           - os: windows-latest
@@ -101,7 +91,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -109,7 +99,7 @@ jobs:
           toolchain: ${{ matrix.rust }}
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -120,7 +110,7 @@ jobs:
             ${{ runner.os }}-${{ matrix.rust }}-cargo-registry-
 
       - name: Cache cargo build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: target
           key: ${{ runner.os }}-${{ matrix.rust }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
@@ -130,23 +120,9 @@ jobs:
       - name: Build workspace
         run: cargo build --workspace --verbose
 
-      - name: Test library
-        run: cargo test -p domain-check-lib --verbose
-
-      - name: Test CLI
-        run: cargo test -p domain-check --verbose
-
-      - name: Test MCP server
-        run: cargo test -p domain-check-mcp --verbose
-
+      # Runs unit, integration, and doc tests for every crate in one pass
       - name: Test workspace
-        run: cargo test --workspace --verbose
-
-      - name: Test library with all features
-        run: cargo test -p domain-check-lib --all-features --verbose
-
-      - name: Test documentation
-        run: cargo test --doc --workspace
+        run: cargo test --workspace --all-features --verbose
 
   # Integration tests
   integration:
@@ -155,13 +131,13 @@ jobs:
     needs: [fmt, clippy]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -225,13 +201,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -252,22 +228,24 @@ jobs:
       - name: Check for broken links in docs
         run: cargo doc --workspace --no-deps
 
-  # Check minimum versions
-  minimal-versions:
-    name: Minimal Dependency Versions
+  # Check that every combination of library features compiles (rdap/whois/bootstrap)
+  feature-combinations:
+    name: Feature Combinations
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-hack
-        run: cargo install cargo-hack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
 
-      - name: Check minimal versions
-        run: cargo hack check --workspace
+      - name: Check feature powerset
+        run: cargo hack check -p domain-check-lib --feature-powerset --no-dev-deps
 
   # Coverage (optional - can be heavy)
   coverage:
@@ -276,7 +254,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -284,13 +262,16 @@ jobs:
           components: llvm-tools-preview
 
       - name: Install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
 
       - name: Generate coverage
         run: cargo llvm-cov --workspace --lcov --output-path lcov.info
 
       - name: Upload to codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v7
         with:
           files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false

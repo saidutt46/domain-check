@@ -90,24 +90,16 @@ pub struct LibraryInfo {
 }
 
 /// Get list of enabled features at compile time.
-// Allow: each push is behind a #[cfg(feature)], so init-then-push is the only idiomatic way.
-#[allow(clippy::vec_init_then_push)]
 fn get_enabled_features() -> Vec<&'static str> {
-    let mut features = Vec::new();
-
-    #[cfg(feature = "rdap")]
-    features.push("rdap");
-
-    #[cfg(feature = "whois")]
-    features.push("whois");
-
-    #[cfg(feature = "bootstrap")]
-    features.push("bootstrap");
-
-    #[cfg(feature = "debug")]
-    features.push("debug");
-
-    features
+    [
+        (cfg!(feature = "rdap"), "rdap"),
+        (cfg!(feature = "whois"), "whois"),
+        (cfg!(feature = "bootstrap"), "bootstrap"),
+        (cfg!(feature = "debug"), "debug"),
+    ]
+    .into_iter()
+    .filter_map(|(enabled, name)| enabled.then_some(name))
+    .collect()
 }
 
 #[cfg(test)]
