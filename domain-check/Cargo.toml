@@ -16,6 +16,7 @@ repository = { workspace = true }
 keywords = { workspace = true }
 categories = { workspace = true }
 edition = { workspace = true }
+rust-version = { workspace = true }
 
 # CLI-specific metadata
 documentation = "https://docs.rs/domain-check"

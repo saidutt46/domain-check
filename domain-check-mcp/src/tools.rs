@@ -4,7 +4,7 @@ use domain_check_lib::{
 };
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{Implementation, ServerCapabilities, ServerInfo, ToolsCapability},
+    model::{Implementation, ServerCapabilities, ServerConfig},
     schemars, tool, tool_handler, tool_router, ServerHandler,
 };
 use serde::{Deserialize, Serialize};
@@ -326,24 +326,16 @@ impl DomainCheckServer {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for DomainCheckServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            server_info: Implementation {
-                name: "domain-check-mcp".into(),
-                version: env!("CARGO_PKG_VERSION").into(),
-                ..Default::default()
-            },
-            capabilities: ServerCapabilities {
-                tools: Some(ToolsCapability::default()),
-                ..Default::default()
-            },
-            instructions: Some(
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new(
+                "domain-check-mcp",
+                env!("CARGO_PKG_VERSION"),
+            ))
+            .with_instructions(
                 "Domain availability checking tools. Check single or batch domains, \
-                 generate name candidates from patterns, and get detailed registration info."
-                    .into(),
-            ),
-            ..Default::default()
-        }
+                 generate name candidates from patterns, and get detailed registration info.",
+            )
     }
 }
 
@@ -916,7 +908,7 @@ mod tests {
     mod integration {
         use super::*;
         use rmcp::{
-            model::{CallToolRequestParams, ClientInfo},
+            model::{CallToolRequestParams, ClientConfig},
             service::RunningService,
             ClientHandler, RoleClient, ServiceExt,
         };
@@ -927,8 +919,8 @@ mod tests {
         struct TestClient;
 
         impl ClientHandler for TestClient {
-            fn get_info(&self) -> ClientInfo {
-                ClientInfo::default()
+            fn get_info(&self) -> ClientConfig {
+                ClientConfig::default()
             }
         }
 
@@ -954,7 +946,7 @@ mod tests {
             result
                 .content
                 .first()
-                .and_then(|c| c.raw.as_text())
+                .and_then(|c| c.as_text())
                 .map(|t| t.text.as_str())
                 .expect("expected text content in result")
         }
@@ -982,12 +974,10 @@ mod tests {
             let client = setup_client().await;
 
             let result = client
-                .call_tool(CallToolRequestParams {
-                    meta: None,
-                    name: "list_presets".into(),
-                    arguments: Some(serde_json::Map::new()),
-                    task: None,
-                })
+                .call_tool(
+                    CallToolRequestParams::new("list_presets")
+                        .with_arguments(serde_json::Map::new()),
+                )
                 .await
                 .expect("call_tool failed");
 
@@ -1018,10 +1008,8 @@ mod tests {
             let client = setup_client().await;
 
             let result = client
-                .call_tool(CallToolRequestParams {
-                    meta: None,
-                    name: "generate_names".into(),
-                    arguments: Some(
+                .call_tool(
+                    CallToolRequestParams::new("generate_names").with_arguments(
                         serde_json::json!({
                             "patterns": ["app\\d\\d"]
                         })
@@ -1029,8 +1017,7 @@ mod tests {
                         .unwrap()
                         .clone(),
                     ),
-                    task: None,
-                })
+                )
                 .await
                 .expect("call_tool failed");
 
@@ -1054,10 +1041,8 @@ mod tests {
             let client = setup_client().await;
 
             let result = client
-                .call_tool(CallToolRequestParams {
-                    meta: None,
-                    name: "generate_names".into(),
-                    arguments: Some(
+                .call_tool(
+                    CallToolRequestParams::new("generate_names").with_arguments(
                         serde_json::json!({
                             "patterns": [],
                             "literal_names": ["cloud"],
@@ -1069,8 +1054,7 @@ mod tests {
                         .unwrap()
                         .clone(),
                     ),
-                    task: None,
-                })
+                )
                 .await
                 .expect("call_tool failed");
 
@@ -1096,10 +1080,8 @@ mod tests {
             let client = setup_client().await;
 
             let result = client
-                .call_tool(CallToolRequestParams {
-                    meta: None,
-                    name: "generate_names".into(),
-                    arguments: Some(
+                .call_tool(
+                    CallToolRequestParams::new("generate_names").with_arguments(
                         serde_json::json!({
                             "patterns": ["bad\\x"]
                         })
@@ -1107,8 +1089,7 @@ mod tests {
                         .unwrap()
                         .clone(),
                     ),
-                    task: None,
-                })
+                )
                 .await
                 .expect("call_tool failed");
 
@@ -1125,10 +1106,8 @@ mod tests {
             let client = setup_client().await;
 
             let result = client
-                .call_tool(CallToolRequestParams {
-                    meta: None,
-                    name: "check_domains".into(),
-                    arguments: Some(
+                .call_tool(
+                    CallToolRequestParams::new("check_domains").with_arguments(
                         serde_json::json!({
                             "domains": []
                         })
@@ -1136,8 +1115,7 @@ mod tests {
                         .unwrap()
                         .clone(),
                     ),
-                    task: None,
-                })
+                )
                 .await
                 .expect("call_tool failed");
 
@@ -1153,10 +1131,8 @@ mod tests {
             let client = setup_client().await;
 
             let result = client
-                .call_tool(CallToolRequestParams {
-                    meta: None,
-                    name: "check_with_preset".into(),
-                    arguments: Some(
+                .call_tool(
+                    CallToolRequestParams::new("check_with_preset").with_arguments(
                         serde_json::json!({
                             "name": "test",
                             "preset": "does_not_exist"
@@ -1165,8 +1141,7 @@ mod tests {
                         .unwrap()
                         .clone(),
                     ),
-                    task: None,
-                })
+                )
                 .await
                 .expect("call_tool failed");
 
@@ -1182,12 +1157,10 @@ mod tests {
             let client = setup_client().await;
 
             let result = client
-                .call_tool(CallToolRequestParams {
-                    meta: None,
-                    name: "nonexistent_tool".into(),
-                    arguments: Some(serde_json::Map::new()),
-                    task: None,
-                })
+                .call_tool(
+                    CallToolRequestParams::new("nonexistent_tool")
+                        .with_arguments(serde_json::Map::new()),
+                )
                 .await;
 
             // Should return an error (either protocol error or tool error)
