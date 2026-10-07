@@ -98,6 +98,7 @@ fn get_enabled_features() -> Vec<&'static str> {
         (cfg!(feature = "whois"), "whois"),
         (cfg!(feature = "bootstrap"), "bootstrap"),
         (cfg!(feature = "debug"), "debug"),
+        (cfg!(feature = "forsale"), "forsale"),
     ]
     .into_iter()
     .filter_map(|(enabled, name)| enabled.then_some(name))

@@ -4,6 +4,7 @@
 //! domain availability checking using RDAP, WHOIS, and bootstrap protocols.
 
 use crate::error::DomainCheckError;
+use crate::forsale::ForSaleLookup;
 use crate::protocols::registry::{extract_tld, get_whois_server};
 use crate::protocols::{RdapClient, WhoisClient};
 use crate::types::{CheckConfig, CheckMethod, DomainResult};
@@ -17,7 +18,7 @@ use tokio::sync::Semaphore;
 ///
 /// This is a helper function that implements the same logic as `check_domain`
 /// but works with cloned client instances for concurrent execution.
-async fn check_single_domain_concurrent(
+async fn check_availability_concurrent(
     domain: &str,
     rdap_client: &RdapClient,
     whois_client: &WhoisClient,
@@ -131,6 +132,20 @@ async fn check_single_domain_concurrent(
     }
 }
 
+/// Availability check followed by the optional for-sale lookup.
+async fn check_single_domain_concurrent(
+    domain: &str,
+    rdap_client: &RdapClient,
+    whois_client: &WhoisClient,
+    config: &CheckConfig,
+    for_sale: &ForSaleLookup,
+) -> Result<DomainResult, DomainCheckError> {
+    let mut result =
+        check_availability_concurrent(domain, rdap_client, whois_client, config).await?;
+    for_sale.annotate(&mut result).await;
+    Ok(result)
+}
+
 /// Perform WHOIS check with server discovery for targeted queries.
 ///
 /// If the TLD's authoritative WHOIS server can be discovered via IANA referral,
@@ -183,6 +198,8 @@ pub struct DomainChecker {
     rdap_client: RdapClient,
     /// WHOIS client for fallback domain checking
     whois_client: WhoisClient,
+    /// RFC 10023 for-sale lookups (inactive unless enabled)
+    for_sale: ForSaleLookup,
 }
 
 impl DomainChecker {
@@ -199,11 +216,13 @@ impl DomainChecker {
         let rdap_client = RdapClient::with_config(config.rdap_timeout, config.enable_bootstrap)
             .expect("Failed to create RDAP client");
         let whois_client = WhoisClient::with_timeout(config.whois_timeout);
+        let for_sale = ForSaleLookup::new(&config);
 
         Self {
             config,
             rdap_client,
             whois_client,
+            for_sale,
         }
     }
 
@@ -226,11 +245,13 @@ impl DomainChecker {
         let rdap_client = RdapClient::with_config(config.rdap_timeout, config.enable_bootstrap)
             .expect("Failed to create RDAP client");
         let whois_client = WhoisClient::with_timeout(config.whois_timeout);
+        let for_sale = ForSaleLookup::new(&config);
 
         Self {
             config,
             rdap_client,
             whois_client,
+            for_sale,
         }
     }
 
@@ -244,6 +265,7 @@ impl DomainChecker {
     /// 2. Attempts RDAP check first (modern protocol)
     /// 3. Falls back to WHOIS if RDAP fails and fallback is enabled
     /// 4. Returns comprehensive result with timing and method information
+    /// 5. If enabled, looks up the RFC 10023 `_for-sale` record for taken domains
     ///
     /// # Arguments
     ///
@@ -260,6 +282,13 @@ impl DomainChecker {
     /// - Network errors occur
     /// - All checking methods fail
     pub async fn check_domain(&self, domain: &str) -> Result<DomainResult, DomainCheckError> {
+        let mut result = self.check_availability(domain).await?;
+        self.for_sale.annotate(&mut result).await;
+        Ok(result)
+    }
+
+    /// RDAP-first availability check with WHOIS fallback (no for-sale lookup).
+    async fn check_availability(&self, domain: &str) -> Result<DomainResult, DomainCheckError> {
         // Validate domain format first
         validate_domain(domain)?;
 
@@ -418,15 +447,21 @@ impl DomainChecker {
             let rdap_client = self.rdap_client.clone();
             let whois_client = self.whois_client.clone();
             let config = self.config.clone();
+            let for_sale = self.for_sale.clone();
 
             let handle = tokio::spawn(async move {
                 // Acquire semaphore permit
                 let _permit = semaphore.acquire().await.unwrap();
 
                 // Check this domain
-                let result =
-                    check_single_domain_concurrent(&domain, &rdap_client, &whois_client, &config)
-                        .await;
+                let result = check_single_domain_concurrent(
+                    &domain,
+                    &rdap_client,
+                    &whois_client,
+                    &config,
+                    &for_sale,
+                )
+                .await;
 
                 // Return with original index to maintain order
                 (index, result)
@@ -521,14 +556,21 @@ impl DomainChecker {
                 let rdap_client = self.rdap_client.clone();
                 let whois_client = self.whois_client.clone();
                 let config = self.config.clone();
+                let for_sale = self.for_sale.clone();
 
                 async move {
                     // Acquire semaphore permit
                     let _permit = semaphore.acquire().await.unwrap();
 
                     // Check domain
-                    check_single_domain_concurrent(&domain, &rdap_client, &whois_client, &config)
-                        .await
+                    check_single_domain_concurrent(
+                        &domain,
+                        &rdap_client,
+                        &whois_client,
+                        &config,
+                        &for_sale,
+                    )
+                    .await
                 }
             })
             // Buffer unordered allows concurrent execution while maintaining the stream interface
@@ -621,6 +663,12 @@ impl DomainChecker {
         &self.config
     }
 
+    /// Whether RFC 10023 for-sale lookups will run: requested in the config,
+    /// built with the `forsale` feature, and a system resolver is available.
+    pub fn for_sale_enabled(&self) -> bool {
+        self.for_sale.is_active()
+    }
+
     /// Update the configuration for this checker.
     ///
     /// This allows modifying settings like concurrency or timeout
@@ -631,6 +679,7 @@ impl DomainChecker {
         self.rdap_client = RdapClient::with_config(config.rdap_timeout, config.enable_bootstrap)
             .expect("Failed to recreate RDAP client");
         self.whois_client = WhoisClient::with_timeout(config.whois_timeout);
+        self.for_sale = ForSaleLookup::new(&config);
         self.config = config;
     }
 }
@@ -677,6 +726,11 @@ mod tests {
         assert_eq!(checker.config().timeout, Duration::from_secs(10));
         assert!(checker.config().detailed_info);
         assert!(!checker.config().enable_whois_fallback);
+    }
+
+    #[test]
+    fn for_sale_enabled_false_when_not_requested() {
+        assert!(!DomainChecker::new().for_sale_enabled());
     }
 
     // ── config() and set_config() ───────────────────────────────────────

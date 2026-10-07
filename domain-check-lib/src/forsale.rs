@@ -4,8 +4,10 @@
 //! signal that a registered domain is available for purchase. The parser here
 //! is pure; the DNS lookup is compiled only with the `forsale` feature.
 
+use crate::types::{CheckConfig, DomainResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::time::Duration;
 
 /// Leaf node name reserved by RFC 10023.
 pub const NODE_NAME: &str = "_for-sale";
@@ -217,6 +219,90 @@ fn is_bidi_control(c: char) -> bool {
         c,
         '\u{200E}' | '\u{200F}' | '\u{061C}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
     )
+}
+
+/// Upper bound for one `_for-sale` lookup; also capped by the check timeout.
+const LOOKUP_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Runs `_for-sale` lookups for taken results. Inactive when not requested,
+/// when built without the `forsale` feature, or when the system resolver
+/// configuration cannot be read.
+#[derive(Clone)]
+pub(crate) struct ForSaleLookup {
+    #[cfg(feature = "forsale")]
+    resolver: Option<hickory_resolver::TokioResolver>,
+    #[cfg_attr(not(feature = "forsale"), allow(dead_code))]
+    timeout: Duration,
+}
+
+impl ForSaleLookup {
+    pub(crate) fn new(config: &CheckConfig) -> Self {
+        let timeout = config.timeout.min(LOOKUP_TIMEOUT);
+        #[cfg(feature = "forsale")]
+        {
+            let resolver = config
+                .check_for_sale
+                .then(|| {
+                    hickory_resolver::TokioResolver::builder_tokio()
+                        .ok()?
+                        .build()
+                        .ok()
+                })
+                .flatten();
+            Self { resolver, timeout }
+        }
+        #[cfg(not(feature = "forsale"))]
+        {
+            let _ = config.check_for_sale;
+            Self { timeout }
+        }
+    }
+
+    pub(crate) fn is_active(&self) -> bool {
+        #[cfg(feature = "forsale")]
+        {
+            self.resolver.is_some()
+        }
+        #[cfg(not(feature = "forsale"))]
+        {
+            false
+        }
+    }
+
+    /// Attach for-sale info to a taken result. Never fails and never
+    /// changes the availability verdict.
+    pub(crate) async fn annotate(&self, result: &mut DomainResult) {
+        #[cfg(feature = "forsale")]
+        if let (Some(resolver), Some(false)) = (&self.resolver, result.available) {
+            result.for_sale = lookup(resolver, &result.domain, self.timeout).await;
+        }
+        #[cfg(not(feature = "forsale"))]
+        let _ = result;
+    }
+}
+
+#[cfg(feature = "forsale")]
+async fn lookup(
+    resolver: &hickory_resolver::TokioResolver,
+    domain: &str,
+    timeout: Duration,
+) -> Option<ForSaleInfo> {
+    use hickory_resolver::proto::rr::RData;
+
+    let name = record_name(domain)?;
+    let answer = tokio::time::timeout(timeout, resolver.txt_lookup(name.as_str()))
+        .await
+        .ok()?
+        .ok()?;
+    let records: Vec<Vec<Vec<u8>>> = answer
+        .answers()
+        .iter()
+        .filter_map(|record| match &record.data {
+            RData::TXT(txt) => Some(txt.txt_data.iter().map(|s| s.to_vec()).collect()),
+            _ => None,
+        })
+        .collect();
+    parse_txt_records(&records)
 }
 
 #[cfg(test)]
@@ -444,5 +530,60 @@ mod tests {
         );
         let empty = serde_json::to_value(parse(&["v=FORSALE1;"]).unwrap()).unwrap();
         assert_eq!(empty, serde_json::json!({}));
+    }
+
+    // ── ForSaleLookup (no network) ──
+    #[cfg(feature = "forsale")]
+    fn taken(domain: &str) -> crate::types::DomainResult {
+        crate::types::DomainResult {
+            domain: domain.to_string(),
+            available: Some(false),
+            info: None,
+            check_duration: None,
+            method_used: crate::types::CheckMethod::Rdap,
+            error_message: None,
+            for_sale: None,
+        }
+    }
+
+    #[test]
+    fn lookup_inactive_when_not_requested() {
+        let lookup = ForSaleLookup::new(&crate::types::CheckConfig::default());
+        assert!(!lookup.is_active());
+    }
+
+    #[cfg(not(feature = "forsale"))]
+    #[test]
+    fn lookup_inactive_without_feature() {
+        let config = crate::types::CheckConfig::default().with_for_sale(true);
+        assert!(!ForSaleLookup::new(&config).is_active());
+    }
+
+    #[cfg(feature = "forsale")]
+    #[tokio::test]
+    async fn annotate_skips_non_taken_results() {
+        let config = crate::types::CheckConfig::default().with_for_sale(true);
+        let lookup = ForSaleLookup::new(&config);
+        for available in [Some(true), None] {
+            let mut r = taken("example.nl");
+            r.available = available;
+            lookup.annotate(&mut r).await;
+            assert!(r.for_sale.is_none());
+        }
+    }
+
+    #[cfg(feature = "forsale")]
+    #[tokio::test]
+    async fn annotate_times_out_without_touching_verdict() {
+        let config = crate::types::CheckConfig::default().with_for_sale(true);
+        let mut lookup = ForSaleLookup::new(&config);
+        lookup.timeout = std::time::Duration::ZERO;
+        let mut r = taken("example.nl");
+        r.error_message = Some("kept".into());
+        lookup.annotate(&mut r).await;
+        assert!(r.for_sale.is_none());
+        assert_eq!(r.available, Some(false));
+        assert_eq!(r.method_used, crate::types::CheckMethod::Rdap);
+        assert_eq!(r.error_message.as_deref(), Some("kept"));
     }
 }

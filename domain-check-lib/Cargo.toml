@@ -43,6 +43,9 @@ serde_json = { workspace = true }
 # Configuration file parsing
 toml = { workspace = true }
 
+# RFC 10023 _for-sale lookups (optional; enable the `forsale` feature)
+hickory-resolver = { version = "0.26", default-features = false, features = ["tokio", "system-config"], optional = true }
+
 # Development dependencies (for testing)
 [dev-dependencies]
 tokio-test = { workspace = true }
@@ -64,3 +67,6 @@ bootstrap = []
 
 # Enable detailed debugging and metrics
 debug = []
+
+# Enable RFC 10023 `_for-sale` DNS lookups (adds a DNS resolver)
+forsale = ["dep:hickory-resolver"]
