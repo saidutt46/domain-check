@@ -31,7 +31,7 @@
 // Re-export main public API types and functions
 // This makes them available as domain_check_lib::TypeName
 pub use checker::DomainChecker;
-pub use config::{load_env_config, ConfigManager, FileConfig, GenerationConfig};
+pub use config::{load_env_config, ConfigManager, DefaultsConfig, FileConfig, GenerationConfig};
 pub use error::DomainCheckError;
 pub use forsale::{parse_txt_records, record_name, ForSaleInfo, ForSalePrice, ForSaleUri};
 pub use protocols::registry::{

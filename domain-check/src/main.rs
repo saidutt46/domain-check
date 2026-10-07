@@ -107,6 +107,10 @@ pub struct Args {
     #[arg(short = 'i', long = "info", help_heading = "Output Format")]
     pub info: bool,
 
+    /// Show only taken domains that are for sale (implies --for-sale)
+    #[arg(long = "only-for-sale", help_heading = "Output Format")]
+    pub only_for_sale: bool,
+
     /// Collect all results before displaying
     #[arg(long = "batch", help_heading = "Output Format")]
     pub batch: bool,
@@ -139,6 +143,10 @@ pub struct Args {
     /// Disable automatic WHOIS fallback
     #[arg(long = "no-whois", help_heading = "Protocol")]
     pub no_whois: bool,
+
+    /// Check taken domains for an RFC 10023 _for-sale record
+    #[arg(long = "for-sale", help_heading = "Protocol")]
+    pub for_sale: bool,
 
     /// Use specific config file instead of automatic discovery
     #[arg(long = "config", value_name = "FILE", help_heading = "Configuration")]
@@ -314,6 +322,7 @@ async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Erro
     // Propagate resolved config values back to args for display logic.
     // This ensures config/env settings for --info are respected in output formatting.
     args.info = config.detailed_info;
+    args.for_sale = config.check_for_sale;
 
     // Determine domains to check (pass the config instead of rebuilding)
     let domains = get_domains_to_check(&args, &config).await?;
@@ -354,6 +363,11 @@ async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Erro
 
     // Create domain checker
     let checker = DomainChecker::with_config(config.clone());
+    if config.check_for_sale && !checker.for_sale_enabled() {
+        eprintln!(
+            "Warning: for-sale lookups unavailable (could not read system DNS configuration)"
+        );
+    }
 
     // Decide on processing mode based on domain count and user preferences
     let use_streaming = should_use_streaming(&args, domains.len());
@@ -653,6 +667,9 @@ fn merge_file_config_into_check_config(
         if let Some(detailed_info) = defaults.detailed_info {
             config.detailed_info = detailed_info;
         }
+        if let Some(for_sale) = defaults.for_sale {
+            config.check_for_sale = for_sale;
+        }
 
         // Handle TLDs and presets with proper precedence
         if let Some(tlds) = defaults.tlds {
@@ -712,6 +729,10 @@ fn apply_environment_config(mut config: CheckConfig, verbose: bool) -> CheckConf
         config.detailed_info = detailed_info;
     }
 
+    if let Some(for_sale) = env_config.for_sale {
+        config.check_for_sale = for_sale;
+    }
+
     // Handle TLD precedence: explicit TLDs > preset > config file values
     if let Some(tlds) = &env_config.tlds {
         config.tlds = Some(tlds.clone());
@@ -759,6 +780,9 @@ fn apply_cli_args_to_config(
     }
     if args.info {
         config.detailed_info = true;
+    }
+    if args.for_sale || args.only_for_sale {
+        config.check_for_sale = true;
     }
 
     // Handle TLD precedence: CLI explicit > CLI preset > CLI all > env vars > config file
@@ -1016,7 +1040,7 @@ fn display_results(
     duration: std::time::Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if args.json {
-        display_json_results(results)?;
+        display_json_results(&visible_results(results, args))?;
     } else if args.csv {
         display_csv_results(results)?;
     } else {
@@ -1026,9 +1050,22 @@ fn display_results(
     Ok(())
 }
 
+/// Whether a result passes the --only-for-sale display filter.
+fn is_visible(result: &domain_check_lib::DomainResult, args: &Args) -> bool {
+    !args.only_for_sale || result.for_sale.is_some()
+}
+
+/// Results to display; summaries still count every checked domain.
+fn visible_results<'a>(
+    results: &'a [domain_check_lib::DomainResult],
+    args: &Args,
+) -> Vec<&'a domain_check_lib::DomainResult> {
+    results.iter().filter(|r| is_visible(r, args)).collect()
+}
+
 /// Display results in JSON format
 fn display_json_results(
-    results: &[domain_check_lib::DomainResult],
+    results: &[&domain_check_lib::DomainResult],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let json = serde_json::to_string_pretty(results)?;
     println!("{}", json);
@@ -1140,7 +1177,77 @@ mod tests {
             dry_run: false,
             yes: false,
             help: false,
+            for_sale: false,
+            only_for_sale: false,
         }
+    }
+
+    fn make_result(domain: &str, available: Option<bool>) -> domain_check_lib::DomainResult {
+        domain_check_lib::DomainResult {
+            domain: domain.to_string(),
+            available,
+            info: None,
+            check_duration: None,
+            method_used: domain_check_lib::CheckMethod::Rdap,
+            error_message: None,
+            for_sale: None,
+        }
+    }
+
+    #[test]
+    fn test_for_sale_flag_enables() {
+        let mut args = create_test_args();
+        args.for_sale = true;
+        let config = apply_cli_args_to_config(CheckConfig::default(), &args).unwrap();
+        assert!(config.check_for_sale);
+    }
+
+    #[test]
+    fn test_only_for_sale_implies_for_sale() {
+        let mut args = create_test_args();
+        args.only_for_sale = true;
+        let config = apply_cli_args_to_config(CheckConfig::default(), &args).unwrap();
+        assert!(config.check_for_sale);
+    }
+
+    #[test]
+    fn test_for_sale_flag_absent_preserves_config() {
+        let args = create_test_args();
+        let config = CheckConfig {
+            check_for_sale: true,
+            ..Default::default()
+        };
+        assert!(
+            apply_cli_args_to_config(config, &args)
+                .unwrap()
+                .check_for_sale
+        );
+    }
+
+    #[test]
+    fn test_file_config_for_sale_applied() {
+        let file = FileConfig {
+            defaults: Some(domain_check_lib::DefaultsConfig {
+                for_sale: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(merge_file_config_into_check_config(CheckConfig::default(), file).check_for_sale);
+    }
+
+    #[test]
+    fn test_visible_results_filter() {
+        let mut args = create_test_args();
+        let mut on_sale = make_result("a.com", Some(false));
+        on_sale.for_sale = domain_check_lib::parse_txt_records(&[vec![b"v=FORSALE1;".to_vec()]]);
+        let plain = make_result("b.com", Some(false));
+        let results = vec![on_sale, plain];
+        assert_eq!(visible_results(&results, &args).len(), 2);
+        args.only_for_sale = true;
+        let shown = visible_results(&results, &args);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].domain, "a.com");
     }
 
     #[test]
