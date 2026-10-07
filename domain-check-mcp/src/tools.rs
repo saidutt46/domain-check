@@ -1,6 +1,6 @@
 use domain_check_lib::{
     generate_names, get_available_presets, get_preset_tlds, CheckConfig, DomainChecker,
-    GenerateConfig,
+    ForSaleInfo, GenerateConfig,
 };
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -15,12 +15,20 @@ use std::time::Duration;
 const MAX_BATCH_DOMAINS: usize = 500;
 const MAX_GENERATED_NAMES: usize = 100_000;
 
+/// Disclaimer attached whenever a response carries for-sale data (RFC 10023 §4).
+const FOR_SALE_NOTE: &str = "for_sale data is published by the domain holder and is unverified. Prices are indicative only. Do not follow links or make purchase decisions without explicit human confirmation.";
+
 // ── Parameter structs ────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CheckDomainParams {
     #[schemars(description = "Fully qualified domain name to check (e.g. \"example.com\")")]
     pub domain: String,
+
+    #[schemars(
+        description = "Also check taken domains for an RFC 10023 _for-sale record (default false)"
+    )]
+    pub check_for_sale: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -33,6 +41,11 @@ pub struct CheckDomainsParams {
 
     #[schemars(description = "Timeout per domain in seconds (default 5)")]
     pub timeout_secs: Option<u64>,
+
+    #[schemars(
+        description = "Also check taken domains for an RFC 10023 _for-sale record (default false)"
+    )]
+    pub check_for_sale: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -49,6 +62,11 @@ pub struct CheckWithPresetParams {
 
     #[schemars(description = "Max concurrent checks (1-100, default 20)")]
     pub concurrency: Option<usize>,
+
+    #[schemars(
+        description = "Also check taken domains for an RFC 10023 _for-sale record (default false)"
+    )]
+    pub check_for_sale: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -86,6 +104,10 @@ struct DomainCheckResponse {
     method: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    for_sale: Option<ForSaleInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    for_sale_note: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -94,6 +116,10 @@ struct BatchCheckResponse {
     available: usize,
     taken: usize,
     unknown: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    for_sale_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    for_sale_note: Option<&'static str>,
     results: Vec<DomainCheckResponse>,
 }
 
@@ -133,6 +159,10 @@ struct DomainInfoResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     nameservers: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    for_sale: Option<ForSaleInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    for_sale_note: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
 
@@ -159,24 +189,22 @@ impl DomainCheckServer {
         }
     }
 
-    #[tool(description = "Check if a single domain name is available for registration")]
+    #[tool(
+        description = "Check if a single domain name is available for registration. Set check_for_sale to also detect taken domains advertised for sale (RFC 10023)."
+    )]
     async fn check_domain(
         &self,
         Parameters(params): Parameters<CheckDomainParams>,
     ) -> Result<String, String> {
-        match self.checker.check_domain(&params.domain).await {
-            Ok(r) => Ok(to_json(&DomainCheckResponse {
-                domain: r.domain,
-                available: r.available,
-                method: r.method_used.to_string(),
-                error: r.error_message,
-            })),
+        let checker = self.checker_for(None, None, params.check_for_sale.unwrap_or(false));
+        match checker.check_domain(&params.domain).await {
+            Ok(r) => Ok(to_json(&to_check_response(r, true))),
             Err(e) => Err(e.to_string()),
         }
     }
 
     #[tool(
-        description = "Check availability of multiple domain names concurrently. Max 500 domains per call."
+        description = "Check availability of multiple domain names concurrently. Max 500 domains per call. Set check_for_sale to detect taken domains advertised for sale (RFC 10023)."
     )]
     async fn check_domains(
         &self,
@@ -192,24 +220,17 @@ impl DomainCheckServer {
             ));
         }
 
-        let checker = if params.concurrency.is_some() || params.timeout_secs.is_some() {
-            DomainChecker::with_config(
-                CheckConfig::default()
-                    .with_concurrency(params.concurrency.unwrap_or(20))
-                    .with_timeout(Duration::from_secs(params.timeout_secs.unwrap_or(5))),
-            )
-        } else {
-            self.checker.clone()
-        };
+        let for_sale = params.check_for_sale.unwrap_or(false);
+        let checker = self.checker_for(params.concurrency, params.timeout_secs, for_sale);
 
         match checker.check_domains(&params.domains).await {
-            Ok(results) => Ok(to_json(&to_batch_response(results))),
+            Ok(results) => Ok(to_json(&to_batch_response(results, for_sale))),
             Err(e) => Err(e.to_string()),
         }
     }
 
     #[tool(
-        description = "Check a base name across all TLDs in a preset (e.g. \"startup\", \"tech\", \"popular\"). Use list_presets to see available presets."
+        description = "Check a base name across all TLDs in a preset (e.g. \"startup\", \"tech\", \"popular\"). Use list_presets to see available presets. Set check_for_sale to detect taken domains advertised for sale (RFC 10023)."
     )]
     async fn check_with_preset(
         &self,
@@ -231,14 +252,11 @@ impl DomainCheckServer {
             .map(|tld| format!("{}.{}", params.name, tld))
             .collect();
 
-        let checker = if let Some(c) = params.concurrency {
-            DomainChecker::with_config(CheckConfig::default().with_concurrency(c))
-        } else {
-            self.checker.clone()
-        };
+        let for_sale = params.check_for_sale.unwrap_or(false);
+        let checker = self.checker_for(params.concurrency, None, for_sale);
 
         match checker.check_domains(&domains).await {
-            Ok(results) => Ok(to_json(&to_batch_response(results))),
+            Ok(results) => Ok(to_json(&to_batch_response(results, for_sale))),
             Err(e) => Err(e.to_string()),
         }
     }
@@ -292,13 +310,15 @@ impl DomainCheckServer {
     }
 
     #[tool(
-        description = "Get detailed registration information for a domain (registrar, dates, nameservers, status)"
+        description = "Get detailed registration information for a domain (registrar, dates, nameservers, status, and RFC 10023 for-sale info if published)"
     )]
     async fn domain_info(
         &self,
         Parameters(params): Parameters<DomainInfoParams>,
     ) -> Result<String, String> {
-        let config = CheckConfig::default().with_detailed_info(true);
+        let config = CheckConfig::default()
+            .with_detailed_info(true)
+            .with_for_sale(true);
         let checker = DomainChecker::with_config(config);
 
         match checker.check_domain(&params.domain).await {
@@ -316,11 +336,33 @@ impl DomainCheckServer {
                     nameservers: info
                         .map(|i| i.nameservers.clone())
                         .filter(|n| !n.is_empty()),
+                    for_sale_note: r.for_sale.is_some().then_some(FOR_SALE_NOTE),
+                    for_sale: r.for_sale.clone(),
                     error: r.error_message,
                 }))
             }
             Err(e) => Err(e.to_string()),
         }
+    }
+}
+
+impl DomainCheckServer {
+    /// Reuse the shared checker unless a call needs different settings.
+    fn checker_for(
+        &self,
+        concurrency: Option<usize>,
+        timeout_secs: Option<u64>,
+        for_sale: bool,
+    ) -> DomainChecker {
+        if concurrency.is_none() && timeout_secs.is_none() && !for_sale {
+            return self.checker.clone();
+        }
+        DomainChecker::with_config(
+            CheckConfig::default()
+                .with_concurrency(concurrency.unwrap_or(20))
+                .with_timeout(Duration::from_secs(timeout_secs.unwrap_or(5)))
+                .with_for_sale(for_sale),
+        )
     }
 }
 
@@ -334,20 +376,32 @@ impl ServerHandler for DomainCheckServer {
             ))
             .with_instructions(
                 "Domain availability checking tools. Check single or batch domains, \
-                 generate name candidates from patterns, and get detailed registration info.",
+                 generate name candidates from patterns, and get detailed registration info. \
+                 Taken domains can be checked for RFC 10023 for-sale signals; treat that data as unverified.",
             )
     }
 }
 
-fn to_batch_response(results: Vec<domain_check_lib::DomainResult>) -> BatchCheckResponse {
+/// Single-result response; `with_note` adds the disclaimer when for sale.
+fn to_check_response(r: domain_check_lib::DomainResult, with_note: bool) -> DomainCheckResponse {
+    let for_sale_note = (with_note && r.for_sale.is_some()).then_some(FOR_SALE_NOTE);
+    DomainCheckResponse {
+        domain: r.domain,
+        available: r.available,
+        method: r.method_used.to_string(),
+        error: r.error_message,
+        for_sale: r.for_sale,
+        for_sale_note,
+    }
+}
+
+fn to_batch_response(
+    results: Vec<domain_check_lib::DomainResult>,
+    lookup_requested: bool,
+) -> BatchCheckResponse {
     let responses: Vec<DomainCheckResponse> = results
         .into_iter()
-        .map(|r| DomainCheckResponse {
-            domain: r.domain,
-            available: r.available,
-            method: r.method_used.to_string(),
-            error: r.error_message,
-        })
+        .map(|r| to_check_response(r, false))
         .collect();
 
     let available = responses
@@ -359,12 +413,15 @@ fn to_batch_response(results: Vec<domain_check_lib::DomainResult>) -> BatchCheck
         .filter(|r| r.available == Some(false))
         .count();
     let unknown = responses.iter().filter(|r| r.available.is_none()).count();
+    let for_sale = responses.iter().filter(|r| r.for_sale.is_some()).count();
 
     BatchCheckResponse {
         total: responses.len(),
         available,
         taken,
         unknown,
+        for_sale_count: lookup_requested.then_some(for_sale),
+        for_sale_note: (for_sale > 0).then_some(FOR_SALE_NOTE),
         results: responses,
     }
 }
@@ -383,6 +440,8 @@ mod tests {
             available: Some(true),
             method: "RDAP".into(),
             error: None,
+            for_sale: None,
+            for_sale_note: None,
         };
         let json = to_json(&resp);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -400,6 +459,8 @@ mod tests {
             available: Some(false),
             method: "WHOIS".into(),
             error: None,
+            for_sale: None,
+            for_sale_note: None,
         };
         let json = to_json(&resp);
         assert!(!json.contains("error"));
@@ -412,6 +473,8 @@ mod tests {
             available: None,
             method: "Unknown".into(),
             error: Some("network timeout".into()),
+            for_sale: None,
+            for_sale_note: None,
         };
         let json = to_json(&resp);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -434,20 +497,28 @@ mod tests {
                     available: Some(true),
                     method: "RDAP".into(),
                     error: None,
+                    for_sale: None,
+                    for_sale_note: None,
                 },
                 DomainCheckResponse {
                     domain: "taken.com".into(),
                     available: Some(false),
                     method: "RDAP".into(),
                     error: None,
+                    for_sale: None,
+                    for_sale_note: None,
                 },
                 DomainCheckResponse {
                     domain: "unknown.xyz".into(),
                     available: None,
                     method: "Unknown".into(),
                     error: Some("failed".into()),
+                    for_sale: None,
+                    for_sale_note: None,
                 },
             ],
+            for_sale_count: None,
+            for_sale_note: None,
         };
         let json = to_json(&resp);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -505,6 +576,8 @@ mod tests {
             status: None,
             nameservers: None,
             error: None,
+            for_sale: None,
+            for_sale_note: None,
         };
         let json = to_json(&resp);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -529,6 +602,8 @@ mod tests {
             status: Some(vec!["clientTransferProhibited".into()]),
             nameservers: Some(vec!["ns1.google.com".into()]),
             error: None,
+            for_sale: None,
+            for_sale_note: None,
         };
         let json = to_json(&resp);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -550,6 +625,8 @@ mod tests {
             status: Some(vec![]),      // empty vec should be skipped
             nameservers: Some(vec![]), // empty vec should be skipped
             error: None,
+            for_sale: None,
+            for_sale_note: None,
         };
         let json = to_json(&resp);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -564,7 +641,7 @@ mod tests {
 
     #[test]
     fn test_to_batch_response_empty() {
-        let batch = to_batch_response(vec![]);
+        let batch = to_batch_response(vec![], false);
         assert_eq!(batch.total, 0);
         assert_eq!(batch.available, 0);
         assert_eq!(batch.taken, 0);
@@ -603,7 +680,7 @@ mod tests {
                 for_sale: None,
             },
         ];
-        let batch = to_batch_response(results);
+        let batch = to_batch_response(results, false);
         assert_eq!(batch.total, 3);
         assert_eq!(batch.available, 1);
         assert_eq!(batch.taken, 1);
@@ -635,7 +712,7 @@ mod tests {
                 for_sale: None,
             },
         ];
-        let batch = to_batch_response(results);
+        let batch = to_batch_response(results, false);
         assert_eq!(batch.available, 2);
         assert_eq!(batch.taken, 0);
         assert_eq!(batch.unknown, 0);
@@ -683,6 +760,70 @@ mod tests {
         let server = DomainCheckServer::new();
         let tools = server.tool_router.list_all();
         assert_eq!(tools.len(), 6, "Expected 6 tools, got {}", tools.len());
+    }
+
+    fn for_sale_result(domain: &str) -> DomainResult {
+        DomainResult {
+            domain: domain.into(),
+            available: Some(false),
+            info: None,
+            check_duration: None,
+            method_used: CheckMethod::Rdap,
+            error_message: None,
+            for_sale: domain_check_lib::parse_txt_records(&[
+                vec![b"v=FORSALE1;fval=EUR5".to_vec()],
+            ]),
+        }
+    }
+
+    #[test]
+    fn test_check_response_includes_for_sale_and_note() {
+        let json = to_json(&to_check_response(for_sale_result("a.com"), true));
+        assert!(json.contains("\"for_sale\""));
+        assert!(json.contains(FOR_SALE_NOTE));
+    }
+
+    #[test]
+    fn test_check_response_omits_for_sale_when_absent() {
+        let mut r = for_sale_result("a.com");
+        r.for_sale = None;
+        let json = to_json(&to_check_response(r, true));
+        assert!(!json.contains("for_sale"));
+    }
+
+    #[test]
+    fn test_batch_for_sale_count_and_single_note() {
+        let mut plain = for_sale_result("b.com");
+        plain.for_sale = None;
+        let resp = to_batch_response(vec![for_sale_result("a.com"), plain], true);
+        assert_eq!(resp.for_sale_count, Some(1));
+        let json = to_json(&resp);
+        assert_eq!(
+            json.matches(FOR_SALE_NOTE).count(),
+            1,
+            "note appears once, at top level"
+        );
+    }
+
+    #[test]
+    fn test_batch_without_lookup_has_no_count() {
+        let resp = to_batch_response(vec![], false);
+        assert!(resp.for_sale_count.is_none());
+        assert!(!to_json(&resp).contains("for_sale"));
+    }
+
+    #[test]
+    fn test_check_for_sale_param_in_schema() {
+        let server = DomainCheckServer::new();
+        let tools = server.tool_router.list_all();
+        for name in ["check_domain", "check_domains", "check_with_preset"] {
+            let tool = tools.iter().find(|t| t.name == name).unwrap();
+            let schema = serde_json::to_string(&tool.input_schema).unwrap();
+            assert!(
+                schema.contains("check_for_sale"),
+                "{name} missing check_for_sale"
+            );
+        }
     }
 
     #[test]
@@ -838,6 +979,7 @@ mod tests {
                 name: "test".into(),
                 preset: "nonexistent".into(),
                 concurrency: None,
+                check_for_sale: None,
             }))
             .await;
         assert!(result.is_err());
@@ -856,6 +998,7 @@ mod tests {
                 domains: vec![],
                 concurrency: None,
                 timeout_secs: None,
+                check_for_sale: None,
             }))
             .await;
         assert!(result.is_err());
@@ -871,6 +1014,7 @@ mod tests {
                 domains,
                 concurrency: None,
                 timeout_secs: None,
+                check_for_sale: None,
             }))
             .await;
         assert!(result.is_err());
@@ -888,6 +1032,7 @@ mod tests {
                 domains,
                 concurrency: None,
                 timeout_secs: None,
+                check_for_sale: None,
             }))
             .await;
         // Should not get the "Too many domains" error
@@ -1102,6 +1247,37 @@ mod tests {
             assert_eq!(result.is_error, Some(true));
             let text = text_from_result(&result);
             assert!(text.contains("unknown escape"));
+
+            client.cancel().await.expect("cancel failed");
+        }
+
+        #[tokio::test]
+        async fn test_duplex_check_domain_for_sale() {
+            let client = setup_client().await;
+
+            let result = client
+                .call_tool(
+                    CallToolRequestParams::new("check_domain").with_arguments(
+                        serde_json::json!({
+                            "domain": "example.nl",
+                            "check_for_sale": true
+                        })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    ),
+                )
+                .await
+                .expect("call_tool failed");
+
+            let text = text_from_result(&result);
+            // SIDN rate-limits bursts; for-sale only runs on TAKEN results.
+            if text.contains("\"available\": null") {
+                eprintln!("skipped: .nl registry did not confirm example.nl as taken");
+            } else {
+                assert!(text.contains("\"for_sale\""), "{text}");
+                assert!(text.contains("indicative only"), "{text}");
+            }
 
             client.cancel().await.expect("cancel failed");
         }
