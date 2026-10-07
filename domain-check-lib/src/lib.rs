@@ -33,6 +33,7 @@
 pub use checker::DomainChecker;
 pub use config::{load_env_config, ConfigManager, FileConfig, GenerationConfig};
 pub use error::DomainCheckError;
+pub use forsale::{parse_txt_records, record_name, ForSaleInfo, ForSalePrice, ForSaleUri};
 pub use protocols::registry::{
     get_all_known_tlds, get_available_presets, get_preset_tlds, get_preset_tlds_with_custom,
     get_whois_server, initialize_bootstrap,
@@ -41,6 +42,7 @@ pub use types::{CheckConfig, CheckMethod, DomainInfo, DomainResult, OutputMode};
 pub use utils::expand_domain_inputs;
 
 // Public modules
+pub mod forsale;
 pub mod generate;
 
 // Re-export generation types for convenience
