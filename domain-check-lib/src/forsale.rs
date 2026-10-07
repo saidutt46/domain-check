@@ -199,19 +199,29 @@ fn parse_uri(value: &str) -> Option<ForSaleUri> {
     })
 }
 
-/// Make holder-supplied text safe to print: no terminal escapes and no
-/// bidi reordering (RFC 10023 §3.6, §4).
+/// Make holder-supplied text safe to print: no terminal escapes, no bidi
+/// reordering, and no invisible characters that could hide text from a human
+/// reader while an LLM still sees it (RFC 10023 §3.6, §4).
 pub(crate) fn sanitize(value: &str) -> String {
     value
         .chars()
         .filter_map(|c| match c {
-            '\t' | '\n' | '\r' => Some(' '),
-            c if c.is_control() || is_bidi_control(c) => None,
+            '\t' | '\n' | '\r' | '\u{2028}' | '\u{2029}' => Some(' '),
+            c if c.is_control() || is_bidi_control(c) || is_invisible(c) => None,
             c => Some(c),
         })
         .collect::<String>()
         .trim()
         .to_string()
+}
+
+/// Invisible format characters. Joiners (U+200C/U+200D) are kept because
+/// emoji sequences and some scripts depend on them.
+fn is_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}' | '\u{180E}' | '\u{200B}' | '\u{2060}'..='\u{2064}' | '\u{FEFF}' | '\u{E0000}'..='\u{E007F}'
+    )
 }
 
 fn is_bidi_control(c: char) -> bool {
@@ -278,6 +288,24 @@ impl ForSaleLookup {
         }
         #[cfg(not(feature = "forsale"))]
         let _ = result;
+    }
+}
+
+#[cfg(all(test, feature = "forsale"))]
+impl ForSaleLookup {
+    /// Test-only: a lookup that queries a single, specific nameserver.
+    fn with_nameserver(ip: std::net::IpAddr, timeout: Duration) -> Self {
+        use hickory_resolver::config::{NameServerConfig, ResolverConfig};
+        use hickory_resolver::net::runtime::TokioRuntimeProvider;
+
+        let config = ResolverConfig::from_name_servers(vec![NameServerConfig::udp(ip)]);
+        let resolver = hickory_resolver::TokioResolver::builder_with_config(
+            config,
+            TokioRuntimeProvider::default(),
+        )
+        .build()
+        .ok();
+        Self { resolver, timeout }
     }
 }
 
@@ -498,6 +526,28 @@ mod tests {
     }
 
     #[test]
+    fn sanitize_strips_invisible_format_characters() {
+        // Unicode tag characters ("ASCII smuggling") hide text from humans but not LLMs.
+        let smuggled: String = "Great"
+            .chars()
+            .chain(
+                "ignore previous"
+                    .chars()
+                    .map(|c| char::from_u32(0xE0000 + c as u32).unwrap()),
+            )
+            .collect();
+        assert_eq!(sanitize(&smuggled), "Great");
+        assert_eq!(
+            sanitize("a\u{200B}b\u{2060}c\u{FEFF}d\u{00AD}e\u{180E}f"),
+            "abcdef"
+        );
+        assert_eq!(sanitize("line\u{2028}para\u{2029}end"), "line para end");
+        // Joiners stay: they shape emoji sequences and some scripts.
+        assert_eq!(sanitize("👩\u{200D}💻"), "👩\u{200D}💻");
+        assert_eq!(sanitize("می\u{200C}خواهم"), "می\u{200C}خواهم");
+    }
+
+    #[test]
     fn text_that_sanitizes_to_empty_is_dropped() {
         let info = parse(&["v=FORSALE1;ftxt=\u{1b}\u{7}"]).unwrap();
         assert!(info.texts.is_empty());
@@ -577,10 +627,49 @@ mod tests {
     async fn annotate_times_out_without_touching_verdict() {
         let config = crate::types::CheckConfig::default().with_for_sale(true);
         let mut lookup = ForSaleLookup::new(&config);
+        assert!(lookup.is_active(), "system resolver should be available");
         lookup.timeout = std::time::Duration::ZERO;
         let mut r = taken("example.nl");
         r.error_message = Some("kept".into());
         lookup.annotate(&mut r).await;
+        assert!(r.for_sale.is_none());
+        assert_eq!(r.available, Some(false));
+        assert_eq!(r.method_used, crate::types::CheckMethod::Rdap);
+        assert_eq!(r.error_message.as_deref(), Some("kept"));
+    }
+
+    /// Exercises DNS + parsing directly, independent of RDAP (which SIDN rate-limits).
+    #[cfg(feature = "forsale")]
+    #[tokio::test]
+    async fn dns_lookup_example_nl_without_rdap() {
+        let config = crate::types::CheckConfig::default().with_for_sale(true);
+        let for_sale = ForSaleLookup::new(&config);
+        let resolver = for_sale.resolver.as_ref().expect("system resolver");
+        let info = lookup(resolver, "example.nl", LOOKUP_TIMEOUT)
+            .await
+            .expect("_for-sale.example.nl is published by SIDN");
+        assert!(info.prices.iter().any(|p| p.to_string() == "EUR 100000000"));
+        assert!(info.first_trusted_uri().is_some());
+        assert!(!info.codes.is_empty());
+    }
+
+    /// A nameserver that never answers (TEST-NET-1): the lookup must give up
+    /// at our timeout and leave the verdict untouched.
+    #[cfg(feature = "forsale")]
+    #[tokio::test]
+    async fn hanging_resolver_is_capped_and_verdict_unchanged() {
+        let timeout = std::time::Duration::from_millis(500);
+        let for_sale = ForSaleLookup::with_nameserver("192.0.2.1".parse().unwrap(), timeout);
+        assert!(for_sale.is_active());
+        let mut r = taken("example.nl");
+        r.error_message = Some("kept".into());
+        let start = std::time::Instant::now();
+        for_sale.annotate(&mut r).await;
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "lookup took {:?}",
+            start.elapsed()
+        );
         assert!(r.for_sale.is_none());
         assert_eq!(r.available, Some(false));
         assert_eq!(r.method_used, crate::types::CheckMethod::Rdap);

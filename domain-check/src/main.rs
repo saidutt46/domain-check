@@ -322,7 +322,6 @@ async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Erro
     // Propagate resolved config values back to args for display logic.
     // This ensures config/env settings for --info are respected in output formatting.
     args.info = config.detailed_info;
-    args.for_sale = config.check_for_sale;
 
     // Determine domains to check (pass the config instead of rebuilding)
     let domains = get_domains_to_check(&args, &config).await?;
@@ -368,6 +367,9 @@ async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Erro
             "Warning: for-sale lookups unavailable (could not read system DNS configuration)"
         );
     }
+    // Only report for-sale counts/columns when lookups actually ran, so a
+    // missing resolver never reads as "0 for sale".
+    args.for_sale = checker.for_sale_enabled();
 
     // Decide on processing mode based on domain count and user preferences
     let use_streaming = should_use_streaming(&args, domains.len());

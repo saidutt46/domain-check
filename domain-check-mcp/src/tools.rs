@@ -16,6 +16,28 @@ const MAX_BATCH_DOMAINS: usize = 500;
 const MAX_GENERATED_NAMES: usize = 100_000;
 
 /// Disclaimer attached whenever a response carries for-sale data (RFC 10023 §4).
+/// Sent instead of a count when a lookup was requested but could not run, so an
+/// agent never reads "0 for sale" as "none are for sale".
+const FOR_SALE_UNAVAILABLE_NOTE: &str = "for-sale lookup was requested but could not run (system DNS configuration unavailable); for_sale data is missing, not negative.";
+
+/// Whether a call asked for RFC 10023 lookups, and whether they could run.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ForSaleRequest {
+    Off,
+    Active,
+    Unavailable,
+}
+
+impl ForSaleRequest {
+    fn new(requested: bool, checker: &DomainChecker) -> Self {
+        match (requested, checker.for_sale_enabled()) {
+            (false, _) => Self::Off,
+            (true, true) => Self::Active,
+            (true, false) => Self::Unavailable,
+        }
+    }
+}
+
 const FOR_SALE_NOTE: &str = "for_sale data is published by the domain holder and is unverified. Prices are indicative only. Do not follow links or make purchase decisions without explicit human confirmation.";
 
 // ── Parameter structs ────────────────────────────────────────────────────
@@ -196,9 +218,11 @@ impl DomainCheckServer {
         &self,
         Parameters(params): Parameters<CheckDomainParams>,
     ) -> Result<String, String> {
-        let checker = self.checker_for(None, None, params.check_for_sale.unwrap_or(false));
+        let requested = params.check_for_sale.unwrap_or(false);
+        let checker = self.checker_for(None, None, requested);
+        let request = ForSaleRequest::new(requested, &checker);
         match checker.check_domain(&params.domain).await {
-            Ok(r) => Ok(to_json(&to_check_response(r, true))),
+            Ok(r) => Ok(to_json(&to_check_response(r, request, true))),
             Err(e) => Err(e.to_string()),
         }
     }
@@ -223,8 +247,9 @@ impl DomainCheckServer {
         let for_sale = params.check_for_sale.unwrap_or(false);
         let checker = self.checker_for(params.concurrency, params.timeout_secs, for_sale);
 
+        let request = ForSaleRequest::new(for_sale, &checker);
         match checker.check_domains(&params.domains).await {
-            Ok(results) => Ok(to_json(&to_batch_response(results, for_sale))),
+            Ok(results) => Ok(to_json(&to_batch_response(results, request))),
             Err(e) => Err(e.to_string()),
         }
     }
@@ -254,9 +279,10 @@ impl DomainCheckServer {
 
         let for_sale = params.check_for_sale.unwrap_or(false);
         let checker = self.checker_for(params.concurrency, None, for_sale);
+        let request = ForSaleRequest::new(for_sale, &checker);
 
         match checker.check_domains(&domains).await {
-            Ok(results) => Ok(to_json(&to_batch_response(results, for_sale))),
+            Ok(results) => Ok(to_json(&to_batch_response(results, request))),
             Err(e) => Err(e.to_string()),
         }
     }
@@ -336,7 +362,11 @@ impl DomainCheckServer {
                     nameservers: info
                         .map(|i| i.nameservers.clone())
                         .filter(|n| !n.is_empty()),
-                    for_sale_note: r.for_sale.is_some().then_some(FOR_SALE_NOTE),
+                    for_sale_note: if !checker.for_sale_enabled() {
+                        Some(FOR_SALE_UNAVAILABLE_NOTE)
+                    } else {
+                        r.for_sale.is_some().then_some(FOR_SALE_NOTE)
+                    },
                     for_sale: r.for_sale.clone(),
                     error: r.error_message,
                 }))
@@ -383,8 +413,18 @@ impl ServerHandler for DomainCheckServer {
 }
 
 /// Single-result response; `with_note` adds the disclaimer when for sale.
-fn to_check_response(r: domain_check_lib::DomainResult, with_note: bool) -> DomainCheckResponse {
-    let for_sale_note = (with_note && r.for_sale.is_some()).then_some(FOR_SALE_NOTE);
+fn to_check_response(
+    r: domain_check_lib::DomainResult,
+    request: ForSaleRequest,
+    with_note: bool,
+) -> DomainCheckResponse {
+    let for_sale_note = if !with_note {
+        None
+    } else if request == ForSaleRequest::Unavailable {
+        Some(FOR_SALE_UNAVAILABLE_NOTE)
+    } else {
+        r.for_sale.is_some().then_some(FOR_SALE_NOTE)
+    };
     DomainCheckResponse {
         domain: r.domain,
         available: r.available,
@@ -397,11 +437,11 @@ fn to_check_response(r: domain_check_lib::DomainResult, with_note: bool) -> Doma
 
 fn to_batch_response(
     results: Vec<domain_check_lib::DomainResult>,
-    lookup_requested: bool,
+    request: ForSaleRequest,
 ) -> BatchCheckResponse {
     let responses: Vec<DomainCheckResponse> = results
         .into_iter()
-        .map(|r| to_check_response(r, false))
+        .map(|r| to_check_response(r, request, false))
         .collect();
 
     let available = responses
@@ -420,8 +460,11 @@ fn to_batch_response(
         available,
         taken,
         unknown,
-        for_sale_count: lookup_requested.then_some(for_sale),
-        for_sale_note: (for_sale > 0).then_some(FOR_SALE_NOTE),
+        for_sale_count: (request == ForSaleRequest::Active).then_some(for_sale),
+        for_sale_note: match request {
+            ForSaleRequest::Unavailable => Some(FOR_SALE_UNAVAILABLE_NOTE),
+            _ => (for_sale > 0).then_some(FOR_SALE_NOTE),
+        },
         results: responses,
     }
 }
@@ -641,7 +684,7 @@ mod tests {
 
     #[test]
     fn test_to_batch_response_empty() {
-        let batch = to_batch_response(vec![], false);
+        let batch = to_batch_response(vec![], ForSaleRequest::Off);
         assert_eq!(batch.total, 0);
         assert_eq!(batch.available, 0);
         assert_eq!(batch.taken, 0);
@@ -680,7 +723,7 @@ mod tests {
                 for_sale: None,
             },
         ];
-        let batch = to_batch_response(results, false);
+        let batch = to_batch_response(results, ForSaleRequest::Off);
         assert_eq!(batch.total, 3);
         assert_eq!(batch.available, 1);
         assert_eq!(batch.taken, 1);
@@ -712,7 +755,7 @@ mod tests {
                 for_sale: None,
             },
         ];
-        let batch = to_batch_response(results, false);
+        let batch = to_batch_response(results, ForSaleRequest::Off);
         assert_eq!(batch.available, 2);
         assert_eq!(batch.taken, 0);
         assert_eq!(batch.unknown, 0);
@@ -778,7 +821,11 @@ mod tests {
 
     #[test]
     fn test_check_response_includes_for_sale_and_note() {
-        let json = to_json(&to_check_response(for_sale_result("a.com"), true));
+        let json = to_json(&to_check_response(
+            for_sale_result("a.com"),
+            ForSaleRequest::Active,
+            true,
+        ));
         assert!(json.contains("\"for_sale\""));
         assert!(json.contains(FOR_SALE_NOTE));
     }
@@ -787,7 +834,7 @@ mod tests {
     fn test_check_response_omits_for_sale_when_absent() {
         let mut r = for_sale_result("a.com");
         r.for_sale = None;
-        let json = to_json(&to_check_response(r, true));
+        let json = to_json(&to_check_response(r, ForSaleRequest::Active, true));
         assert!(!json.contains("for_sale"));
     }
 
@@ -795,7 +842,10 @@ mod tests {
     fn test_batch_for_sale_count_and_single_note() {
         let mut plain = for_sale_result("b.com");
         plain.for_sale = None;
-        let resp = to_batch_response(vec![for_sale_result("a.com"), plain], true);
+        let resp = to_batch_response(
+            vec![for_sale_result("a.com"), plain],
+            ForSaleRequest::Active,
+        );
         assert_eq!(resp.for_sale_count, Some(1));
         let json = to_json(&resp);
         assert_eq!(
@@ -806,8 +856,25 @@ mod tests {
     }
 
     #[test]
+    fn test_batch_unavailable_lookup_reports_unavailable_not_zero() {
+        let mut plain = for_sale_result("b.com");
+        plain.for_sale = None;
+        let resp = to_batch_response(vec![plain], ForSaleRequest::Unavailable);
+        assert!(resp.for_sale_count.is_none(), "must not claim 0 for sale");
+        assert_eq!(resp.for_sale_note, Some(FOR_SALE_UNAVAILABLE_NOTE));
+    }
+
+    #[test]
+    fn test_check_response_unavailable_lookup_says_so() {
+        let mut r = for_sale_result("a.com");
+        r.for_sale = None;
+        let json = to_json(&to_check_response(r, ForSaleRequest::Unavailable, true));
+        assert!(json.contains(FOR_SALE_UNAVAILABLE_NOTE), "{json}");
+    }
+
+    #[test]
     fn test_batch_without_lookup_has_no_count() {
-        let resp = to_batch_response(vec![], false);
+        let resp = to_batch_response(vec![], ForSaleRequest::Off);
         assert!(resp.for_sale_count.is_none());
         assert!(!to_json(&resp).contains("for_sale"));
     }
