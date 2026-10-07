@@ -14,12 +14,14 @@ All tools return structured JSON. All tools are **read-only** — no side effect
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `check_domain` | Check availability of a single fully-qualified domain name | `domain` (string, required) |
+| `check_domain` | Check availability of a single fully-qualified domain name | `domain` (string, required), `check_for_sale` (bool, optional) |
 | `check_domains` | Batch check multiple domains concurrently | `domains` (string[], required), `concurrency` (int, optional, default 20, max 500) |
 | `check_with_preset` | Check a base name across all TLDs in a named preset | `base_name` (string, required), `preset` (string, required) |
 | `generate_names` | Generate domain name candidates from patterns and affixes | `pattern` (string, optional), `base_names` (string[], optional), `prefixes`/`suffixes` (string[], optional), `tlds` (string[], optional) |
 | `list_presets` | List all available TLD presets with their TLD lists | _(none)_ |
-| `domain_info` | Get detailed registration info: registrar, dates, nameservers, status codes | `domain` (string, required) |
+| `domain_info` | Get detailed registration info: registrar, dates, nameservers, status codes, RFC 10023 for-sale info | `domain` (string, required) |
+
+`check_domain`, `check_domains`, and `check_with_preset` accept `check_for_sale: true` to also look up [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` records on taken domains. `domain_info` always does. Results then carry a `for_sale` object (`uris`, `prices`, `texts`, `codes`), batch responses add `for_sale_count`, and any response containing for-sale data includes a `for_sale_note` telling the agent the data is unverified, prices are indicative, and purchases need explicit human confirmation.
 
 ### Tool annotations
 

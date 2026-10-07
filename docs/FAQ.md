@@ -53,6 +53,10 @@ Non-TTY environments already avoid confirmation prompts, but explicit flags are 
 
 If schema stability matters, pin tool version and validate expected fields in your pipeline.
 
+## What does `(for sale)` mean?
+
+With `--for-sale`, the domain holder has published an [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` DNS record saying the taken domain is available to buy. It's a signal from the holder, not a guarantee: prices are indicative and the holder can withdraw the offer at any time, so confirm with the seller. If the record is missing, that tells you nothing; most domains never publish one.
+
 ## How can I speed up large checks?
 
 - Increase concurrency (`--concurrency 25` to `--concurrency 75`, based on environment).

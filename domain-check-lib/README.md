@@ -22,6 +22,7 @@ Rust library for checking domain availability using RDAP and WHOIS protocols. Th
 - **Up to 100 concurrent checks** with configurable concurrency
 - **Streaming support** — process results as they arrive via `futures_util::Stream`
 - **Rich metadata** — registrar, creation/expiration dates, status codes, nameservers
+- **For-sale detection** — opt-in [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` lookups for taken domains (`forsale` feature)
 - **11 built-in TLD presets** — startup, tech, creative, finance, etc.
 - **Domain expansion** — expand base names across TLD lists automatically
 - **Comprehensive error types** — timeout, network, parse, bootstrap errors with recovery hints
@@ -134,6 +135,39 @@ let config = CheckConfig::default()
 
 let checker = DomainChecker::with_config(config);
 ```
+
+### For-Sale Detection (RFC 10023)
+
+Enable the `forsale` feature (off by default, since it adds a DNS resolver):
+
+```toml
+[dependencies]
+domain-check-lib = { version = "1.1", features = ["forsale"] }
+```
+
+```rust,no_run
+use domain_check_lib::{CheckConfig, DomainChecker};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let checker = DomainChecker::with_config(CheckConfig::default().with_for_sale(true));
+    // false if the feature is off or the system DNS config can't be read
+    assert!(checker.for_sale_enabled());
+
+    let result = checker.check_domain("example.nl").await?;
+    if let Some(fs) = &result.for_sale {
+        for price in &fs.prices {
+            println!("asking {} (indicative only)", price);
+        }
+        if let Some(uri) = fs.first_trusted_uri() {
+            println!("contact: {}", uri.value); // display only, never auto-open
+        }
+    }
+    Ok(())
+}
+```
+
+The lookup only runs for taken domains and never changes `available`. If you do your own DNS, the parser is always available without the feature: `domain_check_lib::parse_txt_records(&records)` takes each TXT record as its list of character-strings and returns `Some(ForSaleInfo)` when the domain is for sale. Text values are already sanitized (control and bidi characters removed).
 
 ### TLD Management & Domain Expansion
 

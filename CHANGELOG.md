@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.1.0] - Unreleased
+
+### RFC 10023 For-Sale Detection (Issue #33)
+
+Taken domains can now be checked for an [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` DNS record, which holders publish to signal that a registered domain is available to buy.
+
+### Added
+- `--for-sale` checks taken domains for a `_for-sale` TXT record (one extra DNS query per taken domain, at most 3s, off by default). `--only-for-sale` shows only those domains, and the summary still counts everything checked
+- `[defaults] for_sale` config key and `DC_FOR_SALE` environment variable
+- Output in every mode: a `(for sale: EUR 999 · https://…)` suffix, full details with `--info`, a `for_sale` object in JSON, `for_sale,for_sale_price,for_sale_uri` CSV columns, and a "for sale" count in the summary
+- Library: `forsale` Cargo feature (not enabled by default), `CheckConfig::with_for_sale`, `DomainResult.for_sale`, `DomainChecker::for_sale_enabled`, and the pure `parse_txt_records` / `ForSaleInfo` API
+- MCP: `check_for_sale` parameter on `check_domain`, `check_domains`, and `check_with_preset`; `domain_info` always includes for-sale info; responses carry an "unverified, indicative only" note
+
+### Security
+- Record content is treated as untrusted: control characters (including terminal escape sequences) and bidi overrides are stripped before display, links are printed as plain text and never opened, and only `http`/`https`/`mailto`/`tel` links are shown by default
+- CSV fields are now quoted per RFC 4180
+
+### Changed
+- The CLI and MCP binaries now include a DNS resolver (`hickory-resolver`), which adds about 0.6 MB to the release binary
+
+### Compatibility
+- `DomainResult`, `CheckConfig`, `DefaultsConfig`, and `EnvConfig` gained public fields. Code that builds these with struct literals must add the new field (`for_sale: None`, `check_for_sale: false`) or use `..Default::default()` where available. JSON output only gains an optional field
+- `DefaultsConfig` is now re-exported from the crate root
+
+---
+
 ## [1.0.3] - 2026-09-27
 
 ### Security & Maintenance Release
