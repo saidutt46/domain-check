@@ -69,6 +69,7 @@ impl WhoisClient {
                     check_duration: Some(check_duration),
                     method_used: CheckMethod::Whois,
                     error_message: None,
+                    for_sale: None,
                 })
             }
             Ok(Err(e)) => Err(e),
@@ -108,6 +109,7 @@ impl WhoisClient {
                 check_duration: Some(check_duration),
                 method_used: CheckMethod::Whois,
                 error_message: None,
+                for_sale: None,
             }),
             Ok(Err(_)) => {
                 // Targeted query failed, fall back to bare whois

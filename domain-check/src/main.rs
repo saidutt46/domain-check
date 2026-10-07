@@ -454,6 +454,7 @@ async fn run_streaming_check(
                     check_duration: None,
                     method_used: domain_check_lib::CheckMethod::Unknown,
                     error_message: Some(e.to_string()),
+                    for_sale: None,
                 },
             }
         }

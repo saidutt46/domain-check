@@ -582,6 +582,7 @@ mod tests {
                 check_duration: None,
                 method_used: CheckMethod::Rdap,
                 error_message: None,
+                for_sale: None,
             },
             DomainResult {
                 domain: "taken.com".into(),
@@ -590,6 +591,7 @@ mod tests {
                 check_duration: None,
                 method_used: CheckMethod::Whois,
                 error_message: None,
+                for_sale: None,
             },
             DomainResult {
                 domain: "err.xyz".into(),
@@ -598,6 +600,7 @@ mod tests {
                 check_duration: None,
                 method_used: CheckMethod::Unknown,
                 error_message: Some("timeout".into()),
+                for_sale: None,
             },
         ];
         let batch = to_batch_response(results);
@@ -620,6 +623,7 @@ mod tests {
                 check_duration: None,
                 method_used: CheckMethod::Rdap,
                 error_message: None,
+                for_sale: None,
             },
             DomainResult {
                 domain: "b.com".into(),
@@ -628,6 +632,7 @@ mod tests {
                 check_duration: None,
                 method_used: CheckMethod::Rdap,
                 error_message: None,
+                for_sale: None,
             },
         ];
         let batch = to_batch_response(results);

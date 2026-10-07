@@ -113,6 +113,7 @@ impl RdapClient {
                     CheckMethod::Rdap
                 },
                 error_message: None,
+                for_sale: None,
             }),
             Ok(Err(e)) => {
                 // 🔍 DEBUG: Log RDAP errors

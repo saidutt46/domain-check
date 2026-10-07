@@ -606,6 +606,7 @@ mod tests {
             } else {
                 None
             },
+            for_sale: None,
         }
     }
 
@@ -617,6 +618,7 @@ mod tests {
             check_duration: None,
             method_used: CheckMethod::Unknown,
             error_message: Some(error.to_string()),
+            for_sale: None,
         }
     }
 

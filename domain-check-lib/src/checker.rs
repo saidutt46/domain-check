@@ -64,6 +64,7 @@ async fn check_single_domain_concurrent(
                                 check_duration: None,
                                 method_used: CheckMethod::Rdap,
                                 error_message: None,
+                                for_sale: None,
                             })
                         }
                         // WHOIS alone indicates available (RDAP failed for
@@ -76,6 +77,7 @@ async fn check_single_domain_concurrent(
                                 check_duration: None,
                                 method_used: CheckMethod::Whois,
                                 error_message: None,
+                                for_sale: None,
                             })
                         }
                         // Check if it's an unknown TLD or truly ambiguous case
@@ -98,6 +100,7 @@ async fn check_single_domain_concurrent(
                                     "Unable to verify — RDAP inconclusive and WHOIS unavailable"
                                         .to_string(),
                                 ),
+                                for_sale: None,
                             })
                         } else {
                             // Return the RDAP error as it's usually more informative
@@ -118,6 +121,7 @@ async fn check_single_domain_concurrent(
                         error_message: Some(
                             "RDAP 404 (unverified — WHOIS fallback disabled)".to_string(),
                         ),
+                        for_sale: None,
                     })
                 } else {
                     Err(rdap_error)
@@ -286,6 +290,7 @@ impl DomainChecker {
                                     check_duration: None,
                                     method_used: CheckMethod::Rdap,
                                     error_message: None,
+                                    for_sale: None,
                                 })
                             }
                             // WHOIS alone indicates available (RDAP failed for
@@ -298,6 +303,7 @@ impl DomainChecker {
                                     check_duration: None,
                                     method_used: CheckMethod::Whois,
                                     error_message: None,
+                                    for_sale: None,
                                 })
                             }
                             // Check if it's an unknown TLD or truly ambiguous case
@@ -320,6 +326,7 @@ impl DomainChecker {
                                         "Unable to verify — RDAP inconclusive and WHOIS unavailable"
                                             .to_string(),
                                     ),
+                                    for_sale: None,
                                 })
                             } else {
                                 // Return the most informative error
@@ -340,6 +347,7 @@ impl DomainChecker {
                             error_message: Some(
                                 "RDAP 404 (unverified — WHOIS fallback disabled)".to_string(),
                             ),
+                            for_sale: None,
                         })
                     } else {
                         Err(rdap_error)
@@ -456,6 +464,7 @@ impl DomainChecker {
                     check_duration: None,
                     method_used: CheckMethod::Unknown,
                     error_message: Some(e.to_string()),
+                    for_sale: None,
                 },
             })
             .collect();
@@ -704,6 +713,7 @@ mod tests {
             check_duration: None,
             method_used: CheckMethod::Rdap,
             error_message: None,
+            for_sale: None,
         };
 
         let filtered = checker.filter_result_info(result);
@@ -725,6 +735,7 @@ mod tests {
             check_duration: None,
             method_used: CheckMethod::Rdap,
             error_message: None,
+            for_sale: None,
         };
 
         let filtered = checker.filter_result_info(result);
@@ -745,6 +756,7 @@ mod tests {
             check_duration: None,
             method_used: CheckMethod::Rdap,
             error_message: None,
+            for_sale: None,
         };
 
         let filtered = checker.filter_result_info(result);

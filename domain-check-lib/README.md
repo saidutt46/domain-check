@@ -229,6 +229,7 @@ pub struct DomainResult {
     pub check_duration: Option<Duration>,  // How long the check took
     pub method_used: CheckMethod,          // RDAP, WHOIS, or Bootstrap
     pub error_message: Option<String>,     // Error details (if applicable)
+    pub for_sale: Option<ForSaleInfo>,     // RFC 10023 for-sale signal (taken domains, opt-in)
 }
 ```
 

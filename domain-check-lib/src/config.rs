@@ -71,6 +71,10 @@ pub struct DefaultsConfig {
     /// Default detailed info setting
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detailed_info: Option<bool>,
+
+    /// Default RFC 10023 for-sale lookup setting
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub for_sale: Option<bool>,
 }
 
 /// Monitoring configuration (placeholder for future features).
@@ -296,6 +300,9 @@ impl ConfigManager {
                     if higher_defaults.detailed_info.is_some() {
                         lower_defaults.detailed_info = higher_defaults.detailed_info;
                     }
+                    if higher_defaults.for_sale.is_some() {
+                        lower_defaults.for_sale = higher_defaults.for_sale;
+                    }
                     Some(lower_defaults)
                 }
                 (None, Some(higher_defaults)) => Some(higher_defaults),
@@ -406,6 +413,7 @@ pub struct EnvConfig {
     pub whois_fallback: Option<bool>,
     pub bootstrap: Option<bool>,
     pub detailed_info: Option<bool>,
+    pub for_sale: Option<bool>,
     pub json: Option<bool>,
     pub csv: Option<bool>,
     pub file: Option<String>,
@@ -574,6 +582,29 @@ pub fn load_env_config(verbose: bool) -> EnvConfig {
             _ => {
                 if verbose {
                     eprintln!("⚠️ Invalid DC_DETAILED_INFO='{}', use true/false", val);
+                }
+            }
+        }
+    }
+
+    // DC_FOR_SALE - RFC 10023 for-sale lookups
+    if let Ok(val) = env::var("DC_FOR_SALE") {
+        match val.to_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => {
+                env_config.for_sale = Some(true);
+                if verbose {
+                    println!("🔧 Using DC_FOR_SALE=true");
+                }
+            }
+            "false" | "0" | "no" | "off" => {
+                env_config.for_sale = Some(false);
+                if verbose {
+                    println!("🔧 Using DC_FOR_SALE=false");
+                }
+            }
+            _ => {
+                if verbose {
+                    eprintln!("⚠️ Invalid DC_FOR_SALE='{}', use true/false", val);
                 }
             }
         }
@@ -1167,6 +1198,7 @@ tlds = ["com", "org"]
                 whois_fallback: Some(true),
                 bootstrap: Some(false),
                 detailed_info: Some(false),
+                for_sale: Some(false),
             }),
             ..Default::default()
         };
@@ -1180,6 +1212,7 @@ tlds = ["com", "org"]
                 whois_fallback: Some(false),
                 bootstrap: Some(true),
                 detailed_info: Some(true),
+                for_sale: Some(true),
             }),
             ..Default::default()
         };
@@ -1194,6 +1227,23 @@ tlds = ["com", "org"]
         assert_eq!(d.whois_fallback, Some(false));
         assert_eq!(d.bootstrap, Some(true));
         assert_eq!(d.detailed_info, Some(true));
+        assert_eq!(d.for_sale, Some(true));
+    }
+
+    #[test]
+    fn test_defaults_for_sale_from_toml() {
+        let cfg: FileConfig = toml::from_str("[defaults]\nfor_sale = true\n").unwrap();
+        assert_eq!(cfg.defaults.unwrap().for_sale, Some(true));
+    }
+
+    #[test]
+    fn test_load_env_for_sale_false_and_invalid() {
+        with_env_vars(&[("DC_FOR_SALE", "off")], || {
+            assert_eq!(load_env_config(false).for_sale, Some(false));
+        });
+        with_env_vars(&[("DC_FOR_SALE", "maybe")], || {
+            assert!(load_env_config(false).for_sale.is_none());
+        });
     }
 
     #[test]
@@ -1575,6 +1625,7 @@ notify_command = "echo done"
             "DC_WHOIS_FALLBACK",
             "DC_BOOTSTRAP",
             "DC_DETAILED_INFO",
+            "DC_FOR_SALE",
             "DC_JSON",
             "DC_CSV",
             "DC_FILE",
@@ -1734,6 +1785,7 @@ notify_command = "echo done"
                 ("DC_WHOIS_FALLBACK", "true"),
                 ("DC_BOOTSTRAP", "false"),
                 ("DC_DETAILED_INFO", "1"),
+                ("DC_FOR_SALE", "yes"),
                 ("DC_JSON", "yes"),
                 ("DC_CSV", "off"),
             ],
@@ -1742,6 +1794,7 @@ notify_command = "echo done"
                 assert_eq!(config.whois_fallback, Some(true));
                 assert_eq!(config.bootstrap, Some(false));
                 assert_eq!(config.detailed_info, Some(true));
+                assert_eq!(config.for_sale, Some(true));
                 assert_eq!(config.json, Some(true));
                 assert_eq!(config.csv, Some(false));
             },
@@ -1799,6 +1852,7 @@ notify_command = "echo done"
             assert!(config.whois_fallback.is_none());
             assert!(config.bootstrap.is_none());
             assert!(config.detailed_info.is_none());
+            assert!(config.for_sale.is_none());
             assert!(config.json.is_none());
             assert!(config.csv.is_none());
             assert!(config.file.is_none());

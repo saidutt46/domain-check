@@ -215,6 +215,7 @@ mod tests {
             check_duration: None,
             method_used: CheckMethod::Rdap,
             error_message: None,
+            for_sale: None,
         };
         assert_eq!(result.domain, "example.com");
         assert_eq!(result.available, Some(true));
