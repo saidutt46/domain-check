@@ -1130,3 +1130,73 @@ fn only_for_sale_filters_json() {
     // example.nl appears unless the .nl registry rate-limited us (then: empty list).
     assert!(out.contains("example.nl") || out.trim() == "[]", "{out}");
 }
+
+#[test]
+fn test_help_lists_for_sale_flags() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.arg("--help");
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("--for-sale"))
+        .stdout(predicate::str::contains("--only-for-sale"));
+}
+
+#[test]
+fn test_for_sale_default_output() {
+    let Some(out) = run_live_for_sale(&["example.nl", "--for-sale"], &[]) else {
+        return;
+    };
+    assert!(out.contains("TAKEN"), "{out}");
+    assert!(out.contains("for sale: EUR 100000000"), "{out}");
+}
+
+#[test]
+fn test_for_sale_info_details() {
+    let Some(out) = run_live_for_sale(&["example.nl", "--for-sale", "--info"], &[]) else {
+        return;
+    };
+    assert!(out.contains("(indicative only)"), "{out}");
+    assert!(out.contains("Code: NLFS-"), "{out}");
+}
+
+#[test]
+fn test_for_sale_csv_columns() {
+    let Some(out) = run_live_for_sale(&["example.nl", "--for-sale", "--csv"], &[]) else {
+        return;
+    };
+    assert!(
+        out.contains("for_sale,for_sale_price,for_sale_uri"),
+        "{out}"
+    );
+    assert!(
+        out.contains("true,EUR 100000000,https://example.nl/for-sale.txt"),
+        "{out}"
+    );
+}
+
+#[test]
+fn test_csv_header_unchanged_without_flag() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["example.nl", "--csv"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("for_sale").not());
+}
+
+#[test]
+fn test_only_for_sale_streaming_and_summary() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["example.nl", "google.com", "--only-for-sale", "--streaming"]);
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let out = String::from_utf8_lossy(&output.stdout);
+    // Taken without a _for-sale record: hidden, but still counted.
+    assert!(!out.contains("google.com"), "{out}");
+    assert!(out.contains("2 domains"), "{out}");
+    if out.contains("1 unknown") {
+        eprintln!("skipped: .nl registry did not confirm example.nl as taken (rate limited?)");
+        return;
+    }
+    assert!(out.contains("example.nl"), "{out}");
+    assert!(out.contains("1 for sale"), "{out}");
+}

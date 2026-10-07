@@ -448,6 +448,7 @@ async fn run_streaming_check(
     let mut available_count = 0;
     let mut taken_count = 0;
     let mut unknown_count = 0;
+    let mut for_sale_count = 0;
     let mut results = Vec::new();
     let mut completed = 0usize;
     let total = domains.len();
@@ -489,6 +490,10 @@ async fn run_streaming_check(
             }
         }
 
+        if domain_result.for_sale.is_some() {
+            for_sale_count += 1;
+        }
+
         completed += 1;
 
         // Show result immediately
@@ -497,10 +502,12 @@ async fn run_streaming_check(
         } else {
             None
         };
-        if args.pretty {
-            ui::print_result(&domain_result, args.info, args.debug, counter);
-        } else {
-            ui::print_result_default(&domain_result, args.info, args.debug, counter);
+        if is_visible(&domain_result, args) {
+            if args.pretty {
+                ui::print_result(&domain_result, args.info, args.debug, counter);
+            } else {
+                ui::print_result_default(&domain_result, args.info, args.debug, counter);
+            }
         }
         results.push(domain_result);
     }
@@ -515,6 +522,7 @@ async fn run_streaming_check(
             available_count,
             taken_count,
             unknown_count,
+            args.for_sale.then_some(for_sale_count),
             duration,
         );
     }
@@ -1042,7 +1050,7 @@ fn display_results(
     if args.json {
         display_json_results(&visible_results(results, args))?;
     } else if args.csv {
-        display_csv_results(results)?;
+        display_csv_results(&visible_results(results, args), args.for_sale)?;
     } else {
         display_text_results(results, args, duration)?;
     }
@@ -1072,11 +1080,28 @@ fn display_json_results(
     Ok(())
 }
 
+/// Quote a CSV field when needed (RFC 4180).
+fn csv_field(value: &str) -> String {
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
 /// Display results in CSV format
+///
+/// With `for_sale`, three columns are appended. Free-form ftxt/fcod values are
+/// deliberately left out: they could carry spreadsheet formulas.
 fn display_csv_results(
-    results: &[domain_check_lib::DomainResult],
+    results: &[&domain_check_lib::DomainResult],
+    for_sale: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("domain,available,registrar,created,expires,method");
+    let mut header = String::from("domain,available,registrar,created,expires,method");
+    if for_sale {
+        header.push_str(",for_sale,for_sale_price,for_sale_uri");
+    }
+    println!("{}", header);
 
     for result in results {
         let available = match result.available {
@@ -1084,29 +1109,36 @@ fn display_csv_results(
             Some(false) => "false",
             None => "unknown",
         };
-
-        let registrar = result
-            .info
-            .as_ref()
-            .and_then(|i| i.registrar.as_deref())
-            .unwrap_or("-");
-
-        let created = result
-            .info
-            .as_ref()
-            .and_then(|i| i.creation_date.as_deref())
-            .unwrap_or("-");
-
-        let expires = result
-            .info
-            .as_ref()
+        let info = result.info.as_ref();
+        let registrar = info.and_then(|i| i.registrar.as_deref()).unwrap_or("-");
+        let created = info.and_then(|i| i.creation_date.as_deref()).unwrap_or("-");
+        let expires = info
             .and_then(|i| i.expiration_date.as_deref())
             .unwrap_or("-");
 
-        println!(
-            "{},{},{},{},{},{}",
-            result.domain, available, registrar, created, expires, result.method_used
-        );
+        let mut fields = vec![
+            csv_field(&result.domain),
+            available.to_string(),
+            csv_field(registrar),
+            csv_field(created),
+            csv_field(expires),
+            result.method_used.to_string(),
+        ];
+        if for_sale {
+            let fs = result.for_sale.as_ref();
+            let price = fs
+                .and_then(|f| f.prices.first())
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            let uri = fs
+                .and_then(|f| f.first_trusted_uri())
+                .map(|u| u.value.clone())
+                .unwrap_or_else(|| "-".to_string());
+            fields.push(fs.is_some().to_string());
+            fields.push(csv_field(&price));
+            fields.push(csv_field(&uri));
+        }
+        println!("{}", fields.join(","));
     }
 
     Ok(())
@@ -1118,17 +1150,19 @@ fn display_text_results(
     args: &Args,
     duration: std::time::Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let shown = visible_results(results, args);
     if args.pretty {
         // Pretty mode: grouped layout with section headers
-        ui::print_grouped_results(results, args.info, args.debug);
+        let shown: Vec<domain_check_lib::DomainResult> = shown.into_iter().cloned().collect();
+        ui::print_grouped_results(&shown, args.info, args.debug);
     } else {
         // Default mode: colored flat list
-        for result in results {
+        for result in shown {
             ui::print_result_default(result, args.info, args.debug, None);
         }
     }
 
-    // Shared summary for both modes
+    // Shared summary for both modes (counts every checked domain)
     if results.len() > 1 {
         let available = results.iter().filter(|r| r.available == Some(true)).count();
         let taken = results
@@ -1136,8 +1170,16 @@ fn display_text_results(
             .filter(|r| r.available == Some(false))
             .count();
         let unknown = results.iter().filter(|r| r.available.is_none()).count();
+        let for_sale = results.iter().filter(|r| r.for_sale.is_some()).count();
         println!();
-        ui::print_summary(results.len(), available, taken, unknown, duration);
+        ui::print_summary(
+            results.len(),
+            available,
+            taken,
+            unknown,
+            args.for_sale.then_some(for_sale),
+            duration,
+        );
     }
 
     Ok(())
@@ -1424,5 +1466,13 @@ mod tests {
 
         let result = apply_cli_args_to_config(config, &args).unwrap();
         assert!(result.detailed_info, "--info should enable detailed info");
+    }
+
+    #[test]
+    fn csv_field_quotes_commas_and_quotes() {
+        assert_eq!(csv_field("plain"), "plain");
+        assert_eq!(csv_field("a,b"), "\"a,b\"");
+        assert_eq!(csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
+        assert_eq!(csv_field("line\nbreak"), "\"line\nbreak\"");
     }
 }

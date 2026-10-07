@@ -8,7 +8,7 @@
 //! Pretty mode: everything above plus grouped layout, column alignment, styled header.
 
 use console::{pad_str, style, Alignment, Term};
-use domain_check_lib::{DomainInfo, DomainResult};
+use domain_check_lib::{DomainInfo, DomainResult, ForSaleInfo};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -113,6 +113,11 @@ pub fn print_custom_help() {
     print_flag("", "--csv", "Output results in CSV format");
     print_flag("-p", "--pretty", "Grouped output with section headers");
     print_flag("-i", "--info", "Show detailed domain information");
+    print_flag(
+        "",
+        "--only-for-sale",
+        "Show only taken domains that are for sale",
+    );
     print_flag("", "--batch", "Collect all results before displaying");
     print_flag("", "--streaming", "Show results as they complete");
 
@@ -134,6 +139,11 @@ pub fn print_custom_help() {
         "Disable IANA bootstrap (hardcoded TLDs only)",
     );
     print_flag("", "--no-whois", "Disable automatic WHOIS fallback");
+    print_flag(
+        "",
+        "--for-sale",
+        "Check taken domains for RFC 10023 for-sale records",
+    );
 
     // CONFIGURATION
     print_section("CONFIGURATION");
@@ -157,6 +167,10 @@ pub fn print_custom_help() {
     print_example(
         "domain-check --pattern \"app\\d\" --dry-run",
         "Preview pattern-generated names",
+    );
+    print_example(
+        "domain-check example.nl --for-sale",
+        "Is a taken domain for sale?",
     );
 
     println!();
@@ -321,12 +335,14 @@ pub fn print_result(
                 String::new()
             };
             println!(
-                "  {}{}  {}{}",
+                "  {}{}  {}{}{}",
                 prefix,
                 style(&padded_domain).white(),
                 style("TAKEN").red().bold(),
                 info_str,
+                for_sale_suffix(result),
             );
+            print_for_sale_details(result, show_info, "    ");
         }
         None => {
             let reason = brief_error(result);
@@ -389,12 +405,14 @@ pub fn print_result_default(
                 String::new()
             };
             println!(
-                "{}{} {}{}",
+                "{}{} {}{}{}",
                 prefix,
                 result.domain,
                 style("TAKEN").red().bold(),
                 info_str,
+                for_sale_suffix(result),
             );
+            print_for_sale_details(result, show_info, "    ");
         }
         None => {
             let reason = brief_error(result);
@@ -497,7 +515,13 @@ fn print_grouped_line(result: &DomainResult, show_info: bool, debug: bool) {
             } else {
                 String::new()
             };
-            println!("    {}{}", style(&padded).white(), info_str);
+            println!(
+                "    {}{}{}",
+                style(&padded).white(),
+                info_str,
+                for_sale_suffix(result)
+            );
+            print_for_sale_details(result, show_info, "      ");
         }
         None => {
             let reason = brief_error(result);
@@ -525,14 +549,24 @@ pub fn print_summary(
     available: usize,
     taken: usize,
     unknown: usize,
+    for_sale: Option<usize>,
     duration: Duration,
 ) {
     println!(
         "  {}",
         style("────────────────────────────────────────────────────").dim()
     );
+    let for_sale_part = for_sale
+        .map(|n| {
+            format!(
+                "  {}  {}",
+                style("|").dim(),
+                style(format!("{} for sale", n)).yellow()
+            )
+        })
+        .unwrap_or_default();
     println!(
-        "  {} domain{} in {:.1}s  {}  {}  {}  {}  {}  {}",
+        "  {} domain{} in {:.1}s  {}  {}  {}  {}  {}  {}{}",
         style(total).bold(),
         if total == 1 { "" } else { "s" },
         duration.as_secs_f64(),
@@ -542,6 +576,7 @@ pub fn print_summary(
         style(format!("{} taken", taken)).red(),
         style("|").dim(),
         style(format!("{} unknown", unknown)).yellow(),
+        for_sale_part,
     );
 }
 
@@ -563,6 +598,70 @@ pub fn format_domain_info(info: &DomainInfo) -> String {
         "No info available".to_string()
     } else {
         parts.join(", ")
+    }
+}
+
+/// One-line for-sale summary: first price and first trusted contact URI.
+pub fn format_for_sale_brief(info: &ForSaleInfo) -> String {
+    let mut parts = Vec::new();
+    if let Some(price) = info.prices.first() {
+        parts.push(price.to_string());
+    }
+    if let Some(uri) = info.first_trusted_uri() {
+        parts.push(uri.value.clone());
+    }
+    if parts.is_empty() {
+        "for sale".to_string()
+    } else {
+        format!("for sale: {}", parts.join(" · "))
+    }
+}
+
+/// Every for-sale detail, one per line, for --info.
+pub fn format_for_sale_details(info: &ForSaleInfo) -> Vec<String> {
+    let mut lines = Vec::new();
+    for price in &info.prices {
+        lines.push(format!("Price: {} (indicative only)", price));
+    }
+    for uri in &info.uris {
+        if uri.trusted {
+            lines.push(format!("Contact: {}", uri.value));
+        } else {
+            lines.push(format!("Contact: {} [unverified scheme]", uri.value));
+        }
+    }
+    for text in &info.texts {
+        lines.push(format!("Note: {}", text));
+    }
+    for code in &info.codes {
+        lines.push(format!("Code: {}", code));
+    }
+    lines
+}
+
+/// Styled " (for sale: …)" suffix for a taken result, or empty.
+fn for_sale_suffix(result: &DomainResult) -> String {
+    result
+        .for_sale
+        .as_ref()
+        .map(|fs| {
+            format!(
+                " {}",
+                style(format!("({})", format_for_sale_brief(fs))).yellow()
+            )
+        })
+        .unwrap_or_default()
+}
+
+/// With --info, print every for-sale detail under the result line.
+fn print_for_sale_details(result: &DomainResult, show_info: bool, indent: &str) {
+    if !show_info {
+        return;
+    }
+    if let Some(fs) = &result.for_sale {
+        for line in format_for_sale_details(fs) {
+            println!("{}{} {}", indent, style("└─").dim(), style(line).dim());
+        }
     }
 }
 
@@ -746,5 +845,68 @@ mod tests {
         };
         let formatted = format_domain_info(&info);
         assert!(formatted.contains(", "));
+    }
+
+    fn fs(records: &[&str]) -> domain_check_lib::ForSaleInfo {
+        let rs: Vec<Vec<Vec<u8>>> = records
+            .iter()
+            .map(|r| vec![r.as_bytes().to_vec()])
+            .collect();
+        domain_check_lib::parse_txt_records(&rs).unwrap()
+    }
+
+    #[test]
+    fn brief_with_price_and_uri() {
+        let info = fs(&[
+            "v=FORSALE1;fval=EUR999",
+            "v=FORSALE1;furi=https://x.example/buy",
+        ]);
+        assert_eq!(
+            format_for_sale_brief(&info),
+            "for sale: EUR 999 · https://x.example/buy"
+        );
+    }
+
+    #[test]
+    fn brief_without_content() {
+        assert_eq!(format_for_sale_brief(&fs(&["v=FORSALE1;"])), "for sale");
+    }
+
+    #[test]
+    fn brief_skips_untrusted_uri() {
+        let info = fs(&["v=FORSALE1;furi=ftp://x.example/"]);
+        assert_eq!(format_for_sale_brief(&info), "for sale");
+    }
+
+    #[test]
+    fn brief_suffix_never_contains_escape() {
+        let info = fs(&[
+            "v=FORSALE1;ftxt=\u{1b}[2J\u{202E}evil",
+            "v=FORSALE1;fval=EUR1",
+        ]);
+        let all = format!(
+            "{}{}",
+            format_for_sale_brief(&info),
+            format_for_sale_details(&info).join("")
+        );
+        assert!(!all.contains('\u{1b}'));
+        assert!(!all.contains('\u{202E}'));
+    }
+
+    #[test]
+    fn details_list_everything_with_labels() {
+        let info = fs(&[
+            "v=FORSALE1;fval=EUR5",
+            "v=FORSALE1;furi=https://a.example",
+            "v=FORSALE1;furi=ftp://b.example",
+            "v=FORSALE1;ftxt=hello",
+            "v=FORSALE1;fcod=XX-1",
+        ]);
+        let d = format_for_sale_details(&info);
+        assert!(d.contains(&"Price: EUR 5 (indicative only)".to_string()));
+        assert!(d.contains(&"Contact: https://a.example".to_string()));
+        assert!(d.contains(&"Contact: ftp://b.example [unverified scheme]".to_string()));
+        assert!(d.contains(&"Note: hello".to_string()));
+        assert!(d.contains(&"Code: XX-1".to_string()));
     }
 }
