@@ -34,7 +34,7 @@ Rust library for checking domain availability using RDAP and WHOIS protocols. Th
 
 ```toml
 [dependencies]
-domain-check-lib = "1.0.3"
+domain-check-lib = "1.1.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 

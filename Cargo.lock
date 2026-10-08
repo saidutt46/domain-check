@@ -376,7 +376,7 @@ dependencies = [
 
 [[package]]
 name = "domain-check"
-version = "1.0.3"
+version = "1.1.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -393,7 +393,7 @@ dependencies = [
 
 [[package]]
 name = "domain-check-lib"
-version = "1.0.3"
+version = "1.1.0"
 dependencies = [
  "futures-util",
  "hickory-resolver",
@@ -408,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "domain-check-mcp"
-version = "1.0.3"
+version = "1.1.0"
 dependencies = [
  "domain-check-lib",
  "rmcp",
