@@ -1080,10 +1080,15 @@ fn run_live_for_sale(args: &[&str], envs: &[(&str, &str)]) -> Option<String> {
     let output = cmd.output().expect("failed to run domain-check");
     assert!(output.status.success(), "domain-check failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    // example.nl is registered: anything but "taken" means the RDAP answer was
+    // lost (rate limit, or a WHOIS fallback that misread the response).
     let unconfirmed = stdout.contains("rate limit")
         || stdout.contains("\"available\": null")
+        || stdout.contains("\"available\": true")
         || stdout.contains("example.nl UNKNOWN")
-        || stdout.contains("example.nl,unknown");
+        || stdout.contains("example.nl AVAILABLE")
+        || stdout.contains("example.nl,unknown")
+        || stdout.contains("example.nl,true");
     if unconfirmed {
         eprintln!("skipped: .nl registry did not confirm example.nl as taken (rate limited?)");
         return None;

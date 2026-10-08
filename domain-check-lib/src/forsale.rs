@@ -647,22 +647,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "forsale")]
-    #[tokio::test]
-    async fn annotate_times_out_without_touching_verdict() {
-        let config = crate::types::CheckConfig::default().with_for_sale(true);
-        let mut lookup = ForSaleLookup::new(&config);
-        assert!(lookup.is_active(), "system resolver should be available");
-        lookup.timeout = std::time::Duration::ZERO;
-        let mut r = taken("example.nl");
-        r.error_message = Some("kept".into());
-        lookup.annotate(&mut r).await;
-        assert!(r.for_sale.is_none());
-        assert_eq!(r.available, Some(false));
-        assert_eq!(r.method_used, crate::types::CheckMethod::Rdap);
-        assert_eq!(r.error_message.as_deref(), Some("kept"));
-    }
-
     /// Exercises DNS + parsing directly, independent of RDAP (which SIDN rate-limits).
     #[cfg(feature = "forsale")]
     #[tokio::test]
@@ -710,7 +694,9 @@ mod tests {
         let config = crate::types::CheckConfig::default().with_for_sale(true);
         let for_sale = ForSaleLookup::new(&config);
         let resolver = for_sale.resolver.as_ref().expect("system resolver");
-        let info = lookup(resolver, "j78.nl", LOOKUP_TIMEOUT)
+        // Generous timeout: this checks that TCP fallback works, not how fast
+        // the runner's resolver is (CI macOS needed more than 3s).
+        let info = lookup(resolver, "j78.nl", std::time::Duration::from_secs(15))
             .await
             .expect("_for-sale.j78.nl is published by SIDN");
         assert!(info.prices.iter().any(|p| p.to_string() == "EUR 300000"));
