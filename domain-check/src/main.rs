@@ -107,6 +107,10 @@ pub struct Args {
     #[arg(short = 'i', long = "info", help_heading = "Output Format")]
     pub info: bool,
 
+    /// Show only taken domains that are for sale (implies --for-sale)
+    #[arg(long = "only-for-sale", help_heading = "Output Format")]
+    pub only_for_sale: bool,
+
     /// Collect all results before displaying
     #[arg(long = "batch", help_heading = "Output Format")]
     pub batch: bool,
@@ -139,6 +143,10 @@ pub struct Args {
     /// Disable automatic WHOIS fallback
     #[arg(long = "no-whois", help_heading = "Protocol")]
     pub no_whois: bool,
+
+    /// Check taken domains for an RFC 10023 _for-sale record
+    #[arg(long = "for-sale", help_heading = "Protocol")]
+    pub for_sale: bool,
 
     /// Use specific config file instead of automatic discovery
     #[arg(long = "config", value_name = "FILE", help_heading = "Configuration")]
@@ -354,6 +362,14 @@ async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Erro
 
     // Create domain checker
     let checker = DomainChecker::with_config(config.clone());
+    if config.check_for_sale && !checker.for_sale_enabled() {
+        eprintln!(
+            "Warning: for-sale lookups unavailable (could not read system DNS configuration)"
+        );
+    }
+    // Only report for-sale counts/columns when lookups actually ran, so a
+    // missing resolver never reads as "0 for sale".
+    args.for_sale = checker.for_sale_enabled();
 
     // Decide on processing mode based on domain count and user preferences
     let use_streaming = should_use_streaming(&args, domains.len());
@@ -434,6 +450,7 @@ async fn run_streaming_check(
     let mut available_count = 0;
     let mut taken_count = 0;
     let mut unknown_count = 0;
+    let mut for_sale_count = 0;
     let mut results = Vec::new();
     let mut completed = 0usize;
     let total = domains.len();
@@ -454,6 +471,7 @@ async fn run_streaming_check(
                     check_duration: None,
                     method_used: domain_check_lib::CheckMethod::Unknown,
                     error_message: Some(e.to_string()),
+                    for_sale: None,
                 },
             }
         }
@@ -474,6 +492,10 @@ async fn run_streaming_check(
             }
         }
 
+        if domain_result.for_sale.is_some() {
+            for_sale_count += 1;
+        }
+
         completed += 1;
 
         // Show result immediately
@@ -482,10 +504,12 @@ async fn run_streaming_check(
         } else {
             None
         };
-        if args.pretty {
-            ui::print_result(&domain_result, args.info, args.debug, counter);
-        } else {
-            ui::print_result_default(&domain_result, args.info, args.debug, counter);
+        if is_visible(&domain_result, args) {
+            if args.pretty {
+                ui::print_result(&domain_result, args.info, args.debug, counter);
+            } else {
+                ui::print_result_default(&domain_result, args.info, args.debug, counter);
+            }
         }
         results.push(domain_result);
     }
@@ -500,6 +524,7 @@ async fn run_streaming_check(
             available_count,
             taken_count,
             unknown_count,
+            args.for_sale.then_some(for_sale_count),
             duration,
         );
     }
@@ -652,6 +677,9 @@ fn merge_file_config_into_check_config(
         if let Some(detailed_info) = defaults.detailed_info {
             config.detailed_info = detailed_info;
         }
+        if let Some(for_sale) = defaults.for_sale {
+            config.check_for_sale = for_sale;
+        }
 
         // Handle TLDs and presets with proper precedence
         if let Some(tlds) = defaults.tlds {
@@ -711,6 +739,10 @@ fn apply_environment_config(mut config: CheckConfig, verbose: bool) -> CheckConf
         config.detailed_info = detailed_info;
     }
 
+    if let Some(for_sale) = env_config.for_sale {
+        config.check_for_sale = for_sale;
+    }
+
     // Handle TLD precedence: explicit TLDs > preset > config file values
     if let Some(tlds) = &env_config.tlds {
         config.tlds = Some(tlds.clone());
@@ -758,6 +790,9 @@ fn apply_cli_args_to_config(
     }
     if args.info {
         config.detailed_info = true;
+    }
+    if args.for_sale || args.only_for_sale {
+        config.check_for_sale = true;
     }
 
     // Handle TLD precedence: CLI explicit > CLI preset > CLI all > env vars > config file
@@ -1015,9 +1050,9 @@ fn display_results(
     duration: std::time::Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if args.json {
-        display_json_results(results)?;
+        display_json_results(&visible_results(results, args))?;
     } else if args.csv {
-        display_csv_results(results)?;
+        display_csv_results(&visible_results(results, args), args.for_sale)?;
     } else {
         display_text_results(results, args, duration)?;
     }
@@ -1025,20 +1060,50 @@ fn display_results(
     Ok(())
 }
 
+/// Whether a result passes the --only-for-sale display filter.
+fn is_visible(result: &domain_check_lib::DomainResult, args: &Args) -> bool {
+    !args.only_for_sale || result.for_sale.is_some()
+}
+
+/// Results to display; summaries still count every checked domain.
+fn visible_results<'a>(
+    results: &'a [domain_check_lib::DomainResult],
+    args: &Args,
+) -> Vec<&'a domain_check_lib::DomainResult> {
+    results.iter().filter(|r| is_visible(r, args)).collect()
+}
+
 /// Display results in JSON format
 fn display_json_results(
-    results: &[domain_check_lib::DomainResult],
+    results: &[&domain_check_lib::DomainResult],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let json = serde_json::to_string_pretty(results)?;
     println!("{}", json);
     Ok(())
 }
 
+/// Quote a CSV field when needed (RFC 4180).
+fn csv_field(value: &str) -> String {
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
 /// Display results in CSV format
+///
+/// With `for_sale`, three columns are appended. Free-form ftxt/fcod values are
+/// deliberately left out: they could carry spreadsheet formulas.
 fn display_csv_results(
-    results: &[domain_check_lib::DomainResult],
+    results: &[&domain_check_lib::DomainResult],
+    for_sale: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("domain,available,registrar,created,expires,method");
+    let mut header = String::from("domain,available,registrar,created,expires,method");
+    if for_sale {
+        header.push_str(",for_sale,for_sale_price,for_sale_uri");
+    }
+    println!("{}", header);
 
     for result in results {
         let available = match result.available {
@@ -1046,29 +1111,36 @@ fn display_csv_results(
             Some(false) => "false",
             None => "unknown",
         };
-
-        let registrar = result
-            .info
-            .as_ref()
-            .and_then(|i| i.registrar.as_deref())
-            .unwrap_or("-");
-
-        let created = result
-            .info
-            .as_ref()
-            .and_then(|i| i.creation_date.as_deref())
-            .unwrap_or("-");
-
-        let expires = result
-            .info
-            .as_ref()
+        let info = result.info.as_ref();
+        let registrar = info.and_then(|i| i.registrar.as_deref()).unwrap_or("-");
+        let created = info.and_then(|i| i.creation_date.as_deref()).unwrap_or("-");
+        let expires = info
             .and_then(|i| i.expiration_date.as_deref())
             .unwrap_or("-");
 
-        println!(
-            "{},{},{},{},{},{}",
-            result.domain, available, registrar, created, expires, result.method_used
-        );
+        let mut fields = vec![
+            csv_field(&result.domain),
+            available.to_string(),
+            csv_field(registrar),
+            csv_field(created),
+            csv_field(expires),
+            result.method_used.to_string(),
+        ];
+        if for_sale {
+            let fs = result.for_sale.as_ref();
+            let price = fs
+                .and_then(|f| f.prices.first())
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            let uri = fs
+                .and_then(|f| f.first_trusted_uri())
+                .map(|u| u.value.clone())
+                .unwrap_or_else(|| "-".to_string());
+            fields.push(fs.is_some().to_string());
+            fields.push(csv_field(&price));
+            fields.push(csv_field(&uri));
+        }
+        println!("{}", fields.join(","));
     }
 
     Ok(())
@@ -1080,17 +1152,19 @@ fn display_text_results(
     args: &Args,
     duration: std::time::Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let shown = visible_results(results, args);
     if args.pretty {
         // Pretty mode: grouped layout with section headers
-        ui::print_grouped_results(results, args.info, args.debug);
+        let shown: Vec<domain_check_lib::DomainResult> = shown.into_iter().cloned().collect();
+        ui::print_grouped_results(&shown, args.info, args.debug);
     } else {
         // Default mode: colored flat list
-        for result in results {
+        for result in shown {
             ui::print_result_default(result, args.info, args.debug, None);
         }
     }
 
-    // Shared summary for both modes
+    // Shared summary for both modes (counts every checked domain)
     if results.len() > 1 {
         let available = results.iter().filter(|r| r.available == Some(true)).count();
         let taken = results
@@ -1098,8 +1172,16 @@ fn display_text_results(
             .filter(|r| r.available == Some(false))
             .count();
         let unknown = results.iter().filter(|r| r.available.is_none()).count();
+        let for_sale = results.iter().filter(|r| r.for_sale.is_some()).count();
         println!();
-        ui::print_summary(results.len(), available, taken, unknown, duration);
+        ui::print_summary(
+            results.len(),
+            available,
+            taken,
+            unknown,
+            args.for_sale.then_some(for_sale),
+            duration,
+        );
     }
 
     Ok(())
@@ -1139,7 +1221,77 @@ mod tests {
             dry_run: false,
             yes: false,
             help: false,
+            for_sale: false,
+            only_for_sale: false,
         }
+    }
+
+    fn make_result(domain: &str, available: Option<bool>) -> domain_check_lib::DomainResult {
+        domain_check_lib::DomainResult {
+            domain: domain.to_string(),
+            available,
+            info: None,
+            check_duration: None,
+            method_used: domain_check_lib::CheckMethod::Rdap,
+            error_message: None,
+            for_sale: None,
+        }
+    }
+
+    #[test]
+    fn test_for_sale_flag_enables() {
+        let mut args = create_test_args();
+        args.for_sale = true;
+        let config = apply_cli_args_to_config(CheckConfig::default(), &args).unwrap();
+        assert!(config.check_for_sale);
+    }
+
+    #[test]
+    fn test_only_for_sale_implies_for_sale() {
+        let mut args = create_test_args();
+        args.only_for_sale = true;
+        let config = apply_cli_args_to_config(CheckConfig::default(), &args).unwrap();
+        assert!(config.check_for_sale);
+    }
+
+    #[test]
+    fn test_for_sale_flag_absent_preserves_config() {
+        let args = create_test_args();
+        let config = CheckConfig {
+            check_for_sale: true,
+            ..Default::default()
+        };
+        assert!(
+            apply_cli_args_to_config(config, &args)
+                .unwrap()
+                .check_for_sale
+        );
+    }
+
+    #[test]
+    fn test_file_config_for_sale_applied() {
+        let file = FileConfig {
+            defaults: Some(domain_check_lib::DefaultsConfig {
+                for_sale: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(merge_file_config_into_check_config(CheckConfig::default(), file).check_for_sale);
+    }
+
+    #[test]
+    fn test_visible_results_filter() {
+        let mut args = create_test_args();
+        let mut on_sale = make_result("a.com", Some(false));
+        on_sale.for_sale = domain_check_lib::parse_txt_records(&[vec![b"v=FORSALE1;".to_vec()]]);
+        let plain = make_result("b.com", Some(false));
+        let results = vec![on_sale, plain];
+        assert_eq!(visible_results(&results, &args).len(), 2);
+        args.only_for_sale = true;
+        let shown = visible_results(&results, &args);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].domain, "a.com");
     }
 
     #[test]
@@ -1316,5 +1468,13 @@ mod tests {
 
         let result = apply_cli_args_to_config(config, &args).unwrap();
         assert!(result.detailed_info, "--info should enable detailed info");
+    }
+
+    #[test]
+    fn csv_field_quotes_commas_and_quotes() {
+        assert_eq!(csv_field("plain"), "plain");
+        assert_eq!(csv_field("a,b"), "\"a,b\"");
+        assert_eq!(csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
+        assert_eq!(csv_field("line\nbreak"), "\"line\nbreak\"");
     }
 }

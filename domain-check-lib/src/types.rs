@@ -36,6 +36,11 @@ pub struct DomainResult {
     /// Any error message if the check failed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
+
+    /// RFC 10023 for-sale signal for taken domains. `None` when not checked,
+    /// not for sale, or the lookup failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub for_sale: Option<crate::forsale::ForSaleInfo>,
 }
 
 /// Detailed information about a registered domain.
@@ -93,6 +98,10 @@ pub struct CheckConfig {
     /// Whether to extract detailed domain information for taken domains
     /// Default: false (just availability status)
     pub detailed_info: bool,
+
+    /// Whether to look up RFC 10023 `_for-sale` records for taken domains
+    /// Default: false. Requires the `forsale` feature to have any effect.
+    pub check_for_sale: bool,
 
     /// List of TLDs to check for base domain names
     /// If None, defaults to ["com"]
@@ -165,6 +174,7 @@ impl Default for CheckConfig {
             enable_whois_fallback: true,
             enable_bootstrap: true,
             detailed_info: false,
+            check_for_sale: false,
             tlds: None, // Will default to ["com"] when needed
             rdap_timeout: Duration::from_secs(3),
             whois_timeout: Duration::from_secs(5),
@@ -203,6 +213,12 @@ impl CheckConfig {
     /// Enable detailed domain information extraction.
     pub fn with_detailed_info(mut self, enabled: bool) -> Self {
         self.detailed_info = enabled;
+        self
+    }
+
+    /// Enable RFC 10023 `_for-sale` lookups for taken domains.
+    pub fn with_for_sale(mut self, enabled: bool) -> Self {
+        self.check_for_sale = enabled;
         self
     }
 
@@ -306,6 +322,7 @@ mod tests {
         assert_eq!(config.rdap_timeout, Duration::from_secs(3));
         assert_eq!(config.whois_timeout, Duration::from_secs(5));
         assert!(config.custom_presets.is_empty());
+        assert!(!config.check_for_sale);
     }
 
     // ── Builder methods ─────────────────────────────────────────────────
@@ -398,6 +415,36 @@ mod tests {
         assert!(config.tlds.is_none());
     }
 
+    #[test]
+    fn test_with_for_sale() {
+        assert!(!CheckConfig::default().check_for_sale);
+        assert!(CheckConfig::default().with_for_sale(true).check_for_sale);
+    }
+
+    #[test]
+    fn test_domain_result_for_sale_serialization() {
+        let mut result = DomainResult {
+            domain: "test.com".to_string(),
+            available: Some(false),
+            info: None,
+            check_duration: None,
+            method_used: CheckMethod::Rdap,
+            error_message: None,
+            for_sale: None,
+        };
+        assert!(!serde_json::to_string(&result).unwrap().contains("for_sale"));
+        result.for_sale = crate::forsale::parse_txt_records(&[vec![b"v=FORSALE1;".to_vec()]]);
+        assert!(serde_json::to_string(&result)
+            .unwrap()
+            .contains("\"for_sale\":{}"));
+        // Older JSON without the field still deserializes.
+        let old = r#"{"domain":"a.com","available":true,"method_used":"rdap"}"#;
+        assert!(serde_json::from_str::<DomainResult>(old)
+            .unwrap()
+            .for_sale
+            .is_none());
+    }
+
     // ── GenerateConfig ──────────────────────────────────────────────────
 
     #[test]
@@ -484,6 +531,7 @@ mod tests {
             check_duration: None,
             method_used: CheckMethod::Rdap,
             error_message: None,
+            for_sale: None,
         };
         let json = serde_json::to_string(&result).unwrap();
         // None fields with skip_serializing_if should be absent

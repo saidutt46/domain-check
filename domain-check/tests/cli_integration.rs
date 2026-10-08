@@ -1065,3 +1065,144 @@ fn test_backward_compat_no_generation_flags() {
         .stdout(predicate::str::contains("google.com"))
         .stdout(predicate::str::contains("TAKEN"));
 }
+
+// ── RFC 10023 for-sale (live: SIDN publishes _for-sale.example.nl) ──
+
+/// Run the CLI against SIDN's live fixture. Returns `None` (test skipped) when
+/// the .nl registry could not confirm example.nl as taken — SIDN rate-limits
+/// bursts of RDAP queries, and the for-sale lookup only runs on TAKEN results.
+fn run_live_for_sale(args: &[&str], envs: &[(&str, &str)]) -> Option<String> {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(args);
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    let output = cmd.output().expect("failed to run domain-check");
+    assert!(output.status.success(), "domain-check failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    // example.nl is registered: anything but "taken" means the RDAP answer was
+    // lost (rate limit, or a WHOIS fallback that misread the response).
+    let unconfirmed = stdout.contains("rate limit")
+        || stdout.contains("\"available\": null")
+        || stdout.contains("\"available\": true")
+        || stdout.contains("example.nl UNKNOWN")
+        || stdout.contains("example.nl AVAILABLE")
+        || stdout.contains("example.nl,unknown")
+        || stdout.contains("example.nl,true");
+    if unconfirmed {
+        eprintln!("skipped: .nl registry did not confirm example.nl as taken (rate limited?)");
+        return None;
+    }
+    Some(stdout)
+}
+
+#[test]
+fn test_for_sale_json_has_field() {
+    let Some(out) = run_live_for_sale(&["example.nl", "--for-sale", "--json"], &[]) else {
+        return;
+    };
+    assert!(out.contains("\"for_sale\""), "{out}");
+    assert!(out.contains("EUR"), "{out}");
+}
+
+#[test]
+fn test_no_for_sale_field_without_flag() {
+    // Holds whether or not the registry answers: no flag, no lookup.
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["example.nl", "--json"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("for_sale").not());
+}
+
+#[test]
+fn test_for_sale_env_var() {
+    let Some(out) = run_live_for_sale(&["example.nl", "--json"], &[("DC_FOR_SALE", "true")]) else {
+        return;
+    };
+    assert!(out.contains("\"for_sale\""), "{out}");
+}
+
+#[test]
+fn only_for_sale_filters_json() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["example.nl", "google.com", "--only-for-sale", "--json"]);
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let out = String::from_utf8_lossy(&output.stdout);
+    // google.com is taken but publishes no _for-sale record: always filtered out.
+    assert!(!out.contains("google.com"), "{out}");
+    // example.nl appears unless the .nl registry rate-limited us (then: empty list).
+    assert!(out.contains("example.nl") || out.trim() == "[]", "{out}");
+}
+
+#[test]
+fn test_help_lists_for_sale_flags() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.arg("--help");
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("--for-sale"))
+        .stdout(predicate::str::contains("--only-for-sale"));
+}
+
+#[test]
+fn test_for_sale_default_output() {
+    let Some(out) = run_live_for_sale(&["example.nl", "--for-sale"], &[]) else {
+        return;
+    };
+    assert!(out.contains("TAKEN"), "{out}");
+    assert!(out.contains("for sale: EUR 100000000"), "{out}");
+}
+
+#[test]
+fn test_for_sale_info_details() {
+    let Some(out) = run_live_for_sale(&["example.nl", "--for-sale", "--info"], &[]) else {
+        return;
+    };
+    assert!(out.contains("(indicative only)"), "{out}");
+    assert!(out.contains("Code: NLFS-"), "{out}");
+}
+
+#[test]
+fn test_for_sale_csv_columns() {
+    let Some(out) = run_live_for_sale(&["example.nl", "--for-sale", "--csv"], &[]) else {
+        return;
+    };
+    assert!(
+        out.contains("for_sale,for_sale_price,for_sale_uri"),
+        "{out}"
+    );
+    assert!(
+        out.contains("true,EUR 100000000,https://example.nl/for-sale.txt"),
+        "{out}"
+    );
+}
+
+#[test]
+fn test_csv_header_unchanged_without_flag() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["example.nl", "--csv"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("for_sale").not());
+}
+
+#[test]
+fn test_only_for_sale_streaming_and_summary() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["example.nl", "google.com", "--only-for-sale", "--streaming"]);
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let out = String::from_utf8_lossy(&output.stdout);
+    // Taken without a _for-sale record: hidden, but still counted.
+    assert!(!out.contains("google.com"), "{out}");
+    assert!(out.contains("2 domains"), "{out}");
+    // example.nl is registered: "available" means the WHOIS fallback misread it.
+    if out.contains("1 unknown") || out.contains("1 available") {
+        eprintln!("skipped: .nl registry did not confirm example.nl as taken (rate limited?)");
+        return;
+    }
+    assert!(out.contains("example.nl"), "{out}");
+    assert!(out.contains("1 for sale"), "{out}");
+}

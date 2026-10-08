@@ -13,6 +13,7 @@ Related docs: [README](../README.md) | [Automation Guide](./AUTOMATION.md) | [FA
 - [TLD Options](#tld-options)
 - [Custom Presets](#-custom-presets)
 - [Output Formats](#output-formats)
+- [For-Sale Detection (RFC 10023)](#for-sale-detection-rfc-10023)
 - [File Processing](#file-processing)
 - [Performance & Concurrency](#performance--concurrency)
 - [Advanced Features](#advanced-features)
@@ -69,6 +70,7 @@ preset = "startup"
 pretty = true
 timeout = "8s"
 bootstrap = true        # enabled by default; set false to disable
+for_sale = false        # true = check taken domains for RFC 10023 for-sale records
 
 [custom_presets]
 my_startup = ["com", "io", "ai", "dev", "app"]
@@ -127,6 +129,7 @@ All CLI options can be set via environment variables using the `DC_*` prefix:
 | `DC_BOOTSTRAP` | (enabled by default) | `DC_BOOTSTRAP=false` | Enable/disable IANA bootstrap |
 | `DC_WHOIS_FALLBACK` | `--no-whois` | `DC_WHOIS_FALLBACK=false` | WHOIS fallback |
 | `DC_DETAILED_INFO` | `--info` | `DC_DETAILED_INFO=true` | Detailed domain info |
+| `DC_FOR_SALE` | `--for-sale` | `DC_FOR_SALE=true` | Check taken domains for RFC 10023 for-sale records |
 | `DC_JSON` | `--json` | `DC_JSON=true` | JSON output format |
 | `DC_CSV` | `--csv` | `DC_CSV=true` | CSV output format |
 | `DC_FILE` | `--file` | `DC_FILE=domains.txt` | Default domains file |
@@ -199,6 +202,7 @@ DC_CONFIG=team-config.toml domain-check mystartup
 | `--csv` | Output in CSV format | `domain-check example.com --csv` |
 | `-p, --pretty` | Grouped, structured output with section headers | `domain-check example.com --pretty` |
 | `-i, --info` | Show detailed domain information | `domain-check example.com --info` |
+| `--only-for-sale` | Show only taken domains that are for sale (implies `--for-sale`) | `domain-check mybrand --preset startup --only-for-sale` |
 
 ### Processing Modes
 
@@ -222,6 +226,7 @@ DC_CONFIG=team-config.toml domain-check mystartup
 |------|-------------|---------|
 | `--no-bootstrap` | Disable IANA bootstrap (use only 32 hardcoded TLDs) | `domain-check myapp --all --no-bootstrap` |
 | `--no-whois` | Disable WHOIS fallback | `domain-check example.com --no-whois` |
+| `--for-sale` | Check taken domains for an RFC 10023 `_for-sale` record | `domain-check example.nl --for-sale` |
 
 Bootstrap is enabled by default. It fetches the full IANA RDAP registry (~1,180 TLDs) on first use and caches it for 24 hours. For TLDs without RDAP, the WHOIS fallback automatically discovers the authoritative WHOIS server via IANA referral.
 
@@ -426,6 +431,57 @@ domain,available,registrar,created,expires,method
 example.com,false,Example Inc.,1995-08-14,2025-08-13,rdap
 startup.org,true,-,-,-,rdap
 ```
+
+---
+
+## For-Sale Detection (RFC 10023)
+
+[RFC 10023](https://www.rfc-editor.org/info/rfc10023) lets a domain holder publish a TXT record at `_for-sale.<domain>` to say that a registered domain is available to buy. It can include a contact link (`furi`), an asking price (`fval`), free text (`ftxt`), and a broker code (`fcod`):
+
+```dns
+_for-sale.example.nl. IN TXT "v=FORSALE1;fval=EUR100000000"
+_for-sale.example.nl. IN TXT "v=FORSALE1;furi=https://example.nl/for-sale.txt"
+```
+
+`--for-sale` looks this record up for every **taken** domain (one extra DNS query each, at most 3 seconds, through your system resolver). It's off by default. Available and unknown domains are never queried, and a failed lookup never changes a domain's status.
+
+```bash
+domain-check example.nl --for-sale
+# example.nl TAKEN (for sale: EUR 100000000 · https://example.nl/for-sale.txt)
+
+domain-check example.nl --for-sale --info
+# example.nl TAKEN (Registrar: …) (for sale: EUR 100000000 · https://example.nl/for-sale.txt)
+#     └─ Price: EUR 100000000 (indicative only)
+#     └─ Contact: https://example.nl/for-sale.txt
+#     └─ Note: See the URL for important information!
+#     └─ Code: NLFS-NGYyYjEyZWYtZTUzYi00M2U0LTliNmYtNTcxZjBhMzA2NWQy
+
+# Only show taken domains that are for sale (the summary still counts everything)
+domain-check mybrand --preset startup --only-for-sale
+```
+
+**JSON:** for-sale domains get a `for_sale` object (empty lists are omitted; `{}` still means "for sale"):
+
+```json
+{
+  "domain": "example.nl",
+  "available": false,
+  "method_used": "rdap",
+  "for_sale": {
+    "uris": [{ "value": "https://example.nl/for-sale.txt", "scheme": "https", "trusted": true }],
+    "prices": [{ "currency": "EUR", "amount": "100000000" }],
+    "texts": ["See the URL for important information!"],
+    "codes": ["NLFS-NGYyYjEyZWYtZTUzYi00M2U0LTliNmYtNTcxZjBhMzA2NWQy"]
+  }
+}
+```
+
+**CSV:** `--for-sale` adds `for_sale,for_sale_price,for_sale_uri` columns (first price, first trusted link). Free text and codes stay out of CSV.
+
+**Safety:** record content comes from the domain holder and is treated as untrusted:
+- Control characters (including terminal escape sequences) and bidirectional-override characters are stripped.
+- Links are printed as plain text and never opened. Only `http`, `https`, `mailto`, and `tel` links appear in the summary; others are marked `[unverified scheme]` under `--info`.
+- Prices are indicative only. Confirm with the seller.
 
 ---
 

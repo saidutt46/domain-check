@@ -31,8 +31,9 @@
 // Re-export main public API types and functions
 // This makes them available as domain_check_lib::TypeName
 pub use checker::DomainChecker;
-pub use config::{load_env_config, ConfigManager, FileConfig, GenerationConfig};
+pub use config::{load_env_config, ConfigManager, DefaultsConfig, FileConfig, GenerationConfig};
 pub use error::DomainCheckError;
+pub use forsale::{parse_txt_records, record_name, ForSaleInfo, ForSalePrice, ForSaleUri};
 pub use protocols::registry::{
     get_all_known_tlds, get_available_presets, get_preset_tlds, get_preset_tlds_with_custom,
     get_whois_server, initialize_bootstrap,
@@ -41,6 +42,7 @@ pub use types::{CheckConfig, CheckMethod, DomainInfo, DomainResult, OutputMode};
 pub use utils::expand_domain_inputs;
 
 // Public modules
+pub mod forsale;
 pub mod generate;
 
 // Re-export generation types for convenience
@@ -96,6 +98,7 @@ fn get_enabled_features() -> Vec<&'static str> {
         (cfg!(feature = "whois"), "whois"),
         (cfg!(feature = "bootstrap"), "bootstrap"),
         (cfg!(feature = "debug"), "debug"),
+        (cfg!(feature = "forsale"), "forsale"),
     ]
     .into_iter()
     .filter_map(|(enabled, name)| enabled.then_some(name))
@@ -213,6 +216,7 @@ mod tests {
             check_duration: None,
             method_used: CheckMethod::Rdap,
             error_message: None,
+            for_sale: None,
         };
         assert_eq!(result.domain, "example.com");
         assert_eq!(result.available, Some(true));

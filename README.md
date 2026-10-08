@@ -19,9 +19,10 @@ Quick Links: [Installation](#installation) | [Quick Start](#quick-start) | [Use 
 
 - **1,200+ TLDs out of the box** — IANA bootstrap loads the full registry automatically. No config needed. 32 hardcoded TLDs work offline as fallback.
 - **Dual-protocol engine** — RDAP-first with automatic WHOIS fallback. IANA server discovery covers ~189 ccTLDs that lack RDAP (`.es`, `.co`, `.eu`, `.jp`).
-- **Fast** — up to 100 concurrent checks, streaming results as they complete. 2.7 MB release binary.
+- **Fast** — up to 100 concurrent checks, streaming results as they complete. 3.4 MB release binary.
 - **Domain generation** — pattern expansion (`\w`=letter, `\d`=digit, `?`=either), prefix/suffix permutations, and `--dry-run` to preview before checking.
 - **11 curated presets** — `startup`, `tech`, `creative`, `finance`, `ecommerce`, and more. Or define your own in config.
+- **For-sale detection** — `--for-sale` reads [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` records, so you can see when a taken domain is actually on the market (asking price and contact, sanitized, never auto-opened).
 - **Rich output** — grouped pretty display, JSON, CSV. Registrar info, creation/expiration dates, and status codes with `--info`.
 - **CI and automation friendly** — `--json`/`--csv` to stdout, `--yes` to skip prompts, `--force` for large runs, automatic non-TTY detection.
 - **Configurable** — TOML config files, `DC_*` environment variables, custom presets, and clear precedence rules.
@@ -57,6 +58,9 @@ domain-check myapp --prefix get,try --suffix hub,ly -t com,io
 
 # Get registrar and date info
 domain-check target.com --info
+
+# Is a taken domain for sale? (RFC 10023)
+domain-check example.nl --for-sale
 
 # Check every known TLD
 domain-check brand --all --batch
@@ -202,6 +206,7 @@ preset = "startup"
 pretty = true
 timeout = "8s"
 bootstrap = true
+for_sale = false        # set true to always check taken domains for RFC 10023 for-sale records
 
 [custom_presets]
 my_startup = ["com", "io", "ai", "dev", "app"]
@@ -220,6 +225,7 @@ Common environment variables:
 DC_CONCURRENCY=50    DC_PRESET=startup    DC_TLD=com,io,dev
 DC_PRETTY=true       DC_TIMEOUT=10s       DC_BOOTSTRAP=true
 DC_PREFIX=get,my     DC_SUFFIX=hub,ly     DC_FILE=domains.txt
+DC_FOR_SALE=true
 ```
 
 ## Automation & CI
@@ -284,6 +290,8 @@ claude mcp add domain-check -- domain-check-mcp
 6 tools available: `check_domain`, `check_domains`, `check_with_preset`, `generate_names`, `list_presets`, `domain_info`.
 
 Then ask your agent naturally: *"Is coolstartup.com available?"* or *"Check mybrand across the startup preset"*.
+
+The check tools take an optional `check_for_sale` parameter, and `domain_info` always includes RFC 10023 for-sale info when the holder publishes it. Responses mark that data as unverified.
 
 Supports: Claude Code, Claude Desktop, VS Code Copilot, Cursor, Windsurf, JetBrains, OpenAI Codex CLI, Gemini CLI, and any MCP stdio client.
 

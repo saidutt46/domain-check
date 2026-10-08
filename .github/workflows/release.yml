@@ -142,7 +142,7 @@ jobs:
             "manifest_version": "0.3",
             "name": "domain-check-mcp",
             "version": "${VERSION}",
-            "description": "Domain availability checking via RDAP and WHOIS. Single domains, batch checks, TLD presets, pattern generation, and detailed registration info.",
+            "description": "Domain availability checking via RDAP and WHOIS. Single domains, batch checks, TLD presets, pattern generation, detailed registration info, and RFC 10023 for-sale detection.",
             "author": {
               "name": "Sai Dutt G.V.",
               "url": "https://github.com/saidutt46"
@@ -161,12 +161,12 @@ jobs:
               }
             },
             "tools": [
-              {"name": "check_domain", "description": "Check availability of a single domain"},
+              {"name": "check_domain", "description": "Check availability of a single domain, optionally with RFC 10023 for-sale info"},
               {"name": "check_domains", "description": "Batch check multiple domains concurrently"},
               {"name": "check_with_preset", "description": "Check a base name across all TLDs in a preset"},
               {"name": "generate_names", "description": "Generate domain name candidates from patterns"},
               {"name": "list_presets", "description": "List all available TLD presets"},
-              {"name": "domain_info", "description": "Get detailed registration info for a domain"}
+              {"name": "domain_info", "description": "Get detailed registration and for-sale info for a domain"}
             ],
             "keywords": ["domain", "availability", "rdap", "whois", "mcp"],
             "license": "MIT OR Apache-2.0",
@@ -191,7 +191,7 @@ jobs:
             "manifest_version": "0.3",
             "name": "domain-check-mcp",
             "version": "$VERSION",
-            "description": "Domain availability checking via RDAP and WHOIS. Single domains, batch checks, TLD presets, pattern generation, and detailed registration info.",
+            "description": "Domain availability checking via RDAP and WHOIS. Single domains, batch checks, TLD presets, pattern generation, detailed registration info, and RFC 10023 for-sale detection.",
             "author": {
               "name": "Sai Dutt G.V.",
               "url": "https://github.com/saidutt46"
@@ -210,12 +210,12 @@ jobs:
               }
             },
             "tools": [
-              {"name": "check_domain", "description": "Check availability of a single domain"},
+              {"name": "check_domain", "description": "Check availability of a single domain, optionally with RFC 10023 for-sale info"},
               {"name": "check_domains", "description": "Batch check multiple domains concurrently"},
               {"name": "check_with_preset", "description": "Check a base name across all TLDs in a preset"},
               {"name": "generate_names", "description": "Generate domain name candidates from patterns"},
               {"name": "list_presets", "description": "List all available TLD presets"},
-              {"name": "domain_info", "description": "Get detailed registration info for a domain"}
+              {"name": "domain_info", "description": "Get detailed registration and for-sale info for a domain"}
             ],
             "keywords": ["domain", "availability", "rdap", "whois", "mcp"],
             "license": "MIT OR Apache-2.0",
