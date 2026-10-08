@@ -19,7 +19,7 @@ Quick Links: [Installation](#installation) | [Quick Start](#quick-start) | [Use 
 
 - **1,200+ TLDs out of the box** — IANA bootstrap loads the full registry automatically. No config needed. 32 hardcoded TLDs work offline as fallback.
 - **Dual-protocol engine** — RDAP-first with automatic WHOIS fallback. IANA server discovery covers ~189 ccTLDs that lack RDAP (`.es`, `.co`, `.eu`, `.jp`).
-- **Fast** — up to 100 concurrent checks, streaming results as they complete. 2.7 MB release binary.
+- **Fast** — up to 100 concurrent checks, streaming results as they complete. 3.4 MB release binary.
 - **Domain generation** — pattern expansion (`\w`=letter, `\d`=digit, `?`=either), prefix/suffix permutations, and `--dry-run` to preview before checking.
 - **11 curated presets** — `startup`, `tech`, `creative`, `finance`, `ecommerce`, and more. Or define your own in config.
 - **For-sale detection** — `--for-sale` reads [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` records, so you can see when a taken domain is actually on the market (asking price and contact, sanitized, never auto-opened).

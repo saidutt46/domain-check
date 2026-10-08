@@ -19,7 +19,7 @@ Taken domains can now be checked for an [RFC 10023](https://www.rfc-editor.org/i
 - CSV fields are now quoted per RFC 4180
 
 ### Changed
-- The CLI and MCP binaries now include a DNS resolver (`hickory-resolver`), which adds about 0.6 MB to the release binary
+- The CLI and MCP binaries now include a DNS resolver (`hickory-resolver`), which adds under 1 MB to the release binary (CLI is now about 3.4 MB)
 
 ### Compatibility
 - `DomainResult`, `CheckConfig`, `DefaultsConfig`, and `EnvConfig` gained public fields. Code that builds these with struct literals must add the new field (`for_sale: None`, `check_for_sale: false`) or use `..Default::default()` where available. JSON output only gains an optional field
