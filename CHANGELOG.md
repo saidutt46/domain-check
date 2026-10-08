@@ -10,6 +10,7 @@ Taken domains can now be checked for an [RFC 10023](https://www.rfc-editor.org/i
 - `--for-sale` checks taken domains for a `_for-sale` TXT record (one extra DNS query per taken domain, at most 3s, off by default). `--only-for-sale` shows only those domains, and the summary still counts everything checked
 - `[defaults] for_sale` config key and `DC_FOR_SALE` environment variable
 - Output in every mode: a `(for sale: EUR 999 · https://…)` suffix, full details with `--info`, a `for_sale` object in JSON, `for_sale,for_sale_price,for_sale_uri` CSV columns, and a "for sale" count in the summary
+- Parsing follows RFC 10023 and is lenient where the RFC allows: records split into several strings are joined before parsing, and a valid version tag with unusable content still counts as for sale
 - Library: `forsale` Cargo feature (not enabled by default), `CheckConfig::with_for_sale`, `DomainResult.for_sale`, `DomainChecker::for_sale_enabled`, and the pure `parse_txt_records` / `ForSaleInfo` API
 - MCP: `check_for_sale` parameter on `check_domain`, `check_domains`, and `check_with_preset`; `domain_info` always includes for-sale info; responses carry an "unverified, indicative only" note
 

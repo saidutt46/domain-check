@@ -96,11 +96,11 @@ pub fn parse_txt_records(records: &[Vec<Vec<u8>>]) -> Option<ForSaleInfo> {
     let mut seen = HashSet::new();
 
     for record in records {
-        // RDATA must be a single character-string (§2.4).
-        let [single] = record.as_slice() else {
-            continue;
-        };
-        let text = String::from_utf8_lossy(single);
+        // §2.4 says publishers must use a single character-string, but
+        // processors should be lenient and join them (§3.2; confirmed by the
+        // RFC author on issue #33). Join bytes first: a split can fall inside
+        // a multi-byte UTF-8 character.
+        let text = String::from_utf8_lossy(&record.concat()).into_owned();
         let Some(content) = text.strip_prefix(VERSION_TAG) else {
             continue;
         };
@@ -253,10 +253,12 @@ impl ForSaleLookup {
             let resolver = config
                 .check_for_sale
                 .then(|| {
-                    hickory_resolver::TokioResolver::builder_tokio()
-                        .ok()?
-                        .build()
-                        .ok()
+                    let mut builder = hickory_resolver::TokioResolver::builder_tokio().ok()?;
+                    // hickory 0.26 gives up instead of retrying over TCP when two
+                    // parallel UDP queries both come back truncated, so large
+                    // RRsets (e.g. _for-sale.j78.nl) would silently go missing.
+                    builder.options_mut().num_concurrent_reqs = 1;
+                    builder.build().ok()
                 })
                 .flatten();
             Self { resolver, timeout }
@@ -401,9 +403,32 @@ mod tests {
 
     // ── RRset rules (§2.4) ──
     #[test]
-    fn multi_string_record_is_invalid() {
-        let split = vec![b"v=FORSALE1;".to_vec(), b"ftxt=foo".to_vec()];
-        assert!(parse_txt_records(&[split]).is_none());
+    fn multi_string_record_is_concatenated() {
+        // §2.4 forbids publishing these, but processors should be lenient (§3.2):
+        // a domain clearly offered for sale must still be flagged.
+        let split = vec![
+            b"v=FORSALE1;".to_vec(),
+            b"ftxt=foo".to_vec(),
+            b" bar".to_vec(),
+        ];
+        let info = parse_txt_records(&[split]).unwrap();
+        assert_eq!(info.texts, vec!["foo bar"]);
+    }
+
+    #[test]
+    fn multi_string_split_inside_utf8_character() {
+        // j78.nl splits a multi-byte character across strings; join bytes before decoding.
+        let s = "v=FORSALE1;ftxt=𝙷i".as_bytes();
+        let (a, b) = s.split_at(18); // inside the 4-byte 𝙷
+        let info = parse_txt_records(&[vec![a.to_vec(), b.to_vec()]]).unwrap();
+        assert_eq!(info.texts, vec!["𝙷i"]);
+    }
+
+    #[test]
+    fn two_tags_in_one_record_is_for_sale_without_details() {
+        // Published at _for-sale.nohats.ca: fval swallows the rest of the record.
+        let info = parse(&["v=FORSALE1;fval=USD1000000;furi=mailto:forsale31337@nohats.ca?subject=I want to buy nohats.ca"]).unwrap();
+        assert!(info.is_empty());
     }
 
     #[test]
@@ -674,5 +699,20 @@ mod tests {
         assert_eq!(r.available, Some(false));
         assert_eq!(r.method_used, crate::types::CheckMethod::Rdap);
         assert_eq!(r.error_message.as_deref(), Some("kept"));
+    }
+
+    /// _for-sale.j78.nl is ~1.6 KB: too big for UDP, so the resolver must
+    /// fall back to TCP. hickory 0.26 gives up when parallel queries both
+    /// come back truncated, so lookups must use one nameserver at a time.
+    #[cfg(feature = "forsale")]
+    #[tokio::test]
+    async fn dns_lookup_large_rrset_falls_back_to_tcp() {
+        let config = crate::types::CheckConfig::default().with_for_sale(true);
+        let for_sale = ForSaleLookup::new(&config);
+        let resolver = for_sale.resolver.as_ref().expect("system resolver");
+        let info = lookup(resolver, "j78.nl", LOOKUP_TIMEOUT)
+            .await
+            .expect("_for-sale.j78.nl is published by SIDN");
+        assert!(info.prices.iter().any(|p| p.to_string() == "EUR 300000"));
     }
 }
