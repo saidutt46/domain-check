@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.1.0] - Unreleased
+## [1.1.0] - 2026-10-08
 
 ### RFC 10023 For-Sale Detection (Issue #33)
 
