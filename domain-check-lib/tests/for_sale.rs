@@ -67,13 +67,16 @@ async fn batch_and_stream_paths_annotate() {
     use futures_util::StreamExt;
     let checker = DomainChecker::with_config(CheckConfig::default().with_for_sale(true));
     let domains = vec!["example.nl".to_string()];
-    let batch = checker.check_domains(&domains).await.unwrap();
-    if !unconfirmed(batch[0].available) {
-        assert!(batch[0].for_sale.is_some());
+    // A 429 surfaces as Err; treat it like any other unconfirmed answer.
+    if let Ok(batch) = checker.check_domains(&domains).await {
+        if !unconfirmed(batch[0].available) {
+            assert!(batch[0].for_sale.is_some());
+        }
     }
     let streamed: Vec<_> = checker.check_domains_stream(&domains).collect().await;
-    let streamed = streamed[0].as_ref().unwrap();
-    if !unconfirmed(streamed.available) {
-        assert!(streamed.for_sale.is_some());
+    if let Ok(streamed) = &streamed[0] {
+        if !unconfirmed(streamed.available) {
+            assert!(streamed.for_sale.is_some());
+        }
     }
 }
