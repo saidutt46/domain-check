@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.1.1] - Unreleased
+
+### WHOIS Rewrite and For-Sale Follow-ups (Issues #33, #39)
+
+Thanks to Marco Davids for testing 1.1.0 and reporting both problems.
+
+### Fixed
+- **WHOIS results for many country-code TLDs.** A survey of 38 ccTLDs without RDAP found 19 with wrong or `UNKNOWN` results. For example, every registered `.it` domain showed `UNKNOWN`, and free `.be`, `.bg`, `.my`, `.mx`, `.at`, and `.lu` domains were not recognised. WHOIS replies are now read as fields (including `[key] value` and replies inside `%` comments) and checked against real replies from 43 registries
+- **False `AVAILABLE` from empty WHOIS replies.** Any reply shorter than 50 characters used to count as "available", so a failed or blocked lookup (for example on Windows) could report a registered domain as free. Unclear replies are now `UNKNOWN`
+- **For-sale lookups failed silently.** When the DNS server did not answer, a domain looked "not for sale". The CLI now prints one warning at the end, and MCP responses include `for_sale_errors`
+- **For-sale lookups skipped `UNKNOWN` domains.** They now run for every domain that is not `AVAILABLE`. If RDAP and WHOIS both fail but the domain publishes a `_for-sale` record, the result is `UNKNOWN` with the for-sale data instead of an error. The status is never changed
+
+### Added
+- `--dns-server <IP>` and `DC_DNS_SERVER` choose the DNS server for for-sale lookups. domain-check never switches to a public DNS server on its own
+- RDAP for `.ch` and `.li` (`rdap.nic.ch`, `rdap.nic.li`), which IANA's bootstrap file does not list and whose WHOIS refuses automated queries
+- Library: `DomainChecker::with_dns_server` and `DomainChecker::for_sale_failures` (returns `ForSaleFailures`)
+
+### Changed
+- WHOIS is built in: queries go over TCP port 43 directly (RFC 3912), so the system `whois` command is no longer needed. A registry address that does not answer (some publish an unreachable IPv4 or IPv6 address) no longer stalls the query
+- `.jp` WHOIS is queried in English (`/e`)
+- The RDAP-to-WHOIS fallback logic exists once instead of twice in `checker.rs`
+
+---
+
 ## [1.1.0] - 2026-10-08
 
 ### RFC 10023 For-Sale Detection (Issue #33)

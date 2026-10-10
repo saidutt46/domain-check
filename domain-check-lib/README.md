@@ -17,12 +17,12 @@ Rust library for checking domain availability using RDAP and WHOIS protocols. Th
 
 ## At a Glance
 
-- **1,200+ TLDs** via IANA bootstrap, 32 hardcoded as offline fallback
-- **Dual protocol** — RDAP-first with automatic WHOIS fallback via IANA server discovery
+- **1,200+ TLDs** via IANA bootstrap, 34 hardcoded as offline fallback
+- **Dual protocol** — RDAP-first with automatic WHOIS fallback via IANA server discovery (built-in WHOIS client, no system `whois` needed)
 - **Up to 100 concurrent checks** with configurable concurrency
 - **Streaming support** — process results as they arrive via `futures_util::Stream`
 - **Rich metadata** — registrar, creation/expiration dates, status codes, nameservers
-- **For-sale detection** — opt-in [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` lookups for taken domains (`forsale` feature)
+- **For-sale detection** — opt-in [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` lookups for registered domains (`forsale` feature)
 - **11 built-in TLD presets** — startup, tech, creative, finance, etc.
 - **Domain expansion** — expand base names across TLD lists automatically
 - **Comprehensive error types** — timeout, network, parse, bootstrap errors with recovery hints
@@ -163,11 +163,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("contact: {}", uri.value); // display only, never auto-open
         }
     }
+
+    // A failed lookup looks like "not for sale": tell the user.
+    if let Some(failures) = checker.for_sale_failures() {
+        eprintln!("{} for-sale lookups failed: {}", failures.count, failures.last_error);
+    }
     Ok(())
 }
 ```
 
-The lookup only runs for taken domains and never changes `available`. If you do your own DNS, the parser is always available without the feature: `domain_check_lib::parse_txt_records(&records)` takes each TXT record as its list of character-strings and returns `Some(ForSaleInfo)` when the domain is for sale. Text values are already sanitized (control and bidi characters removed).
+The lookup runs for taken and unknown domains and never changes `available`. If the availability check itself fails but the domain publishes a record, you get an UNKNOWN result with `for_sale` set instead of an error. Lookups use the operating system's DNS settings; `DomainChecker::with_dns_server(ip)` picks a server instead. If you do your own DNS, the parser is always available without the feature: `domain_check_lib::parse_txt_records(&records)` takes each TXT record as its list of character-strings and returns `Some(ForSaleInfo)` when the domain is for sale. Text values are already sanitized (control and bidi characters removed).
 
 ### TLD Management & Domain Expansion
 
@@ -184,7 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Pre-warm the IANA bootstrap cache for full TLD coverage
     initialize_bootstrap().await?;
 
-    // Get all known TLDs (1,200+ after bootstrap, 32 hardcoded offline)
+    // Get all known TLDs (1,200+ after bootstrap, 34 hardcoded offline)
     let all_tlds = get_all_known_tlds();
     println!("Loaded {} TLDs", all_tlds.len());
 
