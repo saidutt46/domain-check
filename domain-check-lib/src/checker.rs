@@ -4,12 +4,12 @@
 //! domain availability checking using RDAP, WHOIS, and bootstrap protocols.
 
 use crate::error::DomainCheckError;
-use crate::forsale::ForSaleLookup;
-use crate::protocols::registry::{extract_tld, get_whois_server};
+use crate::forsale::{ForSaleFailures, ForSaleLookup};
 use crate::protocols::{RdapClient, WhoisClient};
 use crate::types::{CheckConfig, CheckMethod, DomainResult};
 use crate::utils::validate_domain;
 use futures_util::stream::{Stream, StreamExt};
+use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -29,28 +29,15 @@ async fn check_availability_concurrent(
 
     // Try RDAP first
     match rdap_client.check_domain(domain).await {
-        Ok(result) => {
-            // RDAP succeeded, filter info based on configuration
-            let mut filtered_result = result;
-            if !config.detailed_info {
-                filtered_result.info = None;
-            }
-            Ok(filtered_result)
-        }
+        Ok(result) => Ok(filter_result_info(config, result)),
         Err(rdap_error) => {
             // RDAP failed, try WHOIS fallback if enabled
             if config.enable_whois_fallback {
-                // Discover WHOIS server for targeted query
-                let whois_result = whois_with_discovery(domain, whois_client).await;
+                // The client finds the registry's WHOIS server via IANA
+                let whois_result = whois_client.check_domain(domain).await;
 
                 match whois_result {
-                    Ok(whois_result) => {
-                        let mut filtered_result = whois_result;
-                        if !config.detailed_info {
-                            filtered_result.info = None;
-                        }
-                        Ok(filtered_result)
-                    }
+                    Ok(whois_result) => Ok(filter_result_info(config, whois_result)),
                     Err(whois_error) => {
                         // Both RDAP and WHOIS failed, determine best response
 
@@ -132,6 +119,14 @@ async fn check_availability_concurrent(
     }
 }
 
+/// Drop registration details unless `detailed_info` was requested.
+fn filter_result_info(config: &CheckConfig, mut result: DomainResult) -> DomainResult {
+    if !config.detailed_info {
+        result.info = None;
+    }
+    result
+}
+
 /// Availability check followed by the optional for-sale lookup.
 async fn check_single_domain_concurrent(
     domain: &str,
@@ -140,32 +135,12 @@ async fn check_single_domain_concurrent(
     config: &CheckConfig,
     for_sale: &ForSaleLookup,
 ) -> Result<DomainResult, DomainCheckError> {
-    let mut result =
-        check_availability_concurrent(domain, rdap_client, whois_client, config).await?;
-    for_sale.annotate(&mut result).await;
-    Ok(result)
-}
-
-/// Perform WHOIS check with server discovery for targeted queries.
-///
-/// If the TLD's authoritative WHOIS server can be discovered via IANA referral,
-/// uses `whois -h <server> <domain>` for a more reliable query. Falls back to
-/// bare `whois <domain>` otherwise.
-async fn whois_with_discovery(
-    domain: &str,
-    whois_client: &WhoisClient,
-) -> Result<DomainResult, DomainCheckError> {
-    let tld = extract_tld(domain).ok();
-    let whois_server = if let Some(ref t) = tld {
-        get_whois_server(t).await
-    } else {
-        None
-    };
-
-    if let Some(server) = whois_server {
-        whois_client.check_domain_with_server(domain, &server).await
-    } else {
-        whois_client.check_domain(domain).await
+    match check_availability_concurrent(domain, rdap_client, whois_client, config).await {
+        Ok(mut result) => {
+            for_sale.annotate(&mut result).await;
+            Ok(result)
+        }
+        Err(error) => for_sale.annotate_error(domain, error).await,
     }
 }
 
@@ -200,6 +175,8 @@ pub struct DomainChecker {
     whois_client: WhoisClient,
     /// RFC 10023 for-sale lookups (inactive unless enabled)
     for_sale: ForSaleLookup,
+    /// DNS server for for-sale lookups (None: the operating system's)
+    dns_server: Option<IpAddr>,
 }
 
 impl DomainChecker {
@@ -216,13 +193,14 @@ impl DomainChecker {
         let rdap_client = RdapClient::with_config(config.rdap_timeout, config.enable_bootstrap)
             .expect("Failed to create RDAP client");
         let whois_client = WhoisClient::with_timeout(config.whois_timeout);
-        let for_sale = ForSaleLookup::new(&config);
+        let for_sale = ForSaleLookup::new(&config, None);
 
         Self {
             config,
             rdap_client,
             whois_client,
             for_sale,
+            dns_server: None,
         }
     }
 
@@ -245,13 +223,14 @@ impl DomainChecker {
         let rdap_client = RdapClient::with_config(config.rdap_timeout, config.enable_bootstrap)
             .expect("Failed to create RDAP client");
         let whois_client = WhoisClient::with_timeout(config.whois_timeout);
-        let for_sale = ForSaleLookup::new(&config);
+        let for_sale = ForSaleLookup::new(&config, None);
 
         Self {
             config,
             rdap_client,
             whois_client,
             for_sale,
+            dns_server: None,
         }
     }
 
@@ -282,118 +261,14 @@ impl DomainChecker {
     /// - Network errors occur
     /// - All checking methods fail
     pub async fn check_domain(&self, domain: &str) -> Result<DomainResult, DomainCheckError> {
-        let mut result = self.check_availability(domain).await?;
-        self.for_sale.annotate(&mut result).await;
-        Ok(result)
-    }
-
-    /// RDAP-first availability check with WHOIS fallback (no for-sale lookup).
-    async fn check_availability(&self, domain: &str) -> Result<DomainResult, DomainCheckError> {
-        // Validate domain format first
-        validate_domain(domain)?;
-
-        // Try RDAP first
-        match self.rdap_client.check_domain(domain).await {
-            Ok(result) => {
-                // RDAP succeeded, filter info based on configuration
-                Ok(self.filter_result_info(result))
-            }
-            Err(rdap_error) => {
-                // RDAP failed, try WHOIS fallback if enabled
-                if self.config.enable_whois_fallback {
-                    // Use WHOIS with server discovery for targeted queries
-                    match whois_with_discovery(domain, &self.whois_client).await {
-                        Ok(whois_result) => Ok(self.filter_result_info(whois_result)),
-                        Err(whois_error) => {
-                            // Both RDAP and WHOIS failed, determine best response
-
-                            // Only trust "available" if BOTH protocols agree.
-                            // RDAP 404 alone is not reliable — some registries
-                            // (e.g. .moe) return 404 for registered domains.
-                            if rdap_error.indicates_available() && whois_error.indicates_available()
-                            {
-                                Ok(DomainResult {
-                                    domain: domain.to_string(),
-                                    available: Some(true),
-                                    info: None,
-                                    check_duration: None,
-                                    method_used: CheckMethod::Rdap,
-                                    error_message: None,
-                                    for_sale: None,
-                                })
-                            }
-                            // WHOIS alone indicates available (RDAP failed for
-                            // a different reason like timeout or 5xx)
-                            else if whois_error.indicates_available() {
-                                Ok(DomainResult {
-                                    domain: domain.to_string(),
-                                    available: Some(true),
-                                    info: None,
-                                    check_duration: None,
-                                    method_used: CheckMethod::Whois,
-                                    error_message: None,
-                                    for_sale: None,
-                                })
-                            }
-                            // Check if it's an unknown TLD or truly ambiguous case
-                            else if matches!(rdap_error, DomainCheckError::BootstrapError { .. })
-                                || matches!(whois_error, DomainCheckError::BootstrapError { .. })
-                                || rdap_error.indicates_available()
-                                || whois_error
-                                    .to_string()
-                                    .contains("Unable to determine domain status")
-                            {
-                                // RDAP 404 without WHOIS corroboration, unknown TLD,
-                                // or ambiguous WHOIS response → unknown status
-                                Ok(DomainResult {
-                                    domain: domain.to_string(),
-                                    available: None, // Unknown status
-                                    info: None,
-                                    check_duration: None,
-                                    method_used: CheckMethod::Unknown,
-                                    error_message: Some(
-                                        "Unable to verify — RDAP inconclusive and WHOIS unavailable"
-                                            .to_string(),
-                                    ),
-                                    for_sale: None,
-                                })
-                            } else {
-                                // Return the most informative error
-                                Err(rdap_error)
-                            }
-                        }
-                    }
-                } else {
-                    // No fallback enabled — if RDAP 404 indicates availability,
-                    // return it as available with a warning rather than a raw error.
-                    if rdap_error.indicates_available() {
-                        Ok(DomainResult {
-                            domain: domain.to_string(),
-                            available: Some(true),
-                            info: None,
-                            check_duration: None,
-                            method_used: CheckMethod::Rdap,
-                            error_message: Some(
-                                "RDAP 404 (unverified — WHOIS fallback disabled)".to_string(),
-                            ),
-                            for_sale: None,
-                        })
-                    } else {
-                        Err(rdap_error)
-                    }
-                }
-            }
-        }
-    }
-
-    /// Filter domain result info based on configuration.
-    ///
-    /// If detailed_info is disabled, removes the info field to keep results clean.
-    fn filter_result_info(&self, mut result: DomainResult) -> DomainResult {
-        if !self.config.detailed_info {
-            result.info = None;
-        }
-        result
+        check_single_domain_concurrent(
+            domain,
+            &self.rdap_client,
+            &self.whois_client,
+            &self.config,
+            &self.for_sale,
+        )
+        .await
     }
 
     /// Check availability of multiple domains concurrently.
@@ -669,6 +544,29 @@ impl DomainChecker {
         self.for_sale.is_active()
     }
 
+    /// Use `server` for `_for-sale` lookups instead of the operating
+    /// system's DNS settings. Nothing falls back to a public resolver on
+    /// its own: that would send the looked-up names to a third party.
+    ///
+    /// ```rust
+    /// use domain_check_lib::{CheckConfig, DomainChecker};
+    ///
+    /// let checker = DomainChecker::with_config(CheckConfig::default().with_for_sale(true))
+    ///     .with_dns_server("1.1.1.1".parse().unwrap());
+    /// ```
+    pub fn with_dns_server(mut self, server: IpAddr) -> Self {
+        self.dns_server = Some(server);
+        self.for_sale = ForSaleLookup::new(&self.config, self.dns_server);
+        self
+    }
+
+    /// `_for-sale` lookups that failed (timeout, unreachable DNS server, …)
+    /// since this checker was created. A failed lookup is indistinguishable
+    /// from "not for sale" in the results, so report this to the user.
+    pub fn for_sale_failures(&self) -> Option<ForSaleFailures> {
+        self.for_sale.failures()
+    }
+
     /// Update the configuration for this checker.
     ///
     /// This allows modifying settings like concurrency or timeout
@@ -679,7 +577,7 @@ impl DomainChecker {
         self.rdap_client = RdapClient::with_config(config.rdap_timeout, config.enable_bootstrap)
             .expect("Failed to recreate RDAP client");
         self.whois_client = WhoisClient::with_timeout(config.whois_timeout);
-        self.for_sale = ForSaleLookup::new(&config);
+        self.for_sale = ForSaleLookup::new(&config, self.dns_server);
         self.config = config;
     }
 }
@@ -770,7 +668,7 @@ mod tests {
             for_sale: None,
         };
 
-        let filtered = checker.filter_result_info(result);
+        let filtered = filter_result_info(&checker.config, result);
         assert!(filtered.info.is_none());
     }
 
@@ -792,7 +690,7 @@ mod tests {
             for_sale: None,
         };
 
-        let filtered = checker.filter_result_info(result);
+        let filtered = filter_result_info(&checker.config, result);
         assert!(filtered.info.is_some());
         assert_eq!(
             filtered.info.unwrap().registrar,
@@ -813,7 +711,7 @@ mod tests {
             for_sale: None,
         };
 
-        let filtered = checker.filter_result_info(result);
+        let filtered = filter_result_info(&checker.config, result);
         assert!(filtered.info.is_none());
         assert_eq!(filtered.available, Some(true));
     }

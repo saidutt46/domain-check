@@ -414,6 +414,7 @@ pub struct EnvConfig {
     pub bootstrap: Option<bool>,
     pub detailed_info: Option<bool>,
     pub for_sale: Option<bool>,
+    pub dns_server: Option<std::net::IpAddr>,
     pub json: Option<bool>,
     pub csv: Option<bool>,
     pub file: Option<String>,
@@ -605,6 +606,23 @@ pub fn load_env_config(verbose: bool) -> EnvConfig {
             _ => {
                 if verbose {
                     eprintln!("⚠️ Invalid DC_FOR_SALE='{}', use true/false", val);
+                }
+            }
+        }
+    }
+
+    // DC_DNS_SERVER - DNS server for for-sale lookups
+    if let Ok(val) = env::var("DC_DNS_SERVER") {
+        match val.trim().parse::<std::net::IpAddr>() {
+            Ok(ip) => {
+                env_config.dns_server = Some(ip);
+                if verbose {
+                    println!("🔧 Using DC_DNS_SERVER={}", ip);
+                }
+            }
+            Err(_) => {
+                if verbose {
+                    eprintln!("⚠️ Invalid DC_DNS_SERVER='{}', use an IP address", val);
                 }
             }
         }
@@ -1234,6 +1252,22 @@ tlds = ["com", "org"]
     fn test_defaults_for_sale_from_toml() {
         let cfg: FileConfig = toml::from_str("[defaults]\nfor_sale = true\n").unwrap();
         assert_eq!(cfg.defaults.unwrap().for_sale, Some(true));
+    }
+
+    #[test]
+    fn test_load_env_dns_server() {
+        with_env_vars(&[("DC_DNS_SERVER", " 9.9.9.9 ")], || {
+            assert_eq!(
+                load_env_config(false).dns_server,
+                Some("9.9.9.9".parse().unwrap())
+            );
+        });
+        with_env_vars(&[("DC_DNS_SERVER", "2606:4700:4700::1111")], || {
+            assert!(load_env_config(false).dns_server.is_some());
+        });
+        with_env_vars(&[("DC_DNS_SERVER", "dns.example")], || {
+            assert_eq!(load_env_config(false).dns_server, None);
+        });
     }
 
     #[test]

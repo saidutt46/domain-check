@@ -104,6 +104,9 @@ pub fn get_rdap_registry_map() -> HashMap<&'static str, &'static str> {
         ("nl", "https://rdap.sidn.nl/domain/"), // Netherlands
         ("br", "https://rdap.registro.br/domain/"), // Brazil
         ("in", "https://rdap.nixiregistry.in/rdap/domain/"), // India
+        // Not in IANA's bootstrap file, and their WHOIS refuses automated queries
+        ("ch", "https://rdap.nic.ch/domain/"), // Switzerland
+        ("li", "https://rdap.nic.li/domain/"), // Liechtenstein
         // Verisign managed ccTLDs
         ("tv", "https://rdap.nic.tv/domain/"), // Tuvalu
         ("cc", "https://tld-rdap.verisign.com/cc/v1/domain/"), // Cocos Islands
@@ -314,7 +317,7 @@ pub fn validate_preset_tlds(preset_tlds: &[String]) -> bool {
 /// Look up RDAP endpoint for a given TLD.
 ///
 /// Lookup flow:
-/// 1. Check hardcoded registry (32 TLDs) — instant, offline fallback
+/// 1. Check hardcoded registry (34 TLDs) — instant, offline fallback
 /// 2. Check bootstrap cache hit — O(1) HashMap lookup
 /// 3. Check negative cache (no_rdap set) — skip network if TLD known to lack RDAP
 /// 4. If cache empty or stale (24h): call fetch_full_bootstrap(), re-check
@@ -708,7 +711,7 @@ mod tests {
     #[test]
     fn test_registry_map_size() {
         let registry = get_rdap_registry_map();
-        // We have 32 hardcoded TLDs
+        // We have 34 hardcoded TLDs
         assert!(
             registry.len() >= 30,
             "Expected at least 30 entries, got {}",
