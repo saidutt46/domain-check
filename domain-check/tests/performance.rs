@@ -37,7 +37,7 @@ fn test_preset_performance() {
 
     let duration = start.elapsed();
 
-    // Preset should be faster than --all (8 TLDs vs 32)
+    // Preset should be faster than --all (8 TLDs vs 34)
     assert!(
         duration.as_secs() < 15,
         "Preset check took too long: {:?}",

@@ -107,7 +107,7 @@ pub struct Args {
     #[arg(short = 'i', long = "info", help_heading = "Output Format")]
     pub info: bool,
 
-    /// Show only taken domains that are for sale (implies --for-sale)
+    /// Show only domains that are for sale (implies --for-sale)
     #[arg(long = "only-for-sale", help_heading = "Output Format")]
     pub only_for_sale: bool,
 
@@ -144,9 +144,13 @@ pub struct Args {
     #[arg(long = "no-whois", help_heading = "Protocol")]
     pub no_whois: bool,
 
-    /// Check taken domains for an RFC 10023 _for-sale record
+    /// Check registered domains for an RFC 10023 _for-sale record
     #[arg(long = "for-sale", help_heading = "Protocol")]
     pub for_sale: bool,
+
+    /// DNS server for for-sale lookups (default: the system's DNS settings)
+    #[arg(long = "dns-server", value_name = "IP", help_heading = "Protocol")]
+    pub dns_server: Option<std::net::IpAddr>,
 
     /// Use specific config file instead of automatic discovery
     #[arg(long = "config", value_name = "FILE", help_heading = "Configuration")]
@@ -300,7 +304,7 @@ fn should_enable_bootstrap(args: &Args, _resolved_tlds: &Option<Vec<String>>) ->
 /// Main domain checking logic
 async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
     // Pre-warm bootstrap cache if --all mode is requested (so get_all_known_tlds()
-    // returns the full ~1,180 TLDs from IANA, not just the 32 hardcoded ones)
+    // returns the full ~1,180 TLDs from IANA, not just the 34 hardcoded ones)
     if args.all_tlds && !args.no_bootstrap {
         if args.verbose {
             println!("Fetching IANA bootstrap registry for full TLD coverage...");
@@ -312,7 +316,7 @@ async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Erro
                     e
                 );
             }
-            // Graceful degradation: continue with hardcoded 32 TLDs
+            // Graceful degradation: continue with hardcoded 34 TLDs
         }
     }
 
@@ -361,7 +365,15 @@ async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Erro
     }
 
     // Create domain checker
-    let checker = DomainChecker::with_config(config.clone());
+    let mut checker = DomainChecker::with_config(config.clone());
+    let dns_server = if config.check_for_sale {
+        resolve_dns_server(&args)
+    } else {
+        None
+    };
+    if let Some(server) = dns_server {
+        checker = checker.with_dns_server(server);
+    }
     if config.check_for_sale && !checker.for_sale_enabled() {
         eprintln!(
             "Warning: for-sale lookups unavailable (could not read system DNS configuration)"
@@ -382,7 +394,55 @@ async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Erro
         run_batch_check(&checker, &domains, &args).await?;
     }
 
+    // A failed lookup looks exactly like "not for sale", so say so.
+    if let Some(failures) = checker.for_sale_failures() {
+        eprintln!(
+            "{}",
+            for_sale_failure_warning(&failures, dns_server.is_none())
+        );
+    }
+
     Ok(())
+}
+
+/// DNS server for for-sale lookups: --dns-server, then DC_DNS_SERVER.
+fn resolve_dns_server(args: &Args) -> Option<std::net::IpAddr> {
+    if args.dns_server.is_some() {
+        return args.dns_server;
+    }
+    let from_env = load_env_config(false).dns_server;
+    if from_env.is_none() {
+        if let Some(val) = std::env::var("DC_DNS_SERVER")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+        {
+            eprintln!(
+                "Warning: ignoring DC_DNS_SERVER='{}' (not an IP address)",
+                val
+            );
+        }
+    }
+    from_env
+}
+
+fn for_sale_failure_warning(
+    failures: &domain_check_lib::ForSaleFailures,
+    suggest_dns_server: bool,
+) -> String {
+    let lookups = if failures.count == 1 {
+        "lookup"
+    } else {
+        "lookups"
+    };
+    let hint = if suggest_dns_server {
+        " Try --dns-server <IP>."
+    } else {
+        ""
+    };
+    format!(
+        "Warning: {} for-sale {} failed, so for-sale domains may be missing ({}).{}",
+        failures.count, lookups, failures.last_error, hint
+    )
 }
 
 /// Determine whether to use streaming or batch mode
@@ -1223,6 +1283,7 @@ mod tests {
             help: false,
             for_sale: false,
             only_for_sale: false,
+            dns_server: None,
         }
     }
 

@@ -5,8 +5,8 @@
 `UNKNOWN` typically means the check could not be completed reliably, for example:
 - timeout
 - temporary network issues
-- registry response differences
-- parsing limitations on specific WHOIS servers
+- the registry offers no public WHOIS for automated queries (e.g. `.es`, `.gr`, `.vn`) and has no RDAP
+- the WHOIS server rate-limited or refused the query
 
 Try again with:
 
@@ -21,6 +21,8 @@ For automation, treat `UNKNOWN` as retryable unless your policy says otherwise.
 `domain-check` is RDAP-first and uses WHOIS as fallback.
 - RDAP is structured and generally easier to parse correctly.
 - WHOIS is less standardized and varies by registry.
+
+An RDAP "not found" is only trusted when WHOIS agrees, because some RDAP servers have answered "not found" for registered names. The exception is a registry that runs no WHOIS at all (for example `.dev` and `.app`): there RDAP is the only official source, so its answer is final.
 
 In borderline cases, retry and validate against registry-native tools if needed.
 
@@ -55,7 +57,13 @@ If schema stability matters, pin tool version and validate expected fields in yo
 
 ## What does `(for sale)` mean?
 
-With `--for-sale`, the domain holder has published an [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` DNS record saying the taken domain is available to buy. It's a signal from the holder, not a guarantee: prices are indicative and the holder can withdraw the offer at any time, so confirm with the seller. If the record is missing, that tells you nothing; most domains never publish one.
+With `--for-sale`, the domain holder has published an [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` DNS record saying the registered domain is available to buy. It's a signal from the holder, not a guarantee: prices are indicative and the holder can withdraw the offer at any time, so confirm with the seller. If the record is missing, that tells you nothing; most domains never publish one.
+
+## Why do I see "for-sale lookups failed"?
+
+The `_for-sale` lookup is a DNS query. If your DNS server does not answer, domain-check cannot know whether a domain is for sale, so it warns you instead of reporting "not for sale". This can happen when your system points to a DNS server that is not running (for example a local resolver on `127.0.0.1`), or when a VPN changes your DNS settings.
+
+Choose a DNS server that works with `--dns-server <IP>` or `DC_DNS_SERVER`. domain-check never switches to a public DNS server on its own.
 
 ## How can I speed up large checks?
 

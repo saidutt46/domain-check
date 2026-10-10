@@ -663,7 +663,7 @@ domain-check example.co    # .co WHOIS discovered via whois.iana.org
 
 ```bash
 # Disable bootstrap for deterministic, offline-capable checks
-# (limited to 32 hardcoded TLDs with known RDAP endpoints)
+# (limited to 34 hardcoded TLDs with known RDAP endpoints)
 domain-check myapp --all --no-bootstrap
 
 # Useful for CI environments with network restrictions

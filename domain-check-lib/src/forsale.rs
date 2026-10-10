@@ -4,9 +4,12 @@
 //! signal that a registered domain is available for purchase. The parser here
 //! is pure; the DNS lookup is compiled only with the `forsale` feature.
 
+use crate::error::DomainCheckError;
 use crate::types::{CheckConfig, DomainResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::net::IpAddr;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Leaf node name reserved by RFC 10023.
@@ -234,39 +237,71 @@ fn is_bidi_control(c: char) -> bool {
 /// Upper bound for one `_for-sale` lookup; also capped by the check timeout.
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Runs `_for-sale` lookups for taken results. Inactive when not requested,
-/// when built without the `forsale` feature, or when the system resolver
-/// configuration cannot be read.
+/// Lookups that could not be answered (as opposed to "no record").
+///
+/// A failed lookup looks exactly like a domain that is not for sale, so
+/// callers should tell the user when this is non-empty. See
+/// [`DomainChecker::for_sale_failures`](crate::DomainChecker::for_sale_failures).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ForSaleFailures {
+    /// Number of `_for-sale` lookups that failed
+    pub count: usize,
+    /// The most recent failure, including the DNS server(s) asked
+    pub last_error: String,
+}
+
+/// Result of one `_for-sale` query.
+#[cfg(feature = "forsale")]
+#[derive(Debug)]
+enum Outcome {
+    Found(ForSaleInfo),
+    NotForSale,
+    Failed(String),
+}
+
+/// Runs `_for-sale` lookups for results that are not AVAILABLE. Inactive
+/// when not requested, when built without the `forsale` feature, or when
+/// the system resolver configuration cannot be read.
 #[derive(Clone)]
 pub(crate) struct ForSaleLookup {
     #[cfg(feature = "forsale")]
     resolver: Option<hickory_resolver::TokioResolver>,
+    /// The DNS servers in use, for error messages
+    #[cfg_attr(not(feature = "forsale"), allow(dead_code))]
+    servers: Arc<str>,
     #[cfg_attr(not(feature = "forsale"), allow(dead_code))]
     timeout: Duration,
+    failures: Arc<Mutex<Option<ForSaleFailures>>>,
 }
 
 impl ForSaleLookup {
-    pub(crate) fn new(config: &CheckConfig) -> Self {
+    /// `dns_server` replaces the operating system's resolvers.
+    pub(crate) fn new(config: &CheckConfig, dns_server: Option<IpAddr>) -> Self {
         let timeout = config.timeout.min(LOOKUP_TIMEOUT);
+        let failures = Arc::default();
         #[cfg(feature = "forsale")]
         {
-            let resolver = config
-                .check_for_sale
-                .then(|| {
-                    let mut builder = hickory_resolver::TokioResolver::builder_tokio().ok()?;
-                    // hickory 0.26 gives up instead of retrying over TCP when two
-                    // parallel UDP queries both come back truncated, so large
-                    // RRsets (e.g. _for-sale.j78.nl) would silently go missing.
-                    builder.options_mut().num_concurrent_reqs = 1;
-                    builder.build().ok()
-                })
-                .flatten();
-            Self { resolver, timeout }
+            let (resolver, servers) = if config.check_for_sale {
+                build_resolver(dns_server).map_or((None, "".into()), |(r, s)| (Some(r), s))
+            } else {
+                (None, "".into())
+            };
+            Self {
+                resolver,
+                servers,
+                timeout,
+                failures,
+            }
         }
         #[cfg(not(feature = "forsale"))]
         {
-            let _ = config.check_for_sale;
-            Self { timeout }
+            let _ = (config.check_for_sale, dns_server);
+            Self {
+                servers: "".into(),
+                timeout,
+                failures,
+            }
         }
     }
 
@@ -281,33 +316,127 @@ impl ForSaleLookup {
         }
     }
 
-    /// Attach for-sale info to a taken result. Never fails and never
-    /// changes the availability verdict.
+    /// Lookups that failed so far, if any.
+    pub(crate) fn failures(&self) -> Option<ForSaleFailures> {
+        self.failures.lock().ok()?.clone()
+    }
+
+    /// Attach for-sale info to a result that is not AVAILABLE. Never fails
+    /// and never changes the availability verdict.
     pub(crate) async fn annotate(&self, result: &mut DomainResult) {
+        if result.available != Some(true) {
+            result.for_sale = self.lookup_domain(&result.domain).await;
+        }
+    }
+
+    /// Turn a failed availability check into an UNKNOWN result when the
+    /// domain publishes a `_for-sale` record (a record means it is
+    /// registered, even when RDAP and WHOIS could not say so).
+    pub(crate) async fn annotate_error(
+        &self,
+        domain: &str,
+        error: DomainCheckError,
+    ) -> Result<DomainResult, DomainCheckError> {
+        if matches!(error, DomainCheckError::InvalidDomain { .. }) || !self.is_active() {
+            return Err(error);
+        }
+        match self.lookup_domain(domain).await {
+            Some(info) => Ok(DomainResult {
+                domain: domain.to_string(),
+                available: None,
+                info: None,
+                check_duration: None,
+                method_used: crate::types::CheckMethod::Unknown,
+                error_message: Some(error.to_string()),
+                for_sale: Some(info),
+            }),
+            None => Err(error),
+        }
+    }
+
+    async fn lookup_domain(&self, domain: &str) -> Option<ForSaleInfo> {
         #[cfg(feature = "forsale")]
-        if let (Some(resolver), Some(false)) = (&self.resolver, result.available) {
-            result.for_sale = lookup(resolver, &result.domain, self.timeout).await;
+        if let Some(resolver) = &self.resolver {
+            match lookup(resolver, domain, self.timeout).await {
+                Outcome::Found(info) => return Some(info),
+                Outcome::NotForSale => {}
+                Outcome::Failed(error) => self.record_failure(error),
+            }
         }
         #[cfg(not(feature = "forsale"))]
-        let _ = result;
+        let _ = domain;
+        None
     }
+
+    #[cfg(feature = "forsale")]
+    fn record_failure(&self, error: String) {
+        if let Ok(mut failures) = self.failures.lock() {
+            let entry = failures.get_or_insert(ForSaleFailures {
+                count: 0,
+                last_error: String::new(),
+            });
+            entry.count += 1;
+            entry.last_error = format!("DNS server {}: {error}", self.servers);
+        }
+    }
+}
+
+/// Build a resolver for `dns_server`, or for the operating system's DNS
+/// settings. Returns it with a printable list of the servers it will ask.
+#[cfg(feature = "forsale")]
+fn build_resolver(
+    dns_server: Option<IpAddr>,
+) -> Option<(hickory_resolver::TokioResolver, Arc<str>)> {
+    use hickory_resolver::config::{NameServerConfig, ResolverConfig, ResolverOpts};
+    use hickory_resolver::net::runtime::TokioRuntimeProvider;
+
+    let (config, mut options) = match dns_server {
+        Some(ip) => (
+            ResolverConfig::from_name_servers(vec![NameServerConfig::udp_and_tcp(ip)]),
+            ResolverOpts::default(),
+        ),
+        None => hickory_resolver::system_conf::read_system_conf().ok()?,
+    };
+    let mut servers: Vec<String> = config
+        .name_servers()
+        .iter()
+        .map(|ns| ns.ip.to_string())
+        .collect();
+    servers.dedup();
+    // hickory 0.26 gives up instead of retrying over TCP when two parallel
+    // UDP queries both come back truncated, so large RRsets (e.g.
+    // _for-sale.j78.nl) would silently go missing.
+    options.num_concurrent_reqs = 1;
+    let mut builder = hickory_resolver::TokioResolver::builder_with_config(
+        config,
+        TokioRuntimeProvider::default(),
+    );
+    *builder.options_mut() = options;
+    Some((builder.build().ok()?, servers.join(", ").into()))
+}
+
+/// Errors caused by the queried domain's own DNS (SERVFAIL: broken
+/// delegation or DNSSEC), not by the user's resolver. Nothing to report:
+/// such a domain cannot publish a readable record anyway.
+#[cfg(feature = "forsale")]
+fn is_domain_side_error(error: &hickory_resolver::net::NetError) -> bool {
+    use hickory_resolver::net::{DnsError, NetError};
+    use hickory_resolver::proto::op::ResponseCode;
+
+    matches!(
+        error,
+        NetError::Dns(DnsError::ResponseCode(ResponseCode::ServFail))
+    )
 }
 
 #[cfg(all(test, feature = "forsale"))]
 impl ForSaleLookup {
     /// Test-only: a lookup that queries a single, specific nameserver.
-    fn with_nameserver(ip: std::net::IpAddr, timeout: Duration) -> Self {
-        use hickory_resolver::config::{NameServerConfig, ResolverConfig};
-        use hickory_resolver::net::runtime::TokioRuntimeProvider;
-
-        let config = ResolverConfig::from_name_servers(vec![NameServerConfig::udp(ip)]);
-        let resolver = hickory_resolver::TokioResolver::builder_with_config(
-            config,
-            TokioRuntimeProvider::default(),
-        )
-        .build()
-        .ok();
-        Self { resolver, timeout }
+    fn with_nameserver(ip: IpAddr, timeout: Duration) -> Self {
+        let config = CheckConfig::default()
+            .with_for_sale(true)
+            .with_timeout(timeout);
+        Self::new(&config, Some(ip))
     }
 }
 
@@ -316,14 +445,20 @@ async fn lookup(
     resolver: &hickory_resolver::TokioResolver,
     domain: &str,
     timeout: Duration,
-) -> Option<ForSaleInfo> {
+) -> Outcome {
     use hickory_resolver::proto::rr::RData;
 
-    let name = record_name(domain)?;
-    let answer = tokio::time::timeout(timeout, resolver.txt_lookup(name.as_str()))
-        .await
-        .ok()?
-        .ok()?;
+    let Some(name) = record_name(domain) else {
+        return Outcome::NotForSale;
+    };
+    let answer = match tokio::time::timeout(timeout, resolver.txt_lookup(name.as_str())).await {
+        Err(_) => return Outcome::Failed(format!("no answer within {timeout:?}")),
+        Ok(Err(e)) if e.is_no_records_found() || e.is_nx_domain() || is_domain_side_error(&e) => {
+            return Outcome::NotForSale
+        }
+        Ok(Err(e)) => return Outcome::Failed(e.to_string()),
+        Ok(Ok(answer)) => answer,
+    };
     let records: Vec<Vec<Vec<u8>>> = answer
         .answers()
         .iter()
@@ -332,7 +467,10 @@ async fn lookup(
             _ => None,
         })
         .collect();
-    parse_txt_records(&records)
+    match parse_txt_records(&records) {
+        Some(info) => Outcome::Found(info),
+        None => Outcome::NotForSale,
+    }
 }
 
 #[cfg(test)]
@@ -623,7 +761,7 @@ mod tests {
 
     #[test]
     fn lookup_inactive_when_not_requested() {
-        let lookup = ForSaleLookup::new(&crate::types::CheckConfig::default());
+        let lookup = ForSaleLookup::new(&crate::types::CheckConfig::default(), None);
         assert!(!lookup.is_active());
     }
 
@@ -631,20 +769,72 @@ mod tests {
     #[test]
     fn lookup_inactive_without_feature() {
         let config = crate::types::CheckConfig::default().with_for_sale(true);
-        assert!(!ForSaleLookup::new(&config).is_active());
+        assert!(!ForSaleLookup::new(&config, None).is_active());
     }
 
     #[cfg(feature = "forsale")]
     #[tokio::test]
-    async fn annotate_skips_non_taken_results() {
+    async fn annotate_skips_available_results() {
         let config = crate::types::CheckConfig::default().with_for_sale(true);
-        let lookup = ForSaleLookup::new(&config);
-        for available in [Some(true), None] {
-            let mut r = taken("example.nl");
-            r.available = available;
-            lookup.annotate(&mut r).await;
-            assert!(r.for_sale.is_none());
-        }
+        let lookup = ForSaleLookup::new(&config, None);
+        let mut r = taken("example.nl");
+        r.available = Some(true);
+        lookup.annotate(&mut r).await;
+        assert!(r.for_sale.is_none());
+    }
+
+    /// UNKNOWN results (RDAP and WHOIS both failed) still get the lookup:
+    /// a record means the domain is registered and for sale (#39).
+    #[cfg(feature = "forsale")]
+    #[tokio::test]
+    async fn annotate_looks_up_unknown_results() {
+        let config = crate::types::CheckConfig::default().with_for_sale(true);
+        let lookup = ForSaleLookup::new(&config, None);
+        let mut r = taken("example.nl");
+        r.available = None;
+        lookup.annotate(&mut r).await;
+        assert!(r.for_sale.is_some(), "example.nl publishes _for-sale");
+        assert_eq!(r.available, None, "status must not change");
+    }
+
+    #[cfg(feature = "forsale")]
+    #[tokio::test]
+    async fn failed_check_with_record_becomes_unknown_for_sale() {
+        let config = crate::types::CheckConfig::default().with_for_sale(true);
+        let lookup = ForSaleLookup::new(&config, None);
+        let err = DomainCheckError::whois("example.nl", "WHOIS server refused the query");
+        let r = lookup
+            .annotate_error("example.nl", err)
+            .await
+            .expect("record turns the error into a result");
+        assert_eq!(r.available, None);
+        assert!(r.for_sale.is_some());
+        assert!(r.error_message.is_some(), "the original error is kept");
+    }
+
+    #[cfg(feature = "forsale")]
+    #[tokio::test]
+    async fn failed_check_without_record_stays_an_error() {
+        let config = crate::types::CheckConfig::default().with_for_sale(true);
+        let lookup = ForSaleLookup::new(&config, None);
+        let err = DomainCheckError::whois("google.com", "boom");
+        assert!(lookup.annotate_error("google.com", err).await.is_err());
+        let invalid = DomainCheckError::invalid_domain("bad..name", "empty label");
+        assert!(matches!(
+            lookup.annotate_error("bad..name", invalid).await,
+            Err(DomainCheckError::InvalidDomain { .. })
+        ));
+    }
+
+    #[cfg(feature = "forsale")]
+    #[tokio::test]
+    async fn no_record_is_not_a_failure() {
+        let config = crate::types::CheckConfig::default().with_for_sale(true);
+        let lookup = ForSaleLookup::new(&config, None);
+        let mut r = taken("google.com");
+        lookup.annotate(&mut r).await;
+        assert!(r.for_sale.is_none());
+        assert_eq!(lookup.failures(), None);
     }
 
     /// Exercises DNS + parsing directly, independent of RDAP (which SIDN rate-limits).
@@ -652,11 +842,11 @@ mod tests {
     #[tokio::test]
     async fn dns_lookup_example_nl_without_rdap() {
         let config = crate::types::CheckConfig::default().with_for_sale(true);
-        let for_sale = ForSaleLookup::new(&config);
+        let for_sale = ForSaleLookup::new(&config, None);
         let resolver = for_sale.resolver.as_ref().expect("system resolver");
-        let info = lookup(resolver, "example.nl", LOOKUP_TIMEOUT)
-            .await
-            .expect("_for-sale.example.nl is published by SIDN");
+        let Outcome::Found(info) = lookup(resolver, "example.nl", LOOKUP_TIMEOUT).await else {
+            panic!("_for-sale.example.nl is published by SIDN");
+        };
         assert!(info.prices.iter().any(|p| p.to_string() == "EUR 100000000"));
         assert!(info.first_trusted_uri().is_some());
         assert!(!info.codes.is_empty());
@@ -683,6 +873,38 @@ mod tests {
         assert_eq!(r.available, Some(false));
         assert_eq!(r.method_used, crate::types::CheckMethod::Rdap);
         assert_eq!(r.error_message.as_deref(), Some("kept"));
+
+        // The failure is reported, not mistaken for "no record".
+        let failures = for_sale.failures().expect("timeout is a failure");
+        assert_eq!(failures.count, 1);
+        assert!(failures.last_error.contains("192.0.2.1"), "{failures:?}");
+    }
+
+    /// SERVFAIL for one name means that domain's own DNS is broken (e.g.
+    /// _for-sale.mybrand.org); the user's resolver is fine, so it is not a
+    /// lookup failure to warn about. REFUSED is the resolver refusing us.
+    #[cfg(feature = "forsale")]
+    #[test]
+    fn servfail_is_the_domains_problem_not_the_resolvers() {
+        use hickory_resolver::net::{DnsError, NetError};
+        use hickory_resolver::proto::op::ResponseCode;
+
+        let servfail = NetError::Dns(DnsError::ResponseCode(ResponseCode::ServFail));
+        assert!(is_domain_side_error(&servfail));
+        let refused = NetError::Dns(DnsError::ResponseCode(ResponseCode::Refused));
+        assert!(!is_domain_side_error(&refused));
+        assert!(!is_domain_side_error(&NetError::Timeout));
+    }
+
+    #[cfg(feature = "forsale")]
+    #[tokio::test]
+    async fn failures_are_shared_between_clones() {
+        let timeout = std::time::Duration::from_millis(200);
+        let for_sale = ForSaleLookup::with_nameserver("192.0.2.1".parse().unwrap(), timeout);
+        let clone = for_sale.clone();
+        clone.annotate(&mut taken("a.example")).await;
+        for_sale.annotate(&mut taken("b.example")).await;
+        assert_eq!(for_sale.failures().map(|f| f.count), Some(2));
     }
 
     /// _for-sale.j78.nl is ~1.6 KB: too big for UDP, so the resolver must
@@ -692,18 +914,23 @@ mod tests {
     #[tokio::test]
     async fn dns_lookup_large_rrset_falls_back_to_tcp() {
         let config = crate::types::CheckConfig::default().with_for_sale(true);
-        let for_sale = ForSaleLookup::new(&config);
+        let for_sale = ForSaleLookup::new(&config, None);
         let resolver = for_sale.resolver.as_ref().expect("system resolver");
         // Generous timeout: this checks that TCP fallback works, not how fast
         // the runner's resolver is (CI macOS needed more than 3s).
-        let info = lookup(resolver, "j78.nl", std::time::Duration::from_secs(15)).await;
+        let outcome = lookup(resolver, "j78.nl", std::time::Duration::from_secs(15)).await;
         // GitHub's macOS runners don't answer DNS over TCP at all (the lookup
         // hangs until the timeout), so there is nothing to test there.
-        if info.is_none() && cfg!(target_os = "macos") && std::env::var_os("CI").is_some() {
+        if matches!(outcome, Outcome::Failed(_))
+            && cfg!(target_os = "macos")
+            && std::env::var_os("CI").is_some()
+        {
             eprintln!("skipped: CI resolver does not answer DNS over TCP");
             return;
         }
-        let info = info.expect("_for-sale.j78.nl is published by SIDN");
+        let Outcome::Found(info) = outcome else {
+            panic!("_for-sale.j78.nl is published by SIDN, got {outcome:?}");
+        };
         assert!(info.prices.iter().any(|p| p.to_string() == "EUR 300000"));
     }
 }

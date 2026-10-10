@@ -1,0 +1,20 @@
+% TCI Whois Service. Terms of use:
+% https://tcinet.ru/documents/whois_ru_rf.pdf (in Russian)
+% https://tcinet.ru/documents/whois_su.pdf (in Russian)
+
+domain:        GOOGLE.RU
+nserver:       ns1.google.com.
+nserver:       ns2.google.com.
+nserver:       ns3.google.com.
+nserver:       ns4.google.com.
+state:         REGISTERED, DELEGATED, VERIFIED
+org:
+taxpayer-id:
+registrar:     RU-CENTER-RU
+admin-contact: https://www.nic.ru/whois
+created:       2004-03-03T21:00:00Z
+paid-till:     2027-03-04T21:00:00Z
+free-date:     2027-04-05
+source:        TCI
+
+Last updated on 2026-10-10T05:38:01Z

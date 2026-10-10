@@ -113,11 +113,7 @@ pub fn print_custom_help() {
     print_flag("", "--csv", "Output results in CSV format");
     print_flag("-p", "--pretty", "Grouped output with section headers");
     print_flag("-i", "--info", "Show detailed domain information");
-    print_flag(
-        "",
-        "--only-for-sale",
-        "Show only taken domains that are for sale",
-    );
+    print_flag("", "--only-for-sale", "Show only domains that are for sale");
     print_flag("", "--batch", "Collect all results before displaying");
     print_flag("", "--streaming", "Show results as they complete");
 
@@ -142,7 +138,12 @@ pub fn print_custom_help() {
     print_flag(
         "",
         "--for-sale",
-        "Check taken domains for RFC 10023 for-sale records",
+        "Check registered domains for RFC 10023 for-sale records",
+    );
+    print_flag(
+        "",
+        "--dns-server <IP>",
+        "DNS server for for-sale lookups (default: system)",
     );
 
     // CONFIGURATION
@@ -347,12 +348,14 @@ pub fn print_result(
         None => {
             let reason = brief_error(result);
             println!(
-                "  {}{}  {}  {}",
+                "  {}{}  {}  {}{}",
                 prefix,
                 style(&padded_domain).white(),
                 style("UNKNOWN").yellow(),
                 style(reason).dim(),
+                for_sale_suffix(result),
             );
+            print_for_sale_details(result, show_info, "    ");
         }
     }
 
@@ -417,12 +420,14 @@ pub fn print_result_default(
         None => {
             let reason = brief_error(result);
             println!(
-                "{}{} {} {}",
+                "{}{} {} {}{}",
                 prefix,
                 result.domain,
                 style("UNKNOWN").yellow(),
                 style(reason).dim(),
+                for_sale_suffix(result),
             );
+            print_for_sale_details(result, show_info, "    ");
         }
     }
 
@@ -525,7 +530,13 @@ fn print_grouped_line(result: &DomainResult, show_info: bool, debug: bool) {
         }
         None => {
             let reason = brief_error(result);
-            println!("    {}  {}", style(&padded).white(), style(reason).dim());
+            println!(
+                "    {}  {}{}",
+                style(&padded).white(),
+                style(reason).dim(),
+                for_sale_suffix(result)
+            );
+            print_for_sale_details(result, show_info, "      ");
         }
     }
 
@@ -670,7 +681,13 @@ fn brief_error(result: &DomainResult) -> &str {
     match &result.error_message {
         Some(msg) => {
             let m = msg.to_lowercase();
-            if m.contains("timeout") || m.contains("timed out") {
+            if m.contains("rate limit") {
+                "(rate limited)"
+            } else if m.contains("refused the query") {
+                "(WHOIS refused)"
+            } else if m.contains("no whois service") || m.contains("no whois server") {
+                "(no WHOIS service)"
+            } else if m.contains("timeout") || m.contains("timed out") {
                 "(timeout)"
             } else if m.contains("network") || m.contains("dns") || m.contains("connect") {
                 "(network error)"
@@ -769,6 +786,22 @@ mod tests {
     fn test_brief_error_bootstrap() {
         let r = make_result_with_error("bootstrap registry failed");
         assert_eq!(brief_error(&r), "(unknown TLD)");
+    }
+
+    #[test]
+    fn test_brief_error_whois_reasons() {
+        let r = make_result_with_error(
+            "Unable to verify — RDAP inconclusive; WHOIS: whois.dns.lu rate limited the query",
+        );
+        assert_eq!(brief_error(&r), "(rate limited)");
+        let r = make_result_with_error(
+            "Unable to verify — RDAP inconclusive; WHOIS: WHOIS server refused the query",
+        );
+        assert_eq!(brief_error(&r), "(WHOIS refused)");
+        let r = make_result_with_error(
+            "Unable to verify — RDAP inconclusive; WHOIS: the registry offers no WHOIS service",
+        );
+        assert_eq!(brief_error(&r), "(no WHOIS service)");
     }
 
     #[test]

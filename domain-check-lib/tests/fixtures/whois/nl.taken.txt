@@ -1,0 +1,28 @@
+Domain name: google.nl
+Status:      active
+
+Registrar:
+   MarkMonitor Inc.
+   1120 S. Rackham Way Suite 300 IDAHO
+   83642 Meridian
+   United States of America
+
+DNSSEC:      no
+
+Domain nameservers:
+   ns1.google.com
+   ns2.google.com
+   ns3.google.com
+   ns4.google.com
+
+Creation Date: 1999-05-27
+
+Updated Date: 2025-04-18
+
+Record maintained by: SIDN BV
+
+As the registrant's address is not in the Netherlands, the registrant is
+obliged by the General Terms and Conditions for .nl Registrants to use
+SIDN's registered office address as a domicile address. More information
+on the use of a domicile address may be found at
+https://www.sidn.nl/en/nl-domain-name/domicile-address
