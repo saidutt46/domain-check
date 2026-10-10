@@ -403,3 +403,18 @@ async fn test_rdap_404_no_whois_still_works() {
         "Should include a warning that result is unverified"
     );
 }
+
+/// .dev runs RDAP only (no WHOIS server at IANA). Free names used to show
+/// UNKNOWN because RDAP 404 waited for a WHOIS confirmation that can't exist.
+#[tokio::test]
+async fn rdap_only_registry_reports_free_and_taken() {
+    let checker = domain_check_lib::DomainChecker::new();
+    let free = checker.check_domain("zq7x9k2m4ptest.dev").await.unwrap();
+    let taken = checker.check_domain("google.dev").await.unwrap();
+    if free.available.is_none() && taken.available.is_none() {
+        eprintln!("skipped: Google RDAP unreachable");
+        return;
+    }
+    assert_eq!(free.available, Some(true), "{free:?}");
+    assert_eq!(taken.available, Some(false), "{taken:?}");
+}

@@ -22,6 +22,8 @@ For automation, treat `UNKNOWN` as retryable unless your policy says otherwise.
 - RDAP is structured and generally easier to parse correctly.
 - WHOIS is less standardized and varies by registry.
 
+An RDAP "not found" is only trusted when WHOIS agrees, because some RDAP servers have answered "not found" for registered names. The exception is a registry that runs no WHOIS at all (for example `.dev` and `.app`): there RDAP is the only official source, so its answer is final.
+
 In borderline cases, retry and validate against registry-native tools if needed.
 
 ## What does `--no-bootstrap` do?

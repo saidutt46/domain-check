@@ -41,10 +41,14 @@ async fn check_availability_concurrent(
                     Err(whois_error) => {
                         // Both RDAP and WHOIS failed, determine best response
 
-                        // Only trust "available" if BOTH protocols agree.
+                        // Only trust RDAP 404 when WHOIS agrees, or when the
+                        // registry has no WHOIS to ask (e.g. .dev, .app).
                         // RDAP 404 alone is not reliable — some registries
                         // (e.g. .moe) return 404 for registered domains.
-                        if rdap_error.indicates_available() && whois_error.indicates_available() {
+                        if rdap_404_is_final(&rdap_error, &whois_error)
+                            || (rdap_error.indicates_available()
+                                && whois_error.indicates_available())
+                        {
                             Ok(DomainResult {
                                 domain: domain.to_string(),
                                 available: Some(true),
@@ -122,6 +126,14 @@ async fn check_availability_concurrent(
             }
         }
     }
+}
+
+/// RDAP 404 normally needs WHOIS to confirm it (some RDAP servers have
+/// answered 404 for registered names). When IANA lists no WHOIS server for
+/// the TLD there is nothing to confirm with, and RDAP is the registry's only
+/// official source, so the 404 stands.
+fn rdap_404_is_final(rdap_error: &DomainCheckError, whois_error: &DomainCheckError) -> bool {
+    rdap_error.indicates_available() && crate::protocols::whois::is_no_whois_service(whois_error)
 }
 
 /// Drop registration details unless `detailed_info` was requested.
@@ -596,6 +608,25 @@ impl Default for DomainChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── RDAP 404 without any WHOIS service ──────────────────────────────
+
+    #[test]
+    fn rdap_404_is_final_only_when_registry_has_no_whois() {
+        let not_found = DomainCheckError::rdap_with_status("x.dev", "not found", 404);
+        let no_whois = crate::protocols::whois::no_whois_service_error("x.dev");
+        assert!(rdap_404_is_final(&not_found, &no_whois));
+
+        // WHOIS exists but could not answer: keep requiring confirmation.
+        let refused = DomainCheckError::whois("x.moe", "WHOIS server refused the query");
+        assert!(!rdap_404_is_final(&not_found, &refused));
+        let timeout = DomainCheckError::timeout("WHOIS query", std::time::Duration::from_secs(5));
+        assert!(!rdap_404_is_final(&not_found, &timeout));
+
+        // Not a 404: nothing to trust.
+        let server_error = DomainCheckError::rdap_with_status("x.dev", "boom", 500);
+        assert!(!rdap_404_is_final(&server_error, &no_whois));
+    }
     use crate::types::DomainInfo;
     use std::time::Duration;
 

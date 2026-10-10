@@ -27,6 +27,9 @@ const IANA_WHOIS_SERVER: &str = "whois.iana.org";
 /// The checker matches on this text to report UNKNOWN.
 const UNDETERMINED: &str = "Unable to determine domain status from WHOIS response";
 
+/// Message for TLDs whose registry offers RDAP only.
+const NO_WHOIS_SERVICE: &str = "the registry offers no WHOIS service";
+
 /// WHOIS client for checking domain availability.
 #[derive(Clone)]
 pub struct WhoisClient {
@@ -51,11 +54,12 @@ impl WhoisClient {
     /// through IANA.
     pub async fn check_domain(&self, domain: &str) -> Result<DomainResult, DomainCheckError> {
         let tld = crate::protocols::registry::extract_tld(domain)?;
-        match crate::protocols::registry::get_whois_server(&tld).await {
-            Some(server) => self.check_domain_with_server(domain, &server).await,
-            None => Err(DomainCheckError::whois(
+        match crate::protocols::registry::whois_server_status(&tld).await {
+            WhoisServer::Known(server) => self.check_domain_with_server(domain, &server).await,
+            WhoisServer::NoneListed => Err(no_whois_service_error(domain)),
+            WhoisServer::Unreachable => Err(DomainCheckError::whois(
                 domain,
-                format!("No WHOIS server is known for .{tld}"),
+                format!("could not ask IANA for the .{tld} WHOIS server"),
             )),
         }
     }
@@ -153,16 +157,47 @@ fn query_for(server: &str, domain: &str) -> String {
     }
 }
 
-/// Discover the authoritative WHOIS server for a TLD via IANA referral.
-///
-/// Returns the server hostname (e.g. "whois.nic.it"), or None if IANA lists
-/// none or the query failed.
-pub async fn discover_whois_server(tld: &str) -> Option<String> {
-    let reply = tokio::time::timeout(Duration::from_secs(10), raw_query(IANA_WHOIS_SERVER, tld))
-        .await
-        .ok()?
-        .ok()?;
-    parse_iana_refer_response(&reply)
+/// What IANA says about a TLD's WHOIS server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WhoisServer {
+    Known(String),
+    /// IANA answered and lists none: the registry has no WHOIS service.
+    NoneListed,
+    /// IANA could not be asked (blocked port, timeout, garbled reply).
+    Unreachable,
+}
+
+/// Ask IANA which WHOIS server serves `tld`.
+pub(crate) async fn discover(tld: &str) -> WhoisServer {
+    match tokio::time::timeout(Duration::from_secs(10), raw_query(IANA_WHOIS_SERVER, tld)).await {
+        Ok(Ok(reply)) => parse_iana_discovery(&reply),
+        _ => WhoisServer::Unreachable,
+    }
+}
+
+/// "None listed" needs a real IANA record (it always has a `domain:` line);
+/// anything else is treated as not having asked.
+fn parse_iana_discovery(reply: &str) -> WhoisServer {
+    if let Some(server) = parse_iana_refer_response(reply) {
+        return WhoisServer::Known(server);
+    }
+    let is_record = reply
+        .lines()
+        .any(|l| l.trim_start().to_lowercase().starts_with("domain:"));
+    if is_record {
+        WhoisServer::NoneListed
+    } else {
+        WhoisServer::Unreachable
+    }
+}
+
+/// Error for a TLD whose registry runs no WHOIS service (only RDAP).
+pub(crate) fn no_whois_service_error(domain: &str) -> DomainCheckError {
+    DomainCheckError::whois(domain, NO_WHOIS_SERVICE)
+}
+
+pub(crate) fn is_no_whois_service(error: &DomainCheckError) -> bool {
+    matches!(error, DomainCheckError::WhoisError { message, .. } if message == NO_WHOIS_SERVICE)
 }
 
 /// Parse an IANA WHOIS response for the authoritative WHOIS server.
@@ -669,6 +704,43 @@ mod tests {
         assert_eq!(query_for("whois.nic.it", "google.it"), "google.it");
     }
 
+    // ── IANA discovery: "no WHOIS" vs "couldn't ask" ───────────────────
+
+    #[test]
+    fn iana_reply_without_whois_means_none_listed() {
+        // .dev/.app (Google) run RDAP only.
+        let dev = "% IANA WHOIS server\n\ndomain:       DEV\norganisation: Charleston Road Registry Inc.\nstatus:       ACTIVE\n";
+        assert_eq!(parse_iana_discovery(dev), WhoisServer::NoneListed);
+        assert_eq!(
+            parse_iana_discovery("refer:        whois.nic.it\n\ndomain:       IT\n"),
+            WhoisServer::Known("whois.nic.it".into())
+        );
+    }
+
+    #[test]
+    fn unusable_iana_reply_is_unreachable_not_none_listed() {
+        // A blocked port or a garbled reply must never read as "this
+        // registry has no WHOIS": that would make RDAP 404 final.
+        assert_eq!(parse_iana_discovery(""), WhoisServer::Unreachable);
+        assert_eq!(
+            parse_iana_discovery("% rate limit exceeded\n"),
+            WhoisServer::Unreachable
+        );
+    }
+
+    #[test]
+    fn no_whois_service_error_is_recognised() {
+        assert!(is_no_whois_service(&no_whois_service_error("x.dev")));
+        assert!(!is_no_whois_service(&DomainCheckError::whois(
+            "x.dev",
+            UNDETERMINED
+        )));
+        assert!(!is_no_whois_service(&DomainCheckError::timeout(
+            "WHOIS query",
+            Duration::from_secs(5)
+        )));
+    }
+
     // ── parse_iana_refer_response ───────────────────────────────────────
 
     #[test]
@@ -740,8 +812,13 @@ mod tests {
 
     #[tokio::test]
     async fn live_iana_discovery() {
-        if let Some(server) = discover_whois_server("it").await {
-            assert_eq!(server, "whois.nic.it");
+        match discover("it").await {
+            WhoisServer::Known(server) => assert_eq!(server, "whois.nic.it"),
+            WhoisServer::NoneListed => panic!("IANA lists whois.nic.it for .it"),
+            WhoisServer::Unreachable => eprintln!("skipped: whois.iana.org unreachable"),
+        }
+        if let WhoisServer::Known(server) = discover("dev").await {
+            panic!(".dev runs RDAP only, IANA listed {server}");
         }
     }
 }

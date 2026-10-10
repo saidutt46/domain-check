@@ -685,7 +685,7 @@ fn brief_error(result: &DomainResult) -> &str {
                 "(rate limited)"
             } else if m.contains("refused the query") {
                 "(WHOIS refused)"
-            } else if m.contains("no whois server") {
+            } else if m.contains("no whois service") || m.contains("no whois server") {
                 "(no WHOIS service)"
             } else if m.contains("timeout") || m.contains("timed out") {
                 "(timeout)"
@@ -799,7 +799,7 @@ mod tests {
         );
         assert_eq!(brief_error(&r), "(WHOIS refused)");
         let r = make_result_with_error(
-            "Unable to verify — RDAP inconclusive; WHOIS: No WHOIS server is known for .es",
+            "Unable to verify — RDAP inconclusive; WHOIS: the registry offers no WHOIS service",
         );
         assert_eq!(brief_error(&r), "(no WHOIS service)");
     }

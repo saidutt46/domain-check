@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.1.1] - Unreleased
+## [1.2.0] - Unreleased
 
 ### WHOIS Rewrite and For-Sale Follow-ups (Issues #33, #39)
 
@@ -9,7 +9,8 @@ Thanks to Marco Davids for testing 1.1.0 and reporting both problems.
 ### Fixed
 - **WHOIS results for many country-code TLDs.** A survey of 38 ccTLDs without RDAP found 19 with wrong or `UNKNOWN` results. For example, every registered `.it` domain showed `UNKNOWN`, and free `.be`, `.bg`, `.my`, `.mx`, `.at`, and `.lu` domains were not recognised. WHOIS replies are now read as fields (including JPRS-style `[key] value`), "not found" messages inside `%` comments are recognised, and long disclaimer text no longer counts. Tested against real replies from 43 registries
 - **False `AVAILABLE` from empty WHOIS replies.** Any reply shorter than 50 characters used to count as "available", so a failed or blocked lookup (for example on Windows) could report a registered domain as free. Unclear replies are now `UNKNOWN`
-- **For-sale lookups failed silently.** When the DNS server did not answer, a domain looked "not for sale". The CLI now prints one warning at the end, and MCP responses include `for_sale_errors`
+- **For-sale lookups failed silently.** When the DNS server did not answer, a domain looked "not for sale". The CLI now prints one warning at the end, and MCP responses include `for_sale_errors`. A SERVFAIL caused by one domain's broken DNS is not counted
+- **Free `.dev`, `.app`, `.page` (and other RDAP-only) domains showed `UNKNOWN`.** An RDAP "not found" waited for a WHOIS confirmation, but these registries run no WHOIS. When IANA lists no WHOIS server for a TLD, RDAP's answer is now final. If IANA cannot be reached, the old rule (`UNKNOWN`) still applies
 - **For-sale lookups skipped `UNKNOWN` domains.** They now run for every domain that is not `AVAILABLE`. If RDAP and WHOIS both fail but the domain publishes a `_for-sale` record, the result is `UNKNOWN` with the for-sale data instead of an error. The status is never changed
 
 ### Added
@@ -22,6 +23,11 @@ Thanks to Marco Davids for testing 1.1.0 and reporting both problems.
 - `.jp` WHOIS is queried in English (`/e`)
 - UNKNOWN results keep WHOIS's reason (for example "refused the query" or "rate limited"), and the WHOIS error text no longer suggests installing `whois` or that a failed lookup may mean "available"
 - The RDAP-to-WHOIS fallback logic exists once instead of twice in `checker.rs`
+- A failed IANA lookup for a TLD's WHOIS server is no longer cached as "this TLD has no WHOIS server"
+
+### Compatibility
+- `EnvConfig` (returned by `load_env_config`) gained a `dns_server` field
+- With for-sale lookups enabled, `check_domain` can return an `UNKNOWN` result carrying `for_sale` where it used to return an error
 
 ---
 

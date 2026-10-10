@@ -4,6 +4,7 @@
 //! as well as dynamic discovery through the IANA bootstrap registry.
 
 use crate::error::DomainCheckError;
+use crate::protocols::whois::WhoisServer;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -558,7 +559,8 @@ pub fn is_whois_negatively_cached(tld: &str) -> bool {
 /// Lookup flow:
 /// 1. Check cache for previously discovered server
 /// 2. If miss and not negatively cached, discover via IANA referral
-/// 3. Cache result (empty string for "no server found" to avoid re-querying)
+/// 3. Cache the answer (empty string when IANA lists no server). A failed
+///    IANA query is not cached, so it is retried next time.
 ///
 /// # Arguments
 ///
@@ -568,30 +570,35 @@ pub fn is_whois_negatively_cached(tld: &str) -> bool {
 ///
 /// The WHOIS server hostname, or None if no server exists for this TLD.
 pub async fn get_whois_server(tld: &str) -> Option<String> {
+    match whois_server_status(tld).await {
+        WhoisServer::Known(server) => Some(server),
+        _ => None,
+    }
+}
+
+/// Like [`get_whois_server`], but tells "IANA lists none" apart from
+/// "IANA could not be asked".
+pub(crate) async fn whois_server_status(tld: &str) -> WhoisServer {
     let tld_lower = tld.to_lowercase();
 
-    // Check positive cache
     if let Some(server) = get_cached_whois_server(&tld_lower) {
-        return Some(server);
+        return WhoisServer::Known(server);
     }
-
-    // Check negative cache
     if is_whois_negatively_cached(&tld_lower) {
-        return None;
+        return WhoisServer::NoneListed;
     }
 
-    // Discover via IANA referral
-    match crate::protocols::whois::discover_whois_server(&tld_lower).await {
-        Some(server) => {
-            let _ = cache_whois_server(&tld_lower, &server);
-            Some(server)
+    let status = crate::protocols::whois::discover(&tld_lower).await;
+    match &status {
+        WhoisServer::Known(server) => {
+            let _ = cache_whois_server(&tld_lower, server);
         }
-        None => {
-            // Cache empty string as negative result
+        WhoisServer::NoneListed => {
             let _ = cache_whois_server(&tld_lower, "");
-            None
         }
+        WhoisServer::Unreachable => {}
     }
+    status
 }
 
 /// Extract TLD from a domain name.

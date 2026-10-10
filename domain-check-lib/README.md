@@ -142,7 +142,7 @@ Enable the `forsale` feature (off by default, since it adds a DNS resolver):
 
 ```toml
 [dependencies]
-domain-check-lib = { version = "1.1", features = ["forsale"] }
+domain-check-lib = { version = "1.2", features = ["forsale"] }
 ```
 
 ```rust,no_run
