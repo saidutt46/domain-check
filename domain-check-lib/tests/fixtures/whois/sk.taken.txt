@@ -1,0 +1,36 @@
+Domain:                       google.sk
+Created:                      2003-07-24
+Valid Until:                  2027-07-24
+Updated:                      2026-06-22
+Domain Status:                clientTransferProhibited, clientUpdateProhibited, clientDeleteProhibited
+Nameserver:                   ns1.google.com
+Nameserver:                   ns2.google.com
+Nameserver:                   ns3.google.com
+Nameserver:                   ns4.google.com
+
+Domain registrant:            mmr-170347
+Name:                         REDACTED
+Organization:                 Google Ireland Holdings Unlimited Company
+Organization ID:              369511
+Phone:                        REDACTED
+Email:                        REDACTED
+Street:                       70 Sir John Rogerson's Quay
+City:                         Dublin
+Postal Code:                  2
+Country Code:                 IE
+Authorised Registrar:         MARK-0292
+Created:                      2019-06-07
+Updated:                      2019-06-07
+
+Registrar:                    MARK-0292
+Name:                         REDACTED
+Organization:                 MarkMonitor International Limited
+Organization ID:              4847541
+Phone:                        REDACTED
+Email:                        REDACTED
+Street:                       8th Floor, 70 St Mary Axe
+City:                         London
+Postal Code:                  EC3A 8BE
+Country Code:                 GB
+Created:                      2018-06-27
+Updated:                      2026-10-01

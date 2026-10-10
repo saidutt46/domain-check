@@ -1,21 +1,36 @@
 //! WHOIS protocol implementation for domain availability checking.
 //!
-//! This module provides WHOIS-based domain checking as a fallback when RDAP is not available.
-//! WHOIS is the traditional protocol for domain registration data, though it provides
-//! unstructured text responses that require parsing.
+//! WHOIS (RFC 3912) is the fallback when RDAP is not available. The client
+//! speaks the protocol directly over TCP port 43, so it needs no system
+//! `whois` binary and behaves the same on every platform.
+//!
+//! WHOIS replies are free text and every registry formats them differently,
+//! so [`classify`] reads them as `key: value` fields plus a small set of
+//! "not found" phrases, and answers [`Verdict::Unknown`] rather than guess.
 
 use crate::error::DomainCheckError;
 use crate::types::{CheckMethod, DomainResult};
 use std::time::{Duration, Instant};
-use tokio::process::Command;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
-/// WHOIS client for checking domain availability using the system's whois command.
-///
-/// This client uses the system's `whois` command-line tool to query domain information.
-/// It's designed as a fallback when RDAP is not available or fails.
+/// Well-known WHOIS port (RFC 3912).
+const WHOIS_PORT: u16 = 43;
+
+/// Replies larger than this are cut off; real ones are a few KB.
+const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
+
+/// IANA's WHOIS server, which refers each TLD to its registry's server.
+const IANA_WHOIS_SERVER: &str = "whois.iana.org";
+
+/// Message for replies that are neither clearly taken nor clearly free.
+/// The checker matches on this text to report UNKNOWN.
+const UNDETERMINED: &str = "Unable to determine domain status from WHOIS response";
+
+/// WHOIS client for checking domain availability.
 #[derive(Clone)]
 pub struct WhoisClient {
-    /// Timeout for WHOIS requests
+    /// Timeout for one WHOIS query (connect, send, and read)
     timeout: Duration,
 }
 
@@ -32,301 +47,71 @@ impl WhoisClient {
         Self { timeout }
     }
 
-    /// Check domain availability using WHOIS.
-    ///
-    /// This method executes the system's `whois` command and parses the output
-    /// to determine if a domain is available or taken.
-    ///
-    /// # Arguments
-    ///
-    /// * `domain` - The domain name to check (e.g., "example.com")
-    ///
-    /// # Returns
-    ///
-    /// A `DomainResult` with availability status. Note that WHOIS typically
-    /// doesn't provide structured registration details like RDAP.
-    ///
-    /// # Errors
-    ///
-    /// Returns `DomainCheckError` if:
-    /// - The `whois` command is not available on the system
-    /// - The WHOIS query times out
-    /// - The WHOIS response cannot be parsed
+    /// Check domain availability, discovering the registry's WHOIS server
+    /// through IANA.
     pub async fn check_domain(&self, domain: &str) -> Result<DomainResult, DomainCheckError> {
-        let start_time = Instant::now();
-
-        // Execute WHOIS command with timeout
-        let result = tokio::time::timeout(self.timeout, self.execute_whois_command(domain)).await;
-
-        let check_duration = start_time.elapsed();
-
-        match result {
-            Ok(Ok(available)) => {
-                Ok(DomainResult {
-                    domain: domain.to_string(),
-                    available: Some(available),
-                    info: None, // WHOIS parsing for detailed info is complex and inconsistent
-                    check_duration: Some(check_duration),
-                    method_used: CheckMethod::Whois,
-                    error_message: None,
-                    for_sale: None,
-                })
-            }
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err(DomainCheckError::timeout("WHOIS query", self.timeout)),
+        let tld = crate::protocols::registry::extract_tld(domain)?;
+        match crate::protocols::registry::get_whois_server(&tld).await {
+            Some(server) => self.check_domain_with_server(domain, &server).await,
+            None => Err(DomainCheckError::whois(
+                domain,
+                format!("No WHOIS server is known for .{tld}"),
+            )),
         }
     }
 
-    /// Check domain availability using WHOIS with a specific server.
-    ///
-    /// This method uses `whois -h <server> <domain>` for a targeted query,
-    /// falling back to bare `whois <domain>` if the `-h` flag fails.
-    ///
-    /// # Arguments
-    ///
-    /// * `domain` - The domain name to check (e.g., "example.com")
-    /// * `server` - The WHOIS server hostname (e.g., "whois.verisign-grs.com")
+    /// Check domain availability against a specific WHOIS server.
     pub async fn check_domain_with_server(
         &self,
         domain: &str,
         server: &str,
     ) -> Result<DomainResult, DomainCheckError> {
         let start_time = Instant::now();
+        let query = query_for(server, domain);
 
-        let result = tokio::time::timeout(
-            self.timeout,
-            self.execute_whois_command_with_server(domain, server),
-        )
-        .await;
+        let mut verdict = classify(&self.query(server, &query, domain).await?, domain);
+        if verdict == Verdict::RateLimited {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            verdict = classify(&self.query(server, &query, domain).await?, domain);
+        }
 
-        let check_duration = start_time.elapsed();
-
-        match result {
-            Ok(Ok(available)) => Ok(DomainResult {
-                domain: domain.to_string(),
-                available: Some(available),
-                info: None,
-                check_duration: Some(check_duration),
-                method_used: CheckMethod::Whois,
-                error_message: None,
-                for_sale: None,
-            }),
-            Ok(Err(_)) => {
-                // Targeted query failed, fall back to bare whois
-                self.check_domain(domain).await
+        let available = match verdict {
+            Verdict::Taken => false,
+            Verdict::Available => true,
+            Verdict::RateLimited => {
+                return Err(DomainCheckError::whois(
+                    domain,
+                    format!("{server} rate limited the query"),
+                ))
             }
+            Verdict::Unknown(reason) => return Err(DomainCheckError::whois(domain, reason)),
+        };
+
+        Ok(DomainResult {
+            domain: domain.to_string(),
+            available: Some(available),
+            info: None,
+            check_duration: Some(start_time.elapsed()),
+            method_used: CheckMethod::Whois,
+            error_message: None,
+            for_sale: None,
+        })
+    }
+
+    async fn query(
+        &self,
+        server: &str,
+        query: &str,
+        domain: &str,
+    ) -> Result<String, DomainCheckError> {
+        match tokio::time::timeout(self.timeout, raw_query(server, query)).await {
+            Ok(Ok(text)) => Ok(text),
+            Ok(Err(e)) => Err(DomainCheckError::whois(
+                domain,
+                format!("WHOIS query to {server} failed: {e}"),
+            )),
             Err(_) => Err(DomainCheckError::timeout("WHOIS query", self.timeout)),
         }
-    }
-
-    /// Execute the system whois command and parse the result.
-    async fn execute_whois_command(&self, domain: &str) -> Result<bool, DomainCheckError> {
-        // First attempt
-        let output = Command::new("whois")
-            .arg(domain)
-            .output()
-            .await
-            .map_err(|e| {
-                DomainCheckError::whois(
-                    domain,
-                    format!(
-                        "Failed to execute whois command: {}. Make sure 'whois' is installed.",
-                        e
-                    ),
-                )
-            })?;
-
-        let output_text = String::from_utf8_lossy(&output.stdout).to_lowercase();
-
-        // Check for rate limiting first
-        if self.is_rate_limited(&output_text) {
-            // Wait and retry once
-            tokio::time::sleep(Duration::from_millis(1000)).await;
-
-            let retry_output = Command::new("whois")
-                .arg(domain)
-                .output()
-                .await
-                .map_err(|e| {
-                    DomainCheckError::whois(domain, format!("Failed to execute whois retry: {}", e))
-                })?;
-
-            let retry_text = String::from_utf8_lossy(&retry_output.stdout).to_lowercase();
-            self.parse_whois_availability(&retry_text)
-        } else {
-            self.parse_whois_availability(&output_text)
-        }
-    }
-
-    /// Execute whois command with a specific server (-h flag).
-    async fn execute_whois_command_with_server(
-        &self,
-        domain: &str,
-        server: &str,
-    ) -> Result<bool, DomainCheckError> {
-        let output = Command::new("whois")
-            .arg("-h")
-            .arg(server)
-            .arg(domain)
-            .output()
-            .await
-            .map_err(|e| {
-                DomainCheckError::whois(
-                    domain,
-                    format!("Failed to execute whois -h {} command: {}", server, e),
-                )
-            })?;
-
-        let output_text = String::from_utf8_lossy(&output.stdout).to_lowercase();
-
-        if self.is_rate_limited(&output_text) {
-            tokio::time::sleep(Duration::from_millis(1000)).await;
-
-            let retry_output = Command::new("whois")
-                .arg("-h")
-                .arg(server)
-                .arg(domain)
-                .output()
-                .await
-                .map_err(|e| {
-                    DomainCheckError::whois(domain, format!("Failed to execute whois retry: {}", e))
-                })?;
-
-            let retry_text = String::from_utf8_lossy(&retry_output.stdout).to_lowercase();
-            self.parse_whois_availability(&retry_text)
-        } else {
-            self.parse_whois_availability(&output_text)
-        }
-    }
-
-    /// Parse WHOIS output to determine domain availability.
-    ///
-    /// This function looks for common patterns in WHOIS responses that indicate
-    /// whether a domain is available or taken. WHOIS responses vary significantly
-    /// between registries, so this uses a comprehensive set of patterns.
-    fn parse_whois_availability(&self, whois_output: &str) -> Result<bool, DomainCheckError> {
-        let output_lower = whois_output.to_lowercase();
-
-        // First check for invalid TLD or server errors
-        let invalid_tld_patterns = [
-            "no whois server is known",
-            "no whois server",
-            "invalid tld",
-            "unknown tld",
-            "tld not found",
-            "no such tld",
-            "bad tld",
-            "invalid domain extension",
-        ];
-
-        for pattern in &invalid_tld_patterns {
-            if output_lower.contains(pattern) {
-                return Err(DomainCheckError::bootstrap(
-                    "unknown",
-                    "Invalid or unsupported TLD for WHOIS lookup",
-                ));
-            }
-        }
-
-        // Patterns that typically indicate domain availability
-        let available_patterns = [
-            "no match",
-            "not found",
-            "no data found",
-            "no entries found",
-            "domain not found",
-            "domain available",
-            "status: available",
-            "status: free",
-            "no information available",
-            "not registered",
-            "no matching record",
-            "domain status: no object found",
-            "the queried object does not exist",
-            "object does not exist",
-            "no matching entry",
-            "domain name not found",
-            "this domain name has not been registered",
-            "no found",
-        ];
-
-        // Patterns that indicate the domain is definitely taken
-        let taken_patterns = [
-            "domain status:",
-            "registrar:",
-            "creation date:",
-            "created:",
-            "registry domain id:",
-            "registrant:",
-            "admin contact:",
-            "tech contact:",
-            "name server:",
-            "nameservers:",
-            "expiry date:",
-            "expires:",
-            "updated:",
-            "last updated:",
-        ];
-
-        // Check for availability patterns first (more specific)
-        for pattern in &available_patterns {
-            if output_lower.contains(pattern) {
-                return Ok(true);
-            }
-        }
-
-        // Check for taken patterns
-        let taken_pattern_count = taken_patterns
-            .iter()
-            .filter(|pattern| output_lower.contains(*pattern))
-            .count();
-
-        // If we found multiple "taken" indicators, the domain is likely taken
-        if taken_pattern_count >= 2 {
-            return Ok(false);
-        }
-
-        // If the output is very short and doesn't look like an error,
-        // it might indicate availability. But skip this heuristic if the
-        // response contains error-like words (e.g. rate limit messages).
-        let trimmed = output_lower.trim();
-        if trimmed.len() < 50
-            && !trimmed.contains("exceeded")
-            && !trimmed.contains("error")
-            && !trimmed.contains("denied")
-            && !trimmed.contains("refused")
-        {
-            return Ok(true);
-        }
-
-        // For truly ambiguous cases, return an error instead of guessing
-        // This prevents false positives for invalid domains
-        Err(DomainCheckError::whois(
-            "unknown",
-            "Unable to determine domain status from WHOIS response",
-        ))
-    }
-
-    /// Check if the WHOIS output indicates rate limiting.
-    fn is_rate_limited(&self, output: &str) -> bool {
-        let output_lower = output.to_lowercase();
-        let rate_limit_patterns = [
-            "rate limit exceeded",
-            "too many requests",
-            "try again later",
-            "quota exceeded",
-            "limit exceeded",
-            "queries exceeded",
-            "number of allowed queries",
-            "throttled",
-            "blocked",
-            "rate-limited",
-            "too many requests from your ip",
-        ];
-
-        rate_limit_patterns
-            .iter()
-            .any(|pattern| output_lower.contains(pattern))
     }
 }
 
@@ -336,36 +121,48 @@ impl Default for WhoisClient {
     }
 }
 
+/// Send one RFC 3912 query and read the reply until the server closes.
+async fn raw_query(server: &str, query: &str) -> std::io::Result<String> {
+    // Connect to every address at once and keep the first that answers:
+    // some registries publish an IPv4 or IPv6 address that never responds.
+    let attempts: Vec<_> = tokio::net::lookup_host((server, WHOIS_PORT))
+        .await?
+        .map(|addr| Box::pin(TcpStream::connect(addr)))
+        .collect();
+    if attempts.is_empty() {
+        return Err(std::io::Error::other(format!("{server} has no addresses")));
+    }
+    let (mut stream, _) = futures_util::future::select_ok(attempts).await?;
+    stream.write_all(format!("{query}\r\n").as_bytes()).await?;
+    let mut reply = Vec::new();
+    stream
+        .take(MAX_RESPONSE_BYTES)
+        .read_to_end(&mut reply)
+        .await?;
+    // Some registries still answer in Latin-1; only field values are affected.
+    Ok(String::from_utf8_lossy(&reply).into_owned())
+}
+
+/// Registry-specific query syntax.
+fn query_for(server: &str, domain: &str) -> String {
+    if server.eq_ignore_ascii_case("whois.jprs.jp") {
+        // Without "/e" JPRS answers with Japanese field names.
+        format!("{domain}/e")
+    } else {
+        domain.to_string()
+    }
+}
+
 /// Discover the authoritative WHOIS server for a TLD via IANA referral.
 ///
-/// Uses the system `whois` command to query `whois.iana.org` for the TLD,
-/// then parses the response for a `refer:` line containing the authoritative
-/// WHOIS server hostname.
-///
-/// # Arguments
-///
-/// * `tld` - The TLD to look up (e.g., "com", "co", "museum")
-///
-/// # Returns
-///
-/// The WHOIS server hostname (e.g., "whois.verisign-grs.com"), or None if
-/// no referral was found or the query failed.
+/// Returns the server hostname (e.g. "whois.nic.it"), or None if IANA lists
+/// none or the query failed.
 pub async fn discover_whois_server(tld: &str) -> Option<String> {
-    let result = tokio::time::timeout(Duration::from_secs(10), async {
-        let output = Command::new("whois")
-            .arg("-h")
-            .arg("whois.iana.org")
-            .arg(tld)
-            .output()
-            .await
-            .ok()?;
-
-        let response = String::from_utf8_lossy(&output.stdout);
-        parse_iana_refer_response(&response)
-    })
-    .await;
-
-    result.unwrap_or(None)
+    let reply = tokio::time::timeout(Duration::from_secs(10), raw_query(IANA_WHOIS_SERVER, tld))
+        .await
+        .ok()?
+        .ok()?;
+    parse_iana_refer_response(&reply)
 }
 
 /// Parse an IANA WHOIS response for the authoritative WHOIS server.
@@ -400,42 +197,197 @@ fn parse_iana_refer_response(response: &str) -> Option<String> {
     whois_server
 }
 
-/// Check if the system has a working whois command.
-///
-/// This function can be used to verify that WHOIS functionality is available
-/// before attempting to use the WhoisClient.
-///
-/// # Returns
-///
-/// `true` if the whois command is available and working, `false` otherwise.
-#[allow(dead_code)]
-pub async fn is_whois_available() -> bool {
-    match Command::new("whois").arg("--version").output().await {
-        Ok(output) => output.status.success(),
-        Err(_) => {
-            // Try with a different flag that's more universal
-            (Command::new("whois").arg("example.com").output().await).is_ok()
-        }
-    }
+/// What a WHOIS reply says about a domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Verdict {
+    Taken,
+    Available,
+    RateLimited,
+    Unknown(&'static str),
 }
 
-/// Get the version of the system's whois command.
-///
-/// This is useful for debugging and ensuring compatibility.
-#[allow(dead_code)]
-pub async fn get_whois_version() -> Result<String, DomainCheckError> {
-    let output = Command::new("whois")
-        .arg("--version")
-        .output()
-        .await
-        .map_err(|e| {
-            DomainCheckError::whois("version", format!("Failed to get whois version: {}", e))
-        })?;
+// Kinds of registration data. A reply with two of them (or one plus the
+// domain name echoed back) describes a registered domain.
+const CREATED: u8 = 1;
+const EXPIRES: u8 = 1 << 1;
+const UPDATED: u8 = 1 << 2;
+const REGISTRAR: u8 = 1 << 3;
+const REGISTRANT: u8 = 1 << 4;
+const NAME_SERVERS: u8 = 1 << 5;
+const STATUS: u8 = 1 << 6;
 
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+/// Phrases registries use for an unregistered name, collected from real
+/// replies (see `tests/fixtures/whois`). Only consulted when the reply holds
+/// no registration data, so a disclaimer can't turn a taken domain free.
+const FREE_PHRASES: &[&str] = &[
+    "no match",
+    "not found",
+    "no matching record",
+    "no matching entry",
+    "no entries found",
+    "no data found",
+    "no data was found",
+    "no information available about",
+    "nothing found",
+    "no such domain",
+    "does not exist",
+    "not registered",
+    "has not been registered",
+    "is available for registration",
+    "domain available",
+    "object_not_found",
+    "no object found",
+];
+
+const RATE_LIMIT_PHRASES: &[&str] = &[
+    "rate limit",
+    "query rate",
+    "too many",
+    "quota exceeded",
+    "limit exceeded",
+    "queries exceeded",
+    "number of allowed queries",
+    "try again later",
+    "throttled",
+    "rate-limited",
+];
+
+const REFUSED_PHRASES: &[&str] = &[
+    "not permitted",
+    "access denied",
+    "not authorised",
+    "not authorized",
+    "refused",
+];
+
+/// Decide whether a WHOIS reply describes a registered or a free domain.
+///
+/// Registration data wins over everything else; "free" needs an explicit
+/// phrase or status. Anything else is unknown: an empty, refused, or
+/// unfamiliar reply must never read as AVAILABLE.
+pub(crate) fn classify(response: &str, domain: &str) -> Verdict {
+    let text = response.to_lowercase().replace('\t', " ");
+    let domain = domain.trim_end_matches('.').to_lowercase();
+
+    let mut evidence = 0u8;
+    let mut echoed = false;
+    let mut free_status = false;
+    for line in text.lines().map(str::trim) {
+        if is_comment(line) {
+            continue;
+        }
+        let Some((key, value)) = split_field(line) else {
+            continue;
+        };
+        if is_status_key(key) && is_free_value(value) {
+            free_status = true;
+        } else if is_domain_key(key) {
+            echoed |= value
+                .split_whitespace()
+                .next()
+                .map(|v| v.trim_end_matches('.'))
+                == Some(domain.as_str());
+        } else {
+            evidence |= category(key, value);
+        }
+    }
+
+    if evidence.count_ones() >= 2 || (echoed && evidence != 0) {
+        return Verdict::Taken;
+    }
+    let free_phrase = format!("{domain} is free");
+    if free_status
+        || text
+            .lines()
+            .any(|l| l.contains(&free_phrase) || FREE_PHRASES.iter().any(|p| l.contains(p)))
+    {
+        return Verdict::Available;
+    }
+    if RATE_LIMIT_PHRASES.iter().any(|p| text.contains(p)) {
+        return Verdict::RateLimited;
+    }
+    if REFUSED_PHRASES.iter().any(|p| text.contains(p)) {
+        return Verdict::Unknown("WHOIS server refused the query");
+    }
+    if text.trim().is_empty() {
+        return Verdict::Unknown("WHOIS server sent an empty reply");
+    }
+    Verdict::Unknown(UNDETERMINED)
+}
+
+fn is_comment(line: &str) -> bool {
+    line.starts_with('%') || line.starts_with('#') || line.starts_with(">>>")
+}
+
+/// Split `key: value` or JPRS-style `[key] value`.
+fn split_field(line: &str) -> Option<(&str, &str)> {
+    let (key, value) = if let Some(rest) = line.strip_prefix('[') {
+        rest.split_once(']')?
     } else {
-        Ok("Unknown whois version".to_string())
+        line.split_once(':')?
+    };
+    let key = key.trim();
+    if key.is_empty() || key.len() > 40 || key.starts_with("http") {
+        return None;
+    }
+    Some((key, value.trim()))
+}
+
+fn is_domain_key(key: &str) -> bool {
+    matches!(key, "domain" | "domain name" | "domainname" | "domain-name")
+}
+
+fn is_status_key(key: &str) -> bool {
+    key == "status" || key.ends_with(" status") || key == "domaintype"
+}
+
+fn is_free_value(value: &str) -> bool {
+    value.starts_with("available")
+        || value.starts_with("free")
+        || value.starts_with("not registered")
+        || value.starts_with("no object found")
+}
+
+/// Map one field to the kind of registration data it carries, if any.
+fn category(key: &str, value: &str) -> u8 {
+    let has_value = !value.is_empty();
+    // Headers whose data follows on the next lines (e.g. `.be`, `.bg`).
+    let header = |k: &str| key == k;
+
+    if is_status_key(key) && has_value {
+        STATUS
+    } else if (key.contains("creat")
+        || key == "registered"
+        || key.contains("registration date")
+        || key.contains("registration time"))
+        && has_value
+    {
+        CREATED
+    } else if (key.contains("expir") || key.contains("paid-till") || key.contains("renewal"))
+        && has_value
+    {
+        EXPIRES
+    } else if (key.contains("updat") || key.contains("changed") || key.contains("modified"))
+        && !key.contains("whois database")
+        && has_value
+    {
+        UPDATED
+    } else if key.starts_with("registrar") || key.starts_with("sponsoring registrar") {
+        if has_value || header("registrar") {
+            REGISTRAR
+        } else {
+            0
+        }
+    } else if key.contains("registrant") || key == "holder" || key.starts_with("owner") {
+        if has_value || header("registrant") {
+            REGISTRANT
+        } else {
+            0
+        }
+    } else if key.contains("nserver") || key.contains("name server") || key.contains("nameserver") {
+        NAME_SERVERS
+    } else {
+        0
     }
 }
 
@@ -463,202 +415,194 @@ mod tests {
         assert_eq!(client.timeout, Duration::from_secs(5));
     }
 
-    // ── parse_whois_availability: available patterns ────────────────────
+    // ── classify: real replies from each registry ──────────────────────
+    //
+    // Captured 2026-10-09 with `google.<tld>` (taken) and
+    // `zq7x9k2m4ptest.<tld>` (free); personal contact fields redacted.
+
+    macro_rules! fixture {
+        ($file:literal) => {
+            include_str!(concat!("../../tests/fixtures/whois/", $file))
+        };
+    }
+
+    fn taken_domain(tld: &str) -> String {
+        match tld {
+            "uk" => "google.co.uk".into(),
+            "il" => "google.co.il".into(),
+            "nz" => "stuff.co.nz".into(),
+            _ => format!("google.{tld}"),
+        }
+    }
+
+    fn free_domain(tld: &str) -> String {
+        match tld {
+            "il" => "zq7x9k2m4ptest.co.il".into(),
+            _ => format!("zq7x9k2m4ptest.{tld}"),
+        }
+    }
+
+    const FIXTURES: &[(&str, &str, &str)] = &[
+        ("ai", fixture!("ai.taken.txt"), fixture!("ai.free.txt")),
+        ("at", fixture!("at.taken.txt"), fixture!("at.free.txt")),
+        ("be", fixture!("be.taken.txt"), fixture!("be.free.txt")),
+        ("bg", fixture!("bg.taken.txt"), fixture!("bg.free.txt")),
+        ("cl", fixture!("cl.taken.txt"), fixture!("cl.free.txt")),
+        ("cn", fixture!("cn.taken.txt"), fixture!("cn.free.txt")),
+        ("co", fixture!("co.taken.txt"), fixture!("co.free.txt")),
+        ("com", fixture!("com.taken.txt"), fixture!("com.free.txt")),
+        ("cz", fixture!("cz.taken.txt"), fixture!("cz.free.txt")),
+        ("de", fixture!("de.taken.txt"), fixture!("de.free.txt")),
+        ("dk", fixture!("dk.taken.txt"), fixture!("dk.free.txt")),
+        ("eu", fixture!("eu.taken.txt"), fixture!("eu.free.txt")),
+        ("fi", fixture!("fi.taken.txt"), fixture!("fi.free.txt")),
+        ("fr", fixture!("fr.taken.txt"), fixture!("fr.free.txt")),
+        ("gg", fixture!("gg.taken.txt"), fixture!("gg.free.txt")),
+        ("hk", fixture!("hk.taken.txt"), fixture!("hk.free.txt")),
+        ("hr", fixture!("hr.taken.txt"), fixture!("hr.free.txt")),
+        ("hu", fixture!("hu.taken.txt"), fixture!("hu.free.txt")),
+        ("ie", fixture!("ie.taken.txt"), fixture!("ie.free.txt")),
+        ("il", fixture!("il.taken.txt"), fixture!("il.free.txt")),
+        ("io", fixture!("io.taken.txt"), fixture!("io.free.txt")),
+        ("it", fixture!("it.taken.txt"), fixture!("it.free.txt")),
+        ("je", fixture!("je.taken.txt"), fixture!("je.free.txt")),
+        ("jp", fixture!("jp.taken.txt"), fixture!("jp.free.txt")),
+        ("lu", fixture!("lu.taken.txt"), fixture!("lu.free.txt")),
+        ("me", fixture!("me.taken.txt"), fixture!("me.free.txt")),
+        ("mx", fixture!("mx.taken.txt"), fixture!("mx.free.txt")),
+        ("my", fixture!("my.taken.txt"), fixture!("my.free.txt")),
+        ("net", fixture!("net.taken.txt"), fixture!("net.free.txt")),
+        ("nl", fixture!("nl.taken.txt"), fixture!("nl.free.txt")),
+        ("no", fixture!("no.taken.txt"), fixture!("no.free.txt")),
+        ("nz", fixture!("nz.taken.txt"), fixture!("nz.free.txt")),
+        ("org", fixture!("org.taken.txt"), fixture!("org.free.txt")),
+        ("pl", fixture!("pl.taken.txt"), fixture!("pl.free.txt")),
+        ("pt", fixture!("pt.taken.txt"), fixture!("pt.free.txt")),
+        ("ro", fixture!("ro.taken.txt"), fixture!("ro.free.txt")),
+        ("ru", fixture!("ru.taken.txt"), fixture!("ru.free.txt")),
+        ("se", fixture!("se.taken.txt"), fixture!("se.free.txt")),
+        ("sk", fixture!("sk.taken.txt"), fixture!("sk.free.txt")),
+        ("tr", fixture!("tr.taken.txt"), fixture!("tr.free.txt")),
+        ("uk", fixture!("uk.taken.txt"), fixture!("uk.free.txt")),
+        ("us", fixture!("us.taken.txt"), fixture!("us.free.txt")),
+        ("xyz", fixture!("xyz.taken.txt"), fixture!("xyz.free.txt")),
+    ];
 
     #[test]
-    fn test_available_no_match() {
-        let client = WhoisClient::new();
-        assert!(client
-            .parse_whois_availability("No match for domain")
-            .unwrap());
+    fn real_taken_replies_are_taken() {
+        let wrong: Vec<_> = FIXTURES
+            .iter()
+            .filter_map(|(tld, taken, _)| {
+                let v = classify(taken, &taken_domain(tld));
+                (v != Verdict::Taken).then(|| format!("{tld}: {v:?}"))
+            })
+            .collect();
+        assert!(wrong.is_empty(), "misread taken replies: {wrong:?}");
     }
 
     #[test]
-    fn test_available_not_found() {
-        let client = WhoisClient::new();
-        assert!(client
-            .parse_whois_availability("Not found: example.com")
-            .unwrap());
+    fn real_free_replies_are_available() {
+        let wrong: Vec<_> = FIXTURES
+            .iter()
+            .filter_map(|(tld, _, free)| {
+                let v = classify(free, &free_domain(tld));
+                (v != Verdict::Available).then(|| format!("{tld}: {v:?}"))
+            })
+            .collect();
+        assert!(wrong.is_empty(), "misread free replies: {wrong:?}");
     }
 
     #[test]
-    fn test_available_domain_not_found() {
-        let client = WhoisClient::new();
-        assert!(client.parse_whois_availability("Domain not found").unwrap());
+    fn taken_reply_is_never_available_for_another_name() {
+        // A taken reply must not read as free just because the queried name
+        // differs (e.g. the registry normalised it).
+        for (tld, taken, _) in FIXTURES {
+            assert_ne!(
+                classify(taken, "other-name.example"),
+                Verdict::Available,
+                "{tld}"
+            );
+        }
     }
 
     #[test]
-    fn test_available_no_data_found() {
-        let client = WhoisClient::new();
-        assert!(client
-            .parse_whois_availability("No data found for this query")
-            .unwrap());
+    fn refused_replies_are_unknown() {
+        // .ch and .li only answer on their website.
+        for reply in [fixture!("ch.taken.txt"), fixture!("li.free.txt")] {
+            assert_eq!(
+                classify(reply, "google.ch"),
+                Verdict::Unknown("WHOIS server refused the query")
+            );
+        }
+    }
+
+    // ── classify: edge cases ────────────────────────────────────────────
+
+    #[test]
+    fn empty_reply_is_unknown_not_available() {
+        // Used to be AVAILABLE (any reply under 50 characters counted as free).
+        assert!(matches!(classify("", "x.com"), Verdict::Unknown(_)));
+        assert!(matches!(classify("  \r\n", "x.com"), Verdict::Unknown(_)));
+        assert!(matches!(
+            classify("Some short text", "x.com"),
+            Verdict::Unknown(_)
+        ));
     }
 
     #[test]
-    fn test_available_no_entries_found() {
-        let client = WhoisClient::new();
-        assert!(client.parse_whois_availability("No entries found").unwrap());
+    fn rate_limit_in_comment_is_detected() {
+        let lu = "% WHOIS zq7x9k2m4ptest.lu\n%% Maximum query rate reached\n";
+        assert_eq!(classify(lu, "zq7x9k2m4ptest.lu"), Verdict::RateLimited);
+        assert_eq!(
+            classify("Rate limit exceeded. Try again later.", "x.com"),
+            Verdict::RateLimited
+        );
     }
 
     #[test]
-    fn test_available_domain_available() {
-        let client = WhoisClient::new();
-        assert!(client
-            .parse_whois_availability("Domain available for registration")
-            .unwrap());
+    fn disclaimer_phrases_do_not_override_registration_data() {
+        let reply = "Domain Name: x.com\nRegistrar: Example\nCreation Date: 2020-01-01\n\
+                     % If a domain is not found, it may be available.";
+        assert_eq!(classify(reply, "x.com"), Verdict::Taken);
     }
 
     #[test]
-    fn test_available_status_free() {
-        let client = WhoisClient::new();
-        assert!(client.parse_whois_availability("Status: free").unwrap());
+    fn not_available_status_is_taken() {
+        let be = "Domain:\tx.be\nStatus:\tNOT AVAILABLE\n";
+        assert_eq!(classify(be, "x.be"), Verdict::Taken);
     }
 
     #[test]
-    fn test_available_not_registered() {
-        let client = WhoisClient::new();
-        assert!(client
-            .parse_whois_availability("This domain is not registered")
-            .unwrap());
+    fn free_status_with_echo_is_available() {
+        assert_eq!(
+            classify("Domain: x.de\nStatus: free\n", "x.de"),
+            Verdict::Available
+        );
+        assert_eq!(
+            classify(
+                "Domain:             x.it\nStatus:             AVAILABLE\n",
+                "x.it"
+            ),
+            Verdict::Available
+        );
     }
 
     #[test]
-    fn test_available_object_does_not_exist() {
-        let client = WhoisClient::new();
-        assert!(client
-            .parse_whois_availability("The queried object does not exist")
-            .unwrap());
+    fn single_field_without_echo_is_unknown() {
+        let reply = "Registrar: SomeRegistrar\nSome other random text that is long enough";
+        assert_eq!(classify(reply, "x.com"), Verdict::Unknown(UNDETERMINED));
     }
 
     #[test]
-    fn test_available_no_found() {
-        let client = WhoisClient::new();
-        assert!(client.parse_whois_availability("No found").unwrap());
+    fn whois_database_timestamp_is_not_evidence() {
+        let reply = "No match for \"X.COM\".\n>>> Last update of whois database: 2026-10-10 <<<";
+        assert_eq!(classify(reply, "x.com"), Verdict::Available);
     }
 
     #[test]
-    fn test_available_case_insensitive() {
-        let client = WhoisClient::new();
-        assert!(client
-            .parse_whois_availability("NO MATCH FOR DOMAIN")
-            .unwrap());
-        assert!(client.parse_whois_availability("DOMAIN NOT FOUND").unwrap());
-    }
-
-    // ── parse_whois_availability: taken patterns ────────────────────────
-
-    #[test]
-    fn test_taken_multiple_indicators() {
-        let client = WhoisClient::new();
-        let taken = "Domain Status: clientTransferProhibited\nRegistrar: GoDaddy\nCreation Date: 2020-01-01";
-        assert!(!client.parse_whois_availability(taken).unwrap());
-    }
-
-    #[test]
-    fn test_taken_registrar_and_nameserver() {
-        let client = WhoisClient::new();
-        let taken = "Registrar: MarkMonitor Inc.\nName Server: ns1.google.com";
-        assert!(!client.parse_whois_availability(taken).unwrap());
-    }
-
-    #[test]
-    fn test_taken_created_and_expires() {
-        let client = WhoisClient::new();
-        let taken = "Created: 2015-01-01\nExpires: 2025-01-01";
-        assert!(!client.parse_whois_availability(taken).unwrap());
-    }
-
-    #[test]
-    fn test_taken_single_indicator_not_enough() {
-        let client = WhoisClient::new();
-        // Only one "taken" pattern — needs >= 2 to confirm taken
-        let ambiguous = "Registrar: SomeRegistrar\nSome other random text that is long enough to exceed fifty characters";
-        // Single taken indicator + long text = error (ambiguous)
-        let result = client.parse_whois_availability(ambiguous);
-        assert!(result.is_err());
-    }
-
-    // ── parse_whois_availability: invalid TLD patterns ──────────────────
-
-    #[test]
-    fn test_invalid_tld_no_whois_server() {
-        let client = WhoisClient::new();
-        let result = client.parse_whois_availability("No whois server is known for this TLD");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_invalid_tld_unknown() {
-        let client = WhoisClient::new();
-        let result = client.parse_whois_availability("Unknown TLD: .fakext");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_invalid_tld_bad() {
-        let client = WhoisClient::new();
-        let result = client.parse_whois_availability("Bad TLD specified in query");
-        assert!(result.is_err());
-    }
-
-    // ── parse_whois_availability: short output = available ──────────────
-
-    #[test]
-    fn test_short_output_considered_available() {
-        let client = WhoisClient::new();
-        // < 50 chars, no patterns matched = available
-        assert!(client.parse_whois_availability("Some short text").unwrap());
-    }
-
-    #[test]
-    fn test_empty_output_considered_available() {
-        let client = WhoisClient::new();
-        assert!(client.parse_whois_availability("").unwrap());
-    }
-
-    // ── parse_whois_availability: ambiguous = error ─────────────────────
-
-    #[test]
-    fn test_ambiguous_output_returns_error() {
-        let client = WhoisClient::new();
-        // Long text, no available or taken patterns matched with >= 2 hits
-        let ambiguous = "This is some random whois response that doesn't match any known pattern and is longer than fifty characters total";
-        let result = client.parse_whois_availability(ambiguous);
-        assert!(result.is_err());
-        // Display renders as "WHOIS lookup failed" for generic errors
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("WHOIS lookup failed"));
-    }
-
-    // ── is_rate_limited ─────────────────────────────────────────────────
-
-    #[test]
-    fn test_rate_limited_patterns() {
-        let client = WhoisClient::new();
-        assert!(client.is_rate_limited("Rate limit exceeded. Try again later."));
-        assert!(client.is_rate_limited("Too many requests from your IP."));
-        assert!(client.is_rate_limited("Quota exceeded for this connection"));
-        assert!(client.is_rate_limited("Request throttled, please wait"));
-        assert!(client.is_rate_limited("Your IP has been blocked"));
-        assert!(client.is_rate_limited("You have been rate-limited"));
-    }
-
-    #[test]
-    fn test_rate_limited_case_insensitive() {
-        let client = WhoisClient::new();
-        assert!(client.is_rate_limited("RATE LIMIT EXCEEDED"));
-        assert!(client.is_rate_limited("Too Many Requests"));
-    }
-
-    #[test]
-    fn test_not_rate_limited() {
-        let client = WhoisClient::new();
-        assert!(!client.is_rate_limited("Normal whois response"));
-        assert!(!client.is_rate_limited("Domain Status: active"));
-        assert!(!client.is_rate_limited(""));
+    fn jprs_query_uses_english_suffix() {
+        assert_eq!(query_for("whois.jprs.jp", "google.jp"), "google.jp/e");
+        assert_eq!(query_for("whois.nic.it", "google.it"), "google.it");
     }
 
     // ── parse_iana_refer_response ───────────────────────────────────────
@@ -715,14 +659,25 @@ mod tests {
         assert_eq!(parse_iana_refer_response(""), None);
     }
 
-    // ── Network-dependent test ──────────────────────────────────────────
+    // ── Network-dependent tests ─────────────────────────────────────────
 
     #[tokio::test]
-    async fn test_whois_availability_check() {
-        if is_whois_available().await {
-            let client = WhoisClient::new();
-            let result = client.check_domain("google.com").await;
-            assert!(result.is_ok());
+    async fn live_whois_over_tcp() {
+        let client = WhoisClient::new();
+        match client
+            .check_domain_with_server("google.com", "whois.verisign-grs.com")
+            .await
+        {
+            Ok(result) => assert_eq!(result.available, Some(false)),
+            // Port 43 may be blocked on some networks; don't fail on that.
+            Err(e) => eprintln!("skipped: WHOIS over TCP unavailable: {e}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn live_iana_discovery() {
+        if let Some(server) = discover_whois_server("it").await {
+            assert_eq!(server, "whois.nic.it");
         }
     }
 }

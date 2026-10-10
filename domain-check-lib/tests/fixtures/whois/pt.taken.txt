@@ -1,0 +1,21 @@
+Domain: google.pt
+Domain Status: Registered
+Creation Date: 09/01/2003 00:00:00
+Expiration Date: 28/02/2027 23:59:00
+Owner Name: REDACTED
+Owner Address: 1600 Amphitheatre Parkway
+Owner Locality: CA
+Owner ZipCode: 94043
+Owner Locality ZipCode: Mountain View
+Owner Country Code: US
+Admin Name: REDACTED
+Admin Address: 1120 S. Rackham Way Suite 300
+Admin Locality: Meridian
+Admin ZipCode: 83642
+Admin Locality ZipCode: ID
+Admin Country Code: US
+
+Name Server: ns3.google.com | IPv4:  and IPv6:
+Name Server: ns4.google.com | IPv4:  and IPv6:
+Name Server: ns1.google.com | IPv4:  and IPv6:
+Name Server: ns2.google.com | IPv4:  and IPv6:
