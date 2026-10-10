@@ -366,7 +366,11 @@ async fn run_domain_check(mut args: Args) -> Result<(), Box<dyn std::error::Erro
 
     // Create domain checker
     let mut checker = DomainChecker::with_config(config.clone());
-    let dns_server = resolve_dns_server(&args);
+    let dns_server = if config.check_for_sale {
+        resolve_dns_server(&args)
+    } else {
+        None
+    };
     if let Some(server) = dns_server {
         checker = checker.with_dns_server(server);
     }
@@ -408,7 +412,10 @@ fn resolve_dns_server(args: &Args) -> Option<std::net::IpAddr> {
     }
     let from_env = load_env_config(false).dns_server;
     if from_env.is_none() {
-        if let Ok(val) = std::env::var("DC_DNS_SERVER") {
+        if let Some(val) = std::env::var("DC_DNS_SERVER")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+        {
             eprintln!(
                 "Warning: ignoring DC_DNS_SERVER='{}' (not an IP address)",
                 val

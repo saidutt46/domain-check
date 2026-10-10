@@ -681,7 +681,13 @@ fn brief_error(result: &DomainResult) -> &str {
     match &result.error_message {
         Some(msg) => {
             let m = msg.to_lowercase();
-            if m.contains("timeout") || m.contains("timed out") {
+            if m.contains("rate limit") {
+                "(rate limited)"
+            } else if m.contains("refused the query") {
+                "(WHOIS refused)"
+            } else if m.contains("no whois server") {
+                "(no WHOIS service)"
+            } else if m.contains("timeout") || m.contains("timed out") {
                 "(timeout)"
             } else if m.contains("network") || m.contains("dns") || m.contains("connect") {
                 "(network error)"
@@ -780,6 +786,22 @@ mod tests {
     fn test_brief_error_bootstrap() {
         let r = make_result_with_error("bootstrap registry failed");
         assert_eq!(brief_error(&r), "(unknown TLD)");
+    }
+
+    #[test]
+    fn test_brief_error_whois_reasons() {
+        let r = make_result_with_error(
+            "Unable to verify — RDAP inconclusive; WHOIS: whois.dns.lu rate limited the query",
+        );
+        assert_eq!(brief_error(&r), "(rate limited)");
+        let r = make_result_with_error(
+            "Unable to verify — RDAP inconclusive; WHOIS: WHOIS server refused the query",
+        );
+        assert_eq!(brief_error(&r), "(WHOIS refused)");
+        let r = make_result_with_error(
+            "Unable to verify — RDAP inconclusive; WHOIS: No WHOIS server is known for .es",
+        );
+        assert_eq!(brief_error(&r), "(no WHOIS service)");
     }
 
     #[test]

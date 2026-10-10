@@ -70,24 +70,29 @@ async fn check_availability_concurrent(
                         }
                         // Check if it's an unknown TLD or truly ambiguous case
                         else if matches!(rdap_error, DomainCheckError::BootstrapError { .. })
-                            || matches!(whois_error, DomainCheckError::BootstrapError { .. })
+                            || matches!(
+                                whois_error,
+                                DomainCheckError::BootstrapError { .. }
+                                    | DomainCheckError::WhoisError { .. }
+                            )
                             || rdap_error.indicates_available()
-                            || whois_error
-                                .to_string()
-                                .contains("Unable to determine domain status")
                         {
                             // RDAP 404 without WHOIS corroboration, unknown TLD,
-                            // or ambiguous WHOIS response → unknown status
+                            // or a WHOIS reply that could not be read → unknown,
+                            // keeping WHOIS's reason (refused, rate limited, …)
+                            let reason = match &whois_error {
+                                DomainCheckError::WhoisError { message, .. } => message.clone(),
+                                _ => "unavailable".to_string(),
+                            };
                             Ok(DomainResult {
                                 domain: domain.to_string(),
                                 available: None, // Unknown status
                                 info: None,
                                 check_duration: None,
                                 method_used: CheckMethod::Unknown,
-                                error_message: Some(
-                                    "Unable to verify — RDAP inconclusive and WHOIS unavailable"
-                                        .to_string(),
-                                ),
+                                error_message: Some(format!(
+                                    "Unable to verify — RDAP inconclusive; WHOIS: {reason}"
+                                )),
                                 for_sale: None,
                             })
                         } else {

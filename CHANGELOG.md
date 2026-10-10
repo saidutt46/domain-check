@@ -7,7 +7,7 @@
 Thanks to Marco Davids for testing 1.1.0 and reporting both problems.
 
 ### Fixed
-- **WHOIS results for many country-code TLDs.** A survey of 38 ccTLDs without RDAP found 19 with wrong or `UNKNOWN` results. For example, every registered `.it` domain showed `UNKNOWN`, and free `.be`, `.bg`, `.my`, `.mx`, `.at`, and `.lu` domains were not recognised. WHOIS replies are now read as fields (including `[key] value` and replies inside `%` comments) and checked against real replies from 43 registries
+- **WHOIS results for many country-code TLDs.** A survey of 38 ccTLDs without RDAP found 19 with wrong or `UNKNOWN` results. For example, every registered `.it` domain showed `UNKNOWN`, and free `.be`, `.bg`, `.my`, `.mx`, `.at`, and `.lu` domains were not recognised. WHOIS replies are now read as fields (including JPRS-style `[key] value`), "not found" messages inside `%` comments are recognised, and long disclaimer text no longer counts. Tested against real replies from 43 registries
 - **False `AVAILABLE` from empty WHOIS replies.** Any reply shorter than 50 characters used to count as "available", so a failed or blocked lookup (for example on Windows) could report a registered domain as free. Unclear replies are now `UNKNOWN`
 - **For-sale lookups failed silently.** When the DNS server did not answer, a domain looked "not for sale". The CLI now prints one warning at the end, and MCP responses include `for_sale_errors`
 - **For-sale lookups skipped `UNKNOWN` domains.** They now run for every domain that is not `AVAILABLE`. If RDAP and WHOIS both fail but the domain publishes a `_for-sale` record, the result is `UNKNOWN` with the for-sale data instead of an error. The status is never changed
@@ -20,6 +20,7 @@ Thanks to Marco Davids for testing 1.1.0 and reporting both problems.
 ### Changed
 - WHOIS is built in: queries go over TCP port 43 directly (RFC 3912), so the system `whois` command is no longer needed. A registry address that does not answer (some publish an unreachable IPv4 or IPv6 address) no longer stalls the query
 - `.jp` WHOIS is queried in English (`/e`)
+- UNKNOWN results keep WHOIS's reason (for example "refused the query" or "rate limited"), and the WHOIS error text no longer suggests installing `whois` or that a failed lookup may mean "available"
 - The RDAP-to-WHOIS fallback logic exists once instead of twice in `checker.rs`
 
 ---

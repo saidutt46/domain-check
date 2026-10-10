@@ -207,10 +207,10 @@ pub(crate) enum Verdict {
 }
 
 // Kinds of registration data. A reply with two of them (or one plus the
-// domain name echoed back) describes a registered domain.
+// domain name echoed back) describes a registered domain. "Last updated"
+// is left out: registries stamp free replies with it too.
 const CREATED: u8 = 1;
 const EXPIRES: u8 = 1 << 1;
-const UPDATED: u8 = 1 << 2;
 const REGISTRAR: u8 = 1 << 3;
 const REGISTRANT: u8 = 1 << 4;
 const NAME_SERVERS: u8 = 1 << 5;
@@ -239,16 +239,20 @@ const FREE_PHRASES: &[&str] = &[
     "no object found",
 ];
 
+/// Wording of actual rate-limit replies. Kept specific because registry
+/// disclaimers talk about throttling and "query rates" in general terms.
 const RATE_LIMIT_PHRASES: &[&str] = &[
-    "rate limit",
-    "query rate",
-    "too many",
+    "rate limit exceeded",
+    "query rate limit",
+    "maximum query rate",
+    "query rate reached",
+    "too many queries",
+    "too many requests",
     "quota exceeded",
     "limit exceeded",
     "queries exceeded",
     "number of allowed queries",
     "try again later",
-    "throttled",
     "rate-limited",
 ];
 
@@ -260,11 +264,16 @@ const REFUSED_PHRASES: &[&str] = &[
     "refused",
 ];
 
+/// Registries answer in short lines ("No match for X.COM", "% nothing
+/// found"); longer lines are disclaimers, whose wording must not count.
+const MAX_MESSAGE_LINE: usize = 100;
+
 /// Decide whether a WHOIS reply describes a registered or a free domain.
 ///
 /// Registration data wins over everything else; "free" needs an explicit
-/// phrase or status. Anything else is unknown: an empty, refused, or
-/// unfamiliar reply must never read as AVAILABLE.
+/// phrase or status and no registration data at all. Anything else is
+/// unknown: an empty, refused, or unfamiliar reply must never read as
+/// AVAILABLE.
 pub(crate) fn classify(response: &str, domain: &str) -> Verdict {
     let text = response.to_lowercase().replace('\t', " ");
     let domain = domain.trim_end_matches('.').to_lowercase();
@@ -295,18 +304,34 @@ pub(crate) fn classify(response: &str, domain: &str) -> Verdict {
     if evidence.count_ones() >= 2 || (echoed && evidence != 0) {
         return Verdict::Taken;
     }
+
+    // Short lines only, comments included (.at, .lu, .il answer in `%` lines).
+    let messages: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && l.len() <= MAX_MESSAGE_LINE)
+        .collect();
+    let says = |phrases: &[&str]| {
+        messages
+            .iter()
+            .any(|l| phrases.iter().any(|p| l.contains(p)))
+    };
+
+    if says(RATE_LIMIT_PHRASES) {
+        return Verdict::RateLimited;
+    }
     let free_phrase = format!("{domain} is free");
-    if free_status
-        || text
-            .lines()
-            .any(|l| l.contains(&free_phrase) || FREE_PHRASES.iter().any(|p| l.contains(p)))
+    if evidence == 0
+        && (free_status || says(FREE_PHRASES) || messages.iter().any(|l| l.contains(&free_phrase)))
     {
         return Verdict::Available;
     }
-    if RATE_LIMIT_PHRASES.iter().any(|p| text.contains(p)) {
-        return Verdict::RateLimited;
-    }
-    if REFUSED_PHRASES.iter().any(|p| text.contains(p)) {
+    // After "free": standard disclaimers say "you are not authorized to…".
+    let refused = messages
+        .iter()
+        .filter(|l| !is_comment(l))
+        .any(|l| REFUSED_PHRASES.iter().any(|p| l.contains(p)));
+    if refused {
         return Verdict::Unknown("WHOIS server refused the query");
     }
     if text.trim().is_empty() {
@@ -367,11 +392,6 @@ fn category(key: &str, value: &str) -> u8 {
         && has_value
     {
         EXPIRES
-    } else if (key.contains("updat") || key.contains("changed") || key.contains("modified"))
-        && !key.contains("whois database")
-        && has_value
-    {
-        UPDATED
     } else if key.starts_with("registrar") || key.starts_with("sponsoring registrar") {
         if has_value || header("registrar") {
             REGISTRAR
@@ -597,6 +617,50 @@ mod tests {
     fn whois_database_timestamp_is_not_evidence() {
         let reply = "No match for \"X.COM\".\n>>> Last update of whois database: 2026-10-10 <<<";
         assert_eq!(classify(reply, "x.com"), Verdict::Available);
+    }
+
+    // Found in review: each of these used to give a wrong verdict.
+
+    #[test]
+    fn registration_data_blocks_available_even_without_echo() {
+        // Echo differs from the query (IDN/normalised) and a disclaimer
+        // says "does not exist": must not read as free.
+        let reply = "Domain Name: EXAMPLE.TLD\nDomain Status: ok\n\nIf the domain does not exist, contact us";
+        assert_ne!(classify(reply, "other.tld"), Verdict::Available);
+        let reply = "Registrar:\nNo match for nameserver ns1.example";
+        assert_ne!(classify(reply, "other.tld"), Verdict::Available);
+    }
+
+    #[test]
+    fn rate_limit_wins_over_free_phrase() {
+        assert_eq!(
+            classify(
+                "Your query rate limit was exceeded; object not found",
+                "x.com"
+            ),
+            Verdict::RateLimited
+        );
+        assert_eq!(
+            classify(
+                "% Error: 101: no entries found\n% Too many queries",
+                "x.com"
+            ),
+            Verdict::RateLimited
+        );
+    }
+
+    #[test]
+    fn free_status_with_update_timestamp_is_available() {
+        let reply = "Domain: example.be\nStatus: AVAILABLE\nLast update: 2026";
+        assert_eq!(classify(reply, "example.be"), Verdict::Available);
+    }
+
+    #[test]
+    fn disclaimer_rate_limit_wording_is_not_a_rate_limit() {
+        // .ai/.io/.me and .uk disclaimers talk about throttling and query
+        // rates; a reply without data must not trigger a retry because of it.
+        let reply = "Queries to the Whois services are throttled. If too many queries are received from a single IP address within a specified time, the service will begin to reject further queries for a period of time to prevent disruption of Whois service access. Abuse of the Whois system through data mining is mitigated by detecting and limiting bulk query access from single sources.";
+        assert_ne!(classify(reply, "x.ai"), Verdict::RateLimited);
     }
 
     #[test]
