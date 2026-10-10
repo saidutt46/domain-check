@@ -415,6 +415,20 @@ fn build_resolver(
     Some((builder.build().ok()?, servers.join(", ").into()))
 }
 
+/// Errors caused by the queried domain's own DNS (SERVFAIL: broken
+/// delegation or DNSSEC), not by the user's resolver. Nothing to report:
+/// such a domain cannot publish a readable record anyway.
+#[cfg(feature = "forsale")]
+fn is_domain_side_error(error: &hickory_resolver::net::NetError) -> bool {
+    use hickory_resolver::net::{DnsError, NetError};
+    use hickory_resolver::proto::op::ResponseCode;
+
+    matches!(
+        error,
+        NetError::Dns(DnsError::ResponseCode(ResponseCode::ServFail))
+    )
+}
+
 #[cfg(all(test, feature = "forsale"))]
 impl ForSaleLookup {
     /// Test-only: a lookup that queries a single, specific nameserver.
@@ -439,7 +453,9 @@ async fn lookup(
     };
     let answer = match tokio::time::timeout(timeout, resolver.txt_lookup(name.as_str())).await {
         Err(_) => return Outcome::Failed(format!("no answer within {timeout:?}")),
-        Ok(Err(e)) if e.is_no_records_found() || e.is_nx_domain() => return Outcome::NotForSale,
+        Ok(Err(e)) if e.is_no_records_found() || e.is_nx_domain() || is_domain_side_error(&e) => {
+            return Outcome::NotForSale
+        }
         Ok(Err(e)) => return Outcome::Failed(e.to_string()),
         Ok(Ok(answer)) => answer,
     };
@@ -862,6 +878,22 @@ mod tests {
         let failures = for_sale.failures().expect("timeout is a failure");
         assert_eq!(failures.count, 1);
         assert!(failures.last_error.contains("192.0.2.1"), "{failures:?}");
+    }
+
+    /// SERVFAIL for one name means that domain's own DNS is broken (e.g.
+    /// _for-sale.mybrand.org); the user's resolver is fine, so it is not a
+    /// lookup failure to warn about. REFUSED is the resolver refusing us.
+    #[cfg(feature = "forsale")]
+    #[test]
+    fn servfail_is_the_domains_problem_not_the_resolvers() {
+        use hickory_resolver::net::{DnsError, NetError};
+        use hickory_resolver::proto::op::ResponseCode;
+
+        let servfail = NetError::Dns(DnsError::ResponseCode(ResponseCode::ServFail));
+        assert!(is_domain_side_error(&servfail));
+        let refused = NetError::Dns(DnsError::ResponseCode(ResponseCode::Refused));
+        assert!(!is_domain_side_error(&refused));
+        assert!(!is_domain_side_error(&NetError::Timeout));
     }
 
     #[cfg(feature = "forsale")]
