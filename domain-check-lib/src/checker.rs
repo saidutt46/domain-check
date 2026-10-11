@@ -84,10 +84,7 @@ async fn check_availability_concurrent(
                             // RDAP 404 without WHOIS corroboration, unknown TLD,
                             // or a WHOIS reply that could not be read → unknown,
                             // keeping WHOIS's reason (refused, rate limited, …)
-                            let reason = match &whois_error {
-                                DomainCheckError::WhoisError { message, .. } => message.clone(),
-                                _ => "unavailable".to_string(),
-                            };
+                            let reason = whois_failure_reason(&whois_error);
                             Ok(DomainResult {
                                 domain: domain.to_string(),
                                 available: None, // Unknown status
@@ -134,6 +131,17 @@ async fn check_availability_concurrent(
 /// official source, so the 404 stands.
 fn rdap_404_is_final(rdap_error: &DomainCheckError, whois_error: &DomainCheckError) -> bool {
     rdap_error.indicates_available() && crate::protocols::whois::is_no_whois_service(whois_error)
+}
+
+/// Short reason WHOIS could not answer, for UNKNOWN results.
+fn whois_failure_reason(error: &DomainCheckError) -> String {
+    match error {
+        DomainCheckError::WhoisError { message, .. } => message.clone(),
+        DomainCheckError::Timeout { duration, .. } => {
+            format!("timed out after {}s", duration.as_secs())
+        }
+        _ => "unavailable".to_string(),
+    }
 }
 
 /// Drop registration details unless `detailed_info` was requested.
@@ -608,6 +616,20 @@ impl Default for DomainChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── WHOIS failure reasons ───────────────────────────────────────────
+
+    #[test]
+    fn whois_timeout_reason_is_kept() {
+        // Was "WHOIS: unavailable", shown as a vague "(error)" (#39).
+        let timeout = DomainCheckError::timeout("WHOIS query", std::time::Duration::from_secs(5));
+        assert!(whois_failure_reason(&timeout).contains("timed out"));
+        let refused = DomainCheckError::whois("x.ch", "WHOIS server refused the query");
+        assert_eq!(
+            whois_failure_reason(&refused),
+            "WHOIS server refused the query"
+        );
+    }
 
     // ── RDAP 404 without any WHOIS service ──────────────────────────────
 
