@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.2.0] - Unreleased
+## [1.2.0] - 2026-10-11
 
 ### WHOIS Rewrite and For-Sale Follow-ups (Issues #33, #39)
 
