@@ -10,12 +10,19 @@
 
 use crate::error::DomainCheckError;
 use crate::types::{CheckMethod, DomainResult};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::sync::Semaphore;
 
 /// Well-known WHOIS port (RFC 3912).
 const WHOIS_PORT: u16 = 43;
+
+/// Most queries one WHOIS server gets at a time. Registries throttle bulk
+/// use (whois.nic.it answers a burst by slowing every reply to 15 s+).
+const MAX_QUERIES_PER_SERVER: usize = 2;
 
 /// Replies larger than this are cut off; real ones are a few KB.
 const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
@@ -35,19 +42,27 @@ const NO_WHOIS_SERVICE: &str = "the registry offers no WHOIS service";
 pub struct WhoisClient {
     /// Timeout for one WHOIS query (connect, send, and read)
     timeout: Duration,
+    /// TCP port (43; tests use a local server)
+    port: u16,
 }
 
 impl WhoisClient {
     /// Create a new WHOIS client with default settings.
     pub fn new() -> Self {
-        Self {
-            timeout: Duration::from_secs(5),
-        }
+        Self::with_timeout(Duration::from_secs(5))
     }
 
     /// Create a new WHOIS client with custom timeout.
     pub fn with_timeout(timeout: Duration) -> Self {
-        Self { timeout }
+        Self {
+            timeout,
+            port: WHOIS_PORT,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_port(timeout: Duration, port: u16) -> Self {
+        Self { timeout, port }
     }
 
     /// Check domain availability, discovering the registry's WHOIS server
@@ -73,6 +88,9 @@ impl WhoisClient {
         let start_time = Instant::now();
         let query = query_for(server, domain);
 
+        // Waiting for a slot doesn't count against the query timeout.
+        let slots = server_slots(server, self.port);
+        let _slot = slots.acquire().await.ok();
         let mut verdict = classify(&self.query(server, &query, domain).await?, domain);
         if verdict == Verdict::RateLimited {
             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -108,7 +126,7 @@ impl WhoisClient {
         query: &str,
         domain: &str,
     ) -> Result<String, DomainCheckError> {
-        match tokio::time::timeout(self.timeout, raw_query(server, query)).await {
+        match tokio::time::timeout(self.timeout, raw_query(server, self.port, query)).await {
             Ok(Ok(text)) => Ok(text),
             Ok(Err(e)) => Err(DomainCheckError::whois(
                 domain,
@@ -125,11 +143,24 @@ impl Default for WhoisClient {
     }
 }
 
+/// Per-server query slots, shared by every client in the process.
+fn server_slots(server: &str, port: u16) -> Arc<Semaphore> {
+    static SLOTS: OnceLock<Mutex<HashMap<String, Arc<Semaphore>>>> = OnceLock::new();
+    let mut slots = SLOTS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    slots
+        .entry(format!("{}:{port}", server.to_ascii_lowercase()))
+        .or_insert_with(|| Arc::new(Semaphore::new(MAX_QUERIES_PER_SERVER)))
+        .clone()
+}
+
 /// Send one RFC 3912 query and read the reply until the server closes.
-async fn raw_query(server: &str, query: &str) -> std::io::Result<String> {
+async fn raw_query(server: &str, port: u16, query: &str) -> std::io::Result<String> {
     // Connect to every address at once and keep the first that answers:
     // some registries publish an IPv4 or IPv6 address that never responds.
-    let attempts: Vec<_> = tokio::net::lookup_host((server, WHOIS_PORT))
+    let attempts: Vec<_> = tokio::net::lookup_host((server, port))
         .await?
         .map(|addr| Box::pin(TcpStream::connect(addr)))
         .collect();
@@ -169,7 +200,12 @@ pub(crate) enum WhoisServer {
 
 /// Ask IANA which WHOIS server serves `tld`.
 pub(crate) async fn discover(tld: &str) -> WhoisServer {
-    match tokio::time::timeout(Duration::from_secs(10), raw_query(IANA_WHOIS_SERVER, tld)).await {
+    match tokio::time::timeout(
+        Duration::from_secs(10),
+        raw_query(IANA_WHOIS_SERVER, WHOIS_PORT, tld),
+    )
+    .await
+    {
         Ok(Ok(reply)) => parse_iana_discovery(&reply),
         _ => WhoisServer::Unreachable,
     }
@@ -702,6 +738,52 @@ mod tests {
     fn jprs_query_uses_english_suffix() {
         assert_eq!(query_for("whois.jprs.jp", "google.jp"), "google.jp/e");
         assert_eq!(query_for("whois.nic.it", "google.it"), "google.it");
+    }
+
+    // ── Politeness: per-server concurrency cap ──────────────────────────
+
+    /// Registries throttle bulk queries (whois.nic.it slows replies to 15 s+
+    /// after a burst), so one server never gets more than
+    /// MAX_QUERIES_PER_SERVER queries at a time, whatever the check
+    /// concurrency (#39).
+    #[tokio::test]
+    async fn queries_to_one_server_are_capped() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let (a, p) = (active.clone(), peak.clone());
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let (a, p) = (a.clone(), p.clone());
+                tokio::spawn(async move {
+                    let now = a.fetch_add(1, Ordering::SeqCst) + 1;
+                    p.fetch_max(now, Ordering::SeqCst);
+                    let mut buf = [0u8; 256];
+                    let _ = sock.read(&mut buf).await;
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    let reply = "Domain: x.test\nStatus: ok\nCreated: 2020-01-01\n";
+                    let _ = sock.write_all(reply.as_bytes()).await;
+                    a.fetch_sub(1, Ordering::SeqCst);
+                });
+            }
+        });
+
+        let client = WhoisClient::with_port(Duration::from_secs(5), port);
+        let checks = (0..6).map(|_| client.check_domain_with_server("x.test", "127.0.0.1"));
+        for result in futures_util::future::join_all(checks).await {
+            assert_eq!(result.unwrap().available, Some(false));
+        }
+        let peak = peak.load(Ordering::SeqCst);
+        assert!(
+            peak <= MAX_QUERIES_PER_SERVER,
+            "{peak} concurrent queries to one server"
+        );
     }
 
     // ── IANA discovery: "no WHOIS" vs "couldn't ask" ───────────────────
