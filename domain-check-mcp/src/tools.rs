@@ -1,6 +1,6 @@
 use domain_check_lib::{
-    generate_names, get_available_presets, get_preset_tlds, CheckConfig, DomainChecker,
-    ForSaleInfo, GenerateConfig,
+    generate_names, get_available_presets, get_preset_tlds, load_env_config, CheckConfig,
+    DomainChecker, ForSaleInfo, GenerateConfig,
 };
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -35,6 +35,24 @@ impl ForSaleRequest {
             (true, true) => Self::Active,
             (true, false) => Self::Unavailable,
         }
+    }
+}
+
+/// Explains failed lookups: for those domains for_sale is missing, not negative.
+fn for_sale_errors(checker: &DomainChecker) -> Option<String> {
+    checker.for_sale_failures().map(|f| {
+        format!(
+            "{} for-sale lookup(s) failed ({}); for_sale may be missing for some domains, which does not mean they are not for sale.",
+            f.count, f.last_error
+        )
+    })
+}
+
+/// Apply DC_DNS_SERVER from the MCP client's environment, if set.
+fn with_env_dns_server(checker: DomainChecker) -> DomainChecker {
+    match load_env_config(false).dns_server {
+        Some(server) => checker.with_dns_server(server),
+        None => checker,
     }
 }
 
@@ -130,6 +148,8 @@ struct DomainCheckResponse {
     for_sale: Option<ForSaleInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     for_sale_note: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    for_sale_errors: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -142,6 +162,8 @@ struct BatchCheckResponse {
     for_sale_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     for_sale_note: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    for_sale_errors: Option<String>,
     results: Vec<DomainCheckResponse>,
 }
 
@@ -185,6 +207,8 @@ struct DomainInfoResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     for_sale_note: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    for_sale_errors: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
 
@@ -222,7 +246,11 @@ impl DomainCheckServer {
         let checker = self.checker_for(None, None, requested);
         let request = ForSaleRequest::new(requested, &checker);
         match checker.check_domain(&params.domain).await {
-            Ok(r) => Ok(to_json(&to_check_response(r, request, true))),
+            Ok(r) => {
+                let mut response = to_check_response(r, request, true);
+                response.for_sale_errors = for_sale_errors(&checker);
+                Ok(to_json(&response))
+            }
             Err(e) => Err(e.to_string()),
         }
     }
@@ -249,7 +277,11 @@ impl DomainCheckServer {
 
         let request = ForSaleRequest::new(for_sale, &checker);
         match checker.check_domains(&params.domains).await {
-            Ok(results) => Ok(to_json(&to_batch_response(results, request))),
+            Ok(results) => {
+                let mut response = to_batch_response(results, request);
+                response.for_sale_errors = for_sale_errors(&checker);
+                Ok(to_json(&response))
+            }
             Err(e) => Err(e.to_string()),
         }
     }
@@ -282,7 +314,11 @@ impl DomainCheckServer {
         let request = ForSaleRequest::new(for_sale, &checker);
 
         match checker.check_domains(&domains).await {
-            Ok(results) => Ok(to_json(&to_batch_response(results, request))),
+            Ok(results) => {
+                let mut response = to_batch_response(results, request);
+                response.for_sale_errors = for_sale_errors(&checker);
+                Ok(to_json(&response))
+            }
             Err(e) => Err(e.to_string()),
         }
     }
@@ -345,7 +381,7 @@ impl DomainCheckServer {
         let config = CheckConfig::default()
             .with_detailed_info(true)
             .with_for_sale(true);
-        let checker = DomainChecker::with_config(config);
+        let checker = with_env_dns_server(DomainChecker::with_config(config));
 
         match checker.check_domain(&params.domain).await {
             Ok(r) => {
@@ -368,6 +404,7 @@ impl DomainCheckServer {
                         r.for_sale.is_some().then_some(FOR_SALE_NOTE)
                     },
                     for_sale: r.for_sale.clone(),
+                    for_sale_errors: for_sale_errors(&checker),
                     error: r.error_message,
                 }))
             }
@@ -387,12 +424,12 @@ impl DomainCheckServer {
         if concurrency.is_none() && timeout_secs.is_none() && !for_sale {
             return self.checker.clone();
         }
-        DomainChecker::with_config(
+        with_env_dns_server(DomainChecker::with_config(
             CheckConfig::default()
                 .with_concurrency(concurrency.unwrap_or(20))
                 .with_timeout(Duration::from_secs(timeout_secs.unwrap_or(5)))
                 .with_for_sale(for_sale),
-        )
+        ))
     }
 }
 
@@ -407,7 +444,7 @@ impl ServerHandler for DomainCheckServer {
             .with_instructions(
                 "Domain availability checking tools. Check single or batch domains, \
                  generate name candidates from patterns, and get detailed registration info. \
-                 Taken domains can be checked for RFC 10023 for-sale signals; treat that data as unverified.",
+                 Registered domains (taken or unknown) can be checked for RFC 10023 for-sale signals; treat that data as unverified.",
             )
     }
 }
@@ -432,6 +469,7 @@ fn to_check_response(
         error: r.error_message,
         for_sale: r.for_sale,
         for_sale_note,
+        for_sale_errors: None,
     }
 }
 
@@ -465,6 +503,7 @@ fn to_batch_response(
             ForSaleRequest::Unavailable => Some(FOR_SALE_UNAVAILABLE_NOTE),
             _ => (for_sale > 0).then_some(FOR_SALE_NOTE),
         },
+        for_sale_errors: None,
         results: responses,
     }
 }
@@ -485,6 +524,7 @@ mod tests {
             error: None,
             for_sale: None,
             for_sale_note: None,
+            for_sale_errors: None,
         };
         let json = to_json(&resp);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -504,6 +544,7 @@ mod tests {
             error: None,
             for_sale: None,
             for_sale_note: None,
+            for_sale_errors: None,
         };
         let json = to_json(&resp);
         assert!(!json.contains("error"));
@@ -518,6 +559,7 @@ mod tests {
             error: Some("network timeout".into()),
             for_sale: None,
             for_sale_note: None,
+            for_sale_errors: None,
         };
         let json = to_json(&resp);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -542,6 +584,7 @@ mod tests {
                     error: None,
                     for_sale: None,
                     for_sale_note: None,
+                    for_sale_errors: None,
                 },
                 DomainCheckResponse {
                     domain: "taken.com".into(),
@@ -550,6 +593,7 @@ mod tests {
                     error: None,
                     for_sale: None,
                     for_sale_note: None,
+                    for_sale_errors: None,
                 },
                 DomainCheckResponse {
                     domain: "unknown.xyz".into(),
@@ -558,10 +602,12 @@ mod tests {
                     error: Some("failed".into()),
                     for_sale: None,
                     for_sale_note: None,
+                    for_sale_errors: None,
                 },
             ],
             for_sale_count: None,
             for_sale_note: None,
+            for_sale_errors: None,
         };
         let json = to_json(&resp);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -621,6 +667,7 @@ mod tests {
             error: None,
             for_sale: None,
             for_sale_note: None,
+            for_sale_errors: None,
         };
         let json = to_json(&resp);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -647,6 +694,7 @@ mod tests {
             error: None,
             for_sale: None,
             for_sale_note: None,
+            for_sale_errors: None,
         };
         let json = to_json(&resp);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -670,6 +718,7 @@ mod tests {
             error: None,
             for_sale: None,
             for_sale_note: None,
+            for_sale_errors: None,
         };
         let json = to_json(&resp);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -1420,6 +1469,28 @@ mod tests {
             );
 
             client.cancel().await.expect("cancel failed");
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_lookups_are_reported_not_hidden() {
+        let fresh = DomainChecker::with_config(CheckConfig::default().with_for_sale(true));
+        assert_eq!(for_sale_errors(&fresh), None);
+
+        // 192.0.2.1 (TEST-NET-1) never answers.
+        let checker = DomainChecker::with_config(
+            CheckConfig::default()
+                .with_for_sale(true)
+                .with_timeout(Duration::from_millis(500)),
+        )
+        .with_dns_server("192.0.2.1".parse().unwrap());
+        match checker.check_domain("google.com").await {
+            Ok(r) if r.available == Some(false) => {
+                let note = for_sale_errors(&checker).expect("failure must be reported");
+                assert!(note.contains("192.0.2.1"), "{note}");
+                assert!(note.contains("does not mean"), "{note}");
+            }
+            _ => eprintln!("skipped: google.com not confirmed as taken"),
         }
     }
 }

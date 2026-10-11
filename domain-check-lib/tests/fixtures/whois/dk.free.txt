@@ -1,0 +1,17 @@
+# Hello 2600:1700:5ae1:246f:14b8:82af:2853:9a6c. Your session has been logged.
+#
+# Copyright (c) 2002 - 2026 by Punktum dk A/S
+#
+# Version: 6.3.0
+#
+# The data in the DK Whois database is provided by Punktum dk A/S
+# for information purposes only, and to assist persons in obtaining
+# information about or related to a domain name registration record.
+# We do not guarantee its accuracy. We will reserve the right to remove
+# access for entities abusing the data, without notice.
+#
+# Any use of this material to target advertising or similar activities
+# are explicitly forbidden and will be prosecuted. Punktum dk A/S
+# requests to be notified of any such activities or suspicions thereof.
+
+No entries found for the selected source.

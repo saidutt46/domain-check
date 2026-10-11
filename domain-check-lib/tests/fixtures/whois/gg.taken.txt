@@ -1,0 +1,50 @@
+Domain:
+     google.gg
+
+Domain Status:
+     Active
+     Delete Prohibited by Registrar
+     Update Prohibited by Registrar
+     Transfer Prohibited by Registrar
+
+Registrant:
+     Google LLC
+
+Registrar:
+     MarkMonitor Inc. (http://www.markmonitor.com)
+
+Relevant dates:
+     Registered on 30th April 2003 at 00:00:00.000
+     Registry fee due on 30th April each year
+
+Registration status:
+     Registered until cancelled
+
+Name servers:
+     ns1.google.com
+     ns2.google.com
+     ns3.google.com
+     ns4.google.com
+
+
+WHOIS lookup made on Sat, 10 Oct 2026 at 6:39:14 BST
+
+This WHOIS information is provided for free by CIDR, operator of
+the backend registry for domain names ending in GG and JE.
+
+Copyright (c) and database right Island Networks 1996 - 2026.
+
+You may not access this WHOIS server or use any data from it except
+as permitted by our Terms and Conditions which are published
+at http://www.channelisles.net/legal/whoisterms
+
+They include restrictions and prohibitions on
+
+- using or re-using the data for advertising;
+- using or re-using the service for commercial purposes without a licence;
+- repackaging, recompilation, redistribution or reuse;
+- obscuring, removing or hiding any or all of this notice;
+- exceeding query rate or volume limits.
+
+The data is provided on an 'as-is' basis and may lag behind the
+register. Access may be withdrawn or restricted at any time.

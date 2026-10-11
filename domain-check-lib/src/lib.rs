@@ -33,7 +33,9 @@
 pub use checker::DomainChecker;
 pub use config::{load_env_config, ConfigManager, DefaultsConfig, FileConfig, GenerationConfig};
 pub use error::DomainCheckError;
-pub use forsale::{parse_txt_records, record_name, ForSaleInfo, ForSalePrice, ForSaleUri};
+pub use forsale::{
+    parse_txt_records, record_name, ForSaleFailures, ForSaleInfo, ForSalePrice, ForSaleUri,
+};
 pub use protocols::registry::{
     get_all_known_tlds, get_available_presets, get_preset_tlds, get_preset_tlds_with_custom,
     get_whois_server, initialize_bootstrap,

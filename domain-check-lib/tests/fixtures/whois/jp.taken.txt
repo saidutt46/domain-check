@@ -1,0 +1,32 @@
+[ JPRS database provides information on network administration. Its use is    ]
+[ restricted to network administration purposes. For further information,     ]
+[ use 'whois -h whois.jprs.jp help'. To suppress Japanese output, add'/e'     ]
+[ at the end of command, e.g. 'whois -h whois.jprs.jp xxx/e'.                 ]
+Domain Information:
+[Domain Name]                   GOOGLE.JP
+
+[Registrant]                    Google LLC
+
+[Name Server]                   ns1.google.com
+[Name Server]                   ns2.google.com
+[Name Server]                   ns3.google.com
+[Name Server]                   ns4.google.com
+[Signing Key]
+
+[Created on]                    2005/05/30
+[Expires on]                    2027/05/31
+[Status]                        Active
+[Lock Status]                   DomainTransferLocked
+[Lock Status]                   AgentChangeLocked
+[Last Updated]                  2026/06/01 01:05:03 (JST)
+
+Contact Information:
+[Name]                          REDACTED
+[Email]                         REDACTED
+[Web Page]
+[Postal code]                   94043
+[Postal Address]                Mountain View
+                                1600 Amphitheatre Parkway
+                                CA
+[Phone]                         REDACTED
+[Fax]                           REDACTED

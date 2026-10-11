@@ -21,7 +21,7 @@ All tools return structured JSON. All tools are **read-only** — no side effect
 | `list_presets` | List all available TLD presets with their TLD lists | _(none)_ |
 | `domain_info` | Get detailed registration info: registrar, dates, nameservers, status codes, RFC 10023 for-sale info | `domain` (string, required) |
 
-`check_domain`, `check_domains`, and `check_with_preset` accept `check_for_sale: true` to also look up [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` records on taken domains. `domain_info` always does. Results then carry a `for_sale` object (`uris`, `prices`, `texts`, `codes`), batch responses add `for_sale_count`, and any response containing for-sale data includes a `for_sale_note` telling the agent the data is unverified, prices are indicative, and purchases need explicit human confirmation.
+`check_domain`, `check_domains`, and `check_with_preset` accept `check_for_sale: true` to also look up [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` records on taken and unknown domains. `domain_info` always does. Results then carry a `for_sale` object (`uris`, `prices`, `texts`, `codes`), batch responses add `for_sale_count`, and any response containing for-sale data includes a `for_sale_note` telling the agent the data is unverified, prices are indicative, and purchases need explicit human confirmation. If lookups fail (for example, the DNS server does not answer), the response includes `for_sale_errors`, so the agent does not read a missing `for_sale` as "not for sale". To choose the DNS server, set `DC_DNS_SERVER` (an IP address) in the server's `env` block.
 
 ### Tool annotations
 

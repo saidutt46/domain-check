@@ -133,7 +133,7 @@ async fn test_bootstrap_adds_non_hardcoded_tlds() {
     initialize_bootstrap().await.unwrap();
 
     let tlds = get_all_known_tlds();
-    // .museum is a real TLD that's not in the 32 hardcoded ones
+    // .museum is a real TLD that's not in the 34 hardcoded ones
     assert!(
         tlds.contains(&"museum".to_string()),
         "Bootstrap should include .museum TLD"
@@ -229,7 +229,7 @@ async fn test_whois_discovery_and_caching() {
 // End-to-end: check domain on non-hardcoded TLD
 // ============================================================
 
-/// Test checking a domain on a TLD not in the hardcoded 32 (e.g., .museum).
+/// Test checking a domain on a TLD not in the hardcoded 34 (e.g., .museum).
 /// With bootstrap enabled (default), this should work via IANA bootstrap.
 #[tokio::test]
 #[ignore]
@@ -402,4 +402,19 @@ async fn test_rdap_404_no_whois_still_works() {
         result.error_message.is_some(),
         "Should include a warning that result is unverified"
     );
+}
+
+/// .dev runs RDAP only (no WHOIS server at IANA). Free names used to show
+/// UNKNOWN because RDAP 404 waited for a WHOIS confirmation that can't exist.
+#[tokio::test]
+async fn rdap_only_registry_reports_free_and_taken() {
+    let checker = domain_check_lib::DomainChecker::new();
+    let free = checker.check_domain("zq7x9k2m4ptest.dev").await.unwrap();
+    let taken = checker.check_domain("google.dev").await.unwrap();
+    if free.available.is_none() && taken.available.is_none() {
+        eprintln!("skipped: Google RDAP unreachable");
+        return;
+    }
+    assert_eq!(free.available, Some(true), "{free:?}");
+    assert_eq!(taken.available, Some(false), "{taken:?}");
 }

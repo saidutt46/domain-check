@@ -296,15 +296,15 @@ fn test_multiple_domains_with_all_flag() {
 #[test]
 fn test_all_flag_expands_beyond_hardcoded_tlds_with_bootstrap() {
     // Bootstrap is on by default, so --all should cover the full IANA list,
-    // not just the 32 hardcoded TLDs. --dry-run avoids checking each domain.
+    // not just the 34 hardcoded TLDs. --dry-run avoids checking each domain.
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
     cmd.args(["test", "--all", "--dry-run"]);
 
     let output = cmd.assert().success().get_output().stdout.clone();
     let count = String::from_utf8(output).unwrap().lines().count();
     assert!(
-        count > 32,
-        "expected bootstrap to expand --all past 32 TLDs, got {}",
+        count > 34,
+        "expected bootstrap to expand --all past 34 TLDs, got {}",
         count
     );
 }
@@ -316,13 +316,13 @@ fn test_all_flag_no_bootstrap_uses_hardcoded_tlds() {
 
     cmd.assert()
         .success()
-        .stderr(predicate::str::contains("32 domains would be checked"));
+        .stderr(predicate::str::contains("34 domains would be checked"));
 }
 
 #[test]
 fn test_error_aggregation_in_output() {
     // This test checks that summary contains the expected text
-    // Use --no-bootstrap to limit to 32 hardcoded TLDs for speed
+    // Use --no-bootstrap to limit to 34 hardcoded TLDs for speed
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
     cmd.args(["sometestdomain123456", "--all", "--batch", "--no-bootstrap"])
         .timeout(std::time::Duration::from_secs(60));
@@ -979,7 +979,7 @@ fn test_dry_run_with_all_flag() {
 
     assert!(stdout.contains("testname.com"));
     assert!(stdout.contains("testname.org"));
-    assert!(stderr.contains("32 domains would be checked"));
+    assert!(stderr.contains("34 domains would be checked"));
 }
 
 // ============================================================
@@ -999,7 +999,7 @@ fn test_no_bootstrap_flag_accepted() {
 
 #[test]
 fn test_no_bootstrap_with_all_limits_to_hardcoded() {
-    // --all --no-bootstrap --dry-run should produce exactly 32 TLDs (hardcoded only)
+    // --all --no-bootstrap --dry-run should produce exactly 34 TLDs (hardcoded only)
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
     cmd.args(["testname", "--all", "--no-bootstrap", "--dry-run"]);
 
@@ -1008,15 +1008,15 @@ fn test_no_bootstrap_with_all_limits_to_hardcoded() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("32 domains would be checked"),
-        "With --no-bootstrap, --all should use only 32 hardcoded TLDs, got: {}",
+        stderr.contains("34 domains would be checked"),
+        "With --no-bootstrap, --all should use only 34 hardcoded TLDs, got: {}",
         stderr
     );
 }
 
 #[test]
 fn test_all_with_bootstrap_returns_more_than_32_tlds() {
-    // --all (without --no-bootstrap) should return >32 TLDs after bootstrap fetch
+    // --all (without --no-bootstrap) should return >34 TLDs after bootstrap fetch
     let mut cmd = Command::cargo_bin("domain-check").unwrap();
     cmd.args(["testname", "--all", "--dry-run"]);
 
@@ -1032,8 +1032,8 @@ fn test_all_with_bootstrap_returns_more_than_32_tlds() {
 
     if let Some(count) = domain_count {
         assert!(
-            count > 32,
-            "With bootstrap enabled, --all should return >32 TLDs, got {}",
+            count > 34,
+            "With bootstrap enabled, --all should return >34 TLDs, got {}",
             count
         );
     }
@@ -1205,4 +1205,68 @@ fn test_only_for_sale_streaming_and_summary() {
     }
     assert!(out.contains("example.nl"), "{out}");
     assert!(out.contains("1 for sale"), "{out}");
+}
+
+// ── 1.1.1: DNS server option, failure warning, WHOIS rewrite ──
+
+#[test]
+fn test_help_lists_dns_server() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.arg("--help");
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("--dns-server"));
+}
+
+#[test]
+fn test_dns_server_rejects_non_ip() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["example.com", "--for-sale", "--dns-server", "dns.example"]);
+    cmd.assert().failure();
+}
+
+#[test]
+fn test_unreachable_dns_server_is_reported() {
+    // 192.0.2.1 (TEST-NET-1) never answers. The lookup must fail visibly
+    // instead of reading as "not for sale" (#33).
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["google.com", "--for-sale", "--dns-server", "192.0.2.1"]);
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout.contains("UNKNOWN") {
+        // RDAP failed too (rate limit): no lookup ran, nothing to report.
+        eprintln!("skipped: google.com not confirmed as taken");
+        return;
+    }
+    assert!(stderr.contains("for-sale lookup failed"), "{stderr}");
+    assert!(stderr.contains("192.0.2.1"), "{stderr}");
+    assert!(!stderr.contains("Try --dns-server"), "{stderr}");
+}
+
+#[test]
+fn test_no_failure_warning_when_lookups_succeed() {
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["google.com", "--for-sale"]);
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("lookup failed"), "{stderr}");
+}
+
+#[test]
+fn test_registered_it_domain_is_taken_via_whois() {
+    // .it has no RDAP; every registered .it domain used to show UNKNOWN (#39).
+    let mut cmd = Command::cargo_bin("domain-check").unwrap();
+    cmd.args(["google.it", "--json"]);
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+    let out = String::from_utf8_lossy(&output.stdout);
+    if out.contains("\"available\": null") && out.to_lowercase().contains("timeout") {
+        eprintln!("skipped: whois.nic.it timed out");
+        return;
+    }
+    assert!(out.contains("\"available\": false"), "{out}");
+    assert!(out.contains("\"method_used\": \"whois\""), "{out}");
 }

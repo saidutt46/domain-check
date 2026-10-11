@@ -1,0 +1,37 @@
+** Domain Name: google.tr
+Domain Status: Active
+Frozen Status: -
+Transfer Status: The domain is LOCKED to transfer.
+
+** Registrant:
+Google LLC
+Hidden upon user request
+Hidden upon user request
+Hidden upon user request
+Hidden upon user request
+
+
+** Registrar:
+NIC Handle		: ogv40
+Organization Name	: REDACTED
+Address			: Mustafa Kemal Mahallesi Dumlupınar Bulvarı
+			  No:280G/1104 Çankaya
+			  06800 Ankara Türkiye
+Phone			: REDACTED
+Fax			: REDACTED
+
+
+** Domain Servers:
+ns1.googledomains.com
+ns2.googledomains.com
+ns3.googledomains.com
+ns4.googledomains.com
+
+
+** Additional Info:
+Created on..............: 2024-Aug-26.
+Expires on..............: 2027-Aug-25.
+
+
+** Whois Server:
+Last Update Time: 2026-10-10T08:31:42+03:00

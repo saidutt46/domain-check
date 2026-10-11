@@ -70,7 +70,7 @@ preset = "startup"
 pretty = true
 timeout = "8s"
 bootstrap = true        # enabled by default; set false to disable
-for_sale = false        # true = check taken domains for RFC 10023 for-sale records
+for_sale = false        # true = check registered domains for RFC 10023 for-sale records
 
 [custom_presets]
 my_startup = ["com", "io", "ai", "dev", "app"]
@@ -129,7 +129,8 @@ All CLI options can be set via environment variables using the `DC_*` prefix:
 | `DC_BOOTSTRAP` | (enabled by default) | `DC_BOOTSTRAP=false` | Enable/disable IANA bootstrap |
 | `DC_WHOIS_FALLBACK` | `--no-whois` | `DC_WHOIS_FALLBACK=false` | WHOIS fallback |
 | `DC_DETAILED_INFO` | `--info` | `DC_DETAILED_INFO=true` | Detailed domain info |
-| `DC_FOR_SALE` | `--for-sale` | `DC_FOR_SALE=true` | Check taken domains for RFC 10023 for-sale records |
+| `DC_FOR_SALE` | `--for-sale` | `DC_FOR_SALE=true` | Check registered domains for RFC 10023 for-sale records |
+| `DC_DNS_SERVER` | `--dns-server` | `DC_DNS_SERVER=1.1.1.1` | DNS server for for-sale lookups |
 | `DC_JSON` | `--json` | `DC_JSON=true` | JSON output format |
 | `DC_CSV` | `--csv` | `DC_CSV=true` | CSV output format |
 | `DC_FILE` | `--file` | `DC_FILE=domains.txt` | Default domains file |
@@ -202,7 +203,7 @@ DC_CONFIG=team-config.toml domain-check mystartup
 | `--csv` | Output in CSV format | `domain-check example.com --csv` |
 | `-p, --pretty` | Grouped, structured output with section headers | `domain-check example.com --pretty` |
 | `-i, --info` | Show detailed domain information | `domain-check example.com --info` |
-| `--only-for-sale` | Show only taken domains that are for sale (implies `--for-sale`) | `domain-check mybrand --preset startup --only-for-sale` |
+| `--only-for-sale` | Show only domains that are for sale (implies `--for-sale`) | `domain-check mybrand --preset startup --only-for-sale` |
 
 ### Processing Modes
 
@@ -224,9 +225,10 @@ DC_CONFIG=team-config.toml domain-check mystartup
 
 | Flag | Description | Example |
 |------|-------------|---------|
-| `--no-bootstrap` | Disable IANA bootstrap (use only 32 hardcoded TLDs) | `domain-check myapp --all --no-bootstrap` |
+| `--no-bootstrap` | Disable IANA bootstrap (use only 34 hardcoded TLDs) | `domain-check myapp --all --no-bootstrap` |
 | `--no-whois` | Disable WHOIS fallback | `domain-check example.com --no-whois` |
-| `--for-sale` | Check taken domains for an RFC 10023 `_for-sale` record | `domain-check example.nl --for-sale` |
+| `--for-sale` | Check registered domains for an RFC 10023 `_for-sale` record | `domain-check example.nl --for-sale` |
+| `--dns-server <IP>` | DNS server for for-sale lookups (default: your system's DNS settings) | `domain-check example.nl --for-sale --dns-server 1.1.1.1` |
 
 Bootstrap is enabled by default. It fetches the full IANA RDAP registry (~1,180 TLDs) on first use and caches it for 24 hours. For TLDs without RDAP, the WHOIS fallback automatically discovers the authoritative WHOIS server via IANA referral.
 
@@ -316,7 +318,7 @@ domain-check myapp --all
 domain-check myapp --all --streaming
 # Shows results as they complete
 
-# Restrict to the 32 hardcoded TLDs (no network bootstrap fetch)
+# Restrict to the 34 hardcoded TLDs (no network bootstrap fetch)
 domain-check myapp --all --no-bootstrap
 # Faster, offline-capable, but limited to hardcoded TLDs
 
@@ -443,7 +445,12 @@ _for-sale.example.nl. IN TXT "v=FORSALE1;fval=EUR100000000"
 _for-sale.example.nl. IN TXT "v=FORSALE1;furi=https://example.nl/for-sale.txt"
 ```
 
-`--for-sale` looks this record up for every **taken** domain (one extra DNS query each, at most 3 seconds, through your system resolver). It's off by default. Available and unknown domains are never queried, and a failed lookup never changes a domain's status.
+`--for-sale` looks this record up for every domain that is **taken or unknown** (one extra DNS query each, at most 3 seconds). It's off by default. Available domains are never queried, and the lookup never changes a domain's status. Unknown domains are included because a `_for-sale` record can only exist for a registered domain, so it is useful exactly when RDAP and WHOIS can't answer:
+
+```bash
+domain-check hkt.it --for-sale --no-whois
+# hkt.it UNKNOWN (unknown TLD) (for sale: EUR 5800.00 · https://buy.nameshift.com/hkt.it)
+```
 
 ```bash
 domain-check example.nl --for-sale
@@ -475,6 +482,14 @@ domain-check mybrand --preset startup --only-for-sale
   }
 }
 ```
+
+**DNS server:** lookups use your operating system's DNS settings (on Linux, `/etc/resolv.conf`). If that server does not answer, domain-check prints a warning at the end instead of silently reporting "not for sale":
+
+```text
+Warning: 2 for-sale lookups failed, so for-sale domains may be missing (DNS server 127.0.0.1: no answer within 3s). Try --dns-server <IP>.
+```
+
+Use `--dns-server <IP>` (or `DC_DNS_SERVER`) to pick a server yourself. domain-check never switches to a public DNS server on its own, because that server would see every name you look up.
 
 **CSV:** `--for-sale` adds `for_sale,for_sale_price,for_sale_uri` columns (first price, first trusted link). Free text and codes stay out of CSV.
 
@@ -565,9 +580,9 @@ domain-check --file domains.txt --all --concurrency 100
 #### Streaming Mode (Real-time Results)
 ```bash
 domain-check --file domains.txt --all --streaming
-# [1/32] example.com TAKEN
-# [2/32] example.org AVAILABLE
-# [3/32] example.io TAKEN
+# [1/34] example.com TAKEN
+# [2/34] example.org AVAILABLE
+# [3/34] example.io TAKEN
 # ... (results appear as they complete with progress counter)
 ```
 
@@ -757,7 +772,7 @@ domain-check example.es --debug
 # WHOIS: discovered whois.nic.es via IANA referral
 # example.es TAKEN
 
-# Disable bootstrap for offline/faster operation (32 hardcoded TLDs only)
+# Disable bootstrap for offline/faster operation (34 hardcoded TLDs only)
 domain-check example.com --no-bootstrap
 ```
 

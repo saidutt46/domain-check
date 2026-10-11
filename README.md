@@ -17,12 +17,12 @@ Quick Links: [Installation](#installation) | [Quick Start](#quick-start) | [Use 
 
 ## Why domain-check
 
-- **1,200+ TLDs out of the box** — IANA bootstrap loads the full registry automatically. No config needed. 32 hardcoded TLDs work offline as fallback.
-- **Dual-protocol engine** — RDAP-first with automatic WHOIS fallback. IANA server discovery covers ~189 ccTLDs that lack RDAP (`.es`, `.co`, `.eu`, `.jp`).
+- **1,200+ TLDs out of the box** — IANA bootstrap loads the full registry automatically. No config needed. 34 hardcoded TLDs work offline as fallback.
+- **Dual-protocol engine** — RDAP-first with automatic WHOIS fallback. IANA server discovery covers ~189 ccTLDs that lack RDAP (`.it`, `.co`, `.eu`, `.jp`). WHOIS is built in, so no system `whois` tool is needed on any platform.
 - **Fast** — up to 100 concurrent checks, streaming results as they complete. 3.4 MB release binary.
 - **Domain generation** — pattern expansion (`\w`=letter, `\d`=digit, `?`=either), prefix/suffix permutations, and `--dry-run` to preview before checking.
 - **11 curated presets** — `startup`, `tech`, `creative`, `finance`, `ecommerce`, and more. Or define your own in config.
-- **For-sale detection** — `--for-sale` reads [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` records, so you can see when a taken domain is actually on the market (asking price and contact, sanitized, never auto-opened).
+- **For-sale detection** — `--for-sale` reads [RFC 10023](https://www.rfc-editor.org/info/rfc10023) `_for-sale` records, so you can see when a registered domain is actually on the market (asking price and contact, sanitized, never auto-opened).
 - **Rich output** — grouped pretty display, JSON, CSV. Registrar info, creation/expiration dates, and status codes with `--info`.
 - **CI and automation friendly** — `--json`/`--csv` to stdout, `--yes` to skip prompts, `--force` for large runs, automatic non-TTY detection.
 - **Configurable** — TOML config files, `DC_*` environment variables, custom presets, and clear precedence rules.
@@ -206,7 +206,7 @@ preset = "startup"
 pretty = true
 timeout = "8s"
 bootstrap = true
-for_sale = false        # set true to always check taken domains for RFC 10023 for-sale records
+for_sale = false        # set true to always check registered domains for RFC 10023 for-sale records
 
 [custom_presets]
 my_startup = ["com", "io", "ai", "dev", "app"]
@@ -225,7 +225,7 @@ Common environment variables:
 DC_CONCURRENCY=50    DC_PRESET=startup    DC_TLD=com,io,dev
 DC_PRETTY=true       DC_TIMEOUT=10s       DC_BOOTSTRAP=true
 DC_PREFIX=get,my     DC_SUFFIX=hub,ly     DC_FILE=domains.txt
-DC_FOR_SALE=true
+DC_FOR_SALE=true     DC_DNS_SERVER=1.1.1.1
 ```
 
 ## Automation & CI
@@ -248,7 +248,7 @@ CI-friendly behavior:
 - `--yes` / `--force` skip all confirmation prompts
 - Non-TTY environments (piped, CI) never prompt — scripts are never blocked
 - Spinner writes to stderr; stdout stays clean for piping
-- `--no-bootstrap` for deterministic, offline-safe checks against 32 hardcoded TLDs
+- `--no-bootstrap` for deterministic, offline-safe checks against 34 hardcoded TLDs
 
 Automation guide: [docs/AUTOMATION.md](https://github.com/saidutt46/domain-check/blob/main/docs/AUTOMATION.md)
 
@@ -291,7 +291,7 @@ claude mcp add domain-check -- domain-check-mcp
 
 Then ask your agent naturally: *"Is coolstartup.com available?"* or *"Check mybrand across the startup preset"*.
 
-The check tools take an optional `check_for_sale` parameter, and `domain_info` always includes RFC 10023 for-sale info when the holder publishes it. Responses mark that data as unverified.
+The check tools take an optional `check_for_sale` parameter, and `domain_info` always includes RFC 10023 for-sale info when the holder publishes it. Responses mark that data as unverified and report failed lookups in `for_sale_errors`. Set `DC_DNS_SERVER` in the MCP client's env to choose the DNS server.
 
 Supports: Claude Code, Claude Desktop, VS Code Copilot, Cursor, Windsurf, JetBrains, OpenAI Codex CLI, Gemini CLI, and any MCP stdio client.
 
@@ -300,7 +300,7 @@ Full setup: [domain-check-mcp/README.md](https://github.com/saidutt46/domain-che
 ## Reliability Notes
 
 - Domain status is network- and registry-dependent. Temporary errors can produce `UNKNOWN` states.
-- WHOIS output is less standardized than RDAP; parsing quality varies by registry.
+- WHOIS output is less standardized than RDAP. domain-check reads the reply formats of 40+ registries and answers `UNKNOWN` rather than guess. Some registries (`.es`, `.gr`, `.vn`, …) offer no public WHOIS, so their domains show `UNKNOWN` when RDAP can't answer.
 - For repeatable CI workflows, pin behavior with explicit flags (`--batch`, `--json`, `--no-bootstrap`, `--concurrency`).
 
 Troubleshooting and expected edge cases: [docs/FAQ.md](https://github.com/saidutt46/domain-check/blob/main/docs/FAQ.md)

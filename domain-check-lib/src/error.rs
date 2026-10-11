@@ -225,10 +225,8 @@ impl fmt::Display for DomainCheckError {
                     write!(f, "✅ {}: Domain appears to be available", domain)
                 } else if message.to_lowercase().contains("rate limit") || message.to_lowercase().contains("too many") {
                     write!(f, "⏳ {}: WHOIS server is rate limiting requests\n   💡 Please wait a moment and try again", domain)
-                } else if message.to_lowercase().contains("whois") && message.to_lowercase().contains("not found") {
-                    write!(f, "⚠️ {}: WHOIS command not found on this system\n   💡 Please install whois or use online domain checkers", domain)
                 } else {
-                    write!(f, "⚠️ {}: WHOIS lookup failed\n   💡 This may indicate the domain is available or the server is busy", domain)
+                    write!(f, "⚠️ {}: WHOIS lookup failed ({})", domain, message)
                 }
             }
             Self::BootstrapError { tld, message: _ } => {
@@ -698,7 +696,9 @@ mod tests {
     fn test_display_whois_generic() {
         let err = DomainCheckError::whois("test.com", "server error");
         let msg = format!("{}", err);
-        assert!(msg.contains("WHOIS lookup failed"));
+        assert!(msg.contains("WHOIS lookup failed (server error)"));
+        // A failed lookup must not hint that the domain is free.
+        assert!(!msg.contains("available"));
     }
 
     #[test]
