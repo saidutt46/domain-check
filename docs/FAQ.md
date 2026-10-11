@@ -6,7 +6,7 @@
 - timeout
 - temporary network issues
 - the registry offers no public WHOIS for automated queries (e.g. `.es`, `.gr`, `.vn`) and has no RDAP
-- the WHOIS server rate-limited or refused the query
+- the WHOIS server rate-limited, slowed down, or refused the query. Registries limit bulk WHOIS use: after a burst of queries, `whois.nic.it` answers so slowly that checks time out (`UNKNOWN (timeout)`). domain-check sends at most 2 queries at a time to one WHOIS server; if you still hit the limit, wait a few minutes and check the remaining domains again
 
 Try again with:
 

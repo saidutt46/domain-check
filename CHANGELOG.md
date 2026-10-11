@@ -21,7 +21,8 @@ Thanks to Marco Davids for testing 1.1.0 and reporting both problems.
 ### Changed
 - WHOIS is built in: queries go over TCP port 43 directly (RFC 3912), so the system `whois` command is no longer needed. A registry address that does not answer (some publish an unreachable IPv4 or IPv6 address) no longer stalls the query
 - `.jp` WHOIS is queried in English (`/e`)
-- UNKNOWN results keep WHOIS's reason (for example "refused the query" or "rate limited"), and the WHOIS error text no longer suggests installing `whois` or that a failed lookup may mean "available"
+- At most 2 WHOIS queries run against one registry server at a time, whatever `--concurrency` is. Registries throttle bursts; `whois.nic.it`, for example, slows every reply to 15 seconds or more
+- UNKNOWN results keep WHOIS's reason (for example "refused the query", "rate limited", or "timed out"), and the WHOIS error text no longer suggests installing `whois` or that a failed lookup may mean "available"
 - The RDAP-to-WHOIS fallback logic exists once instead of twice in `checker.rs`
 - A failed IANA lookup for a TLD's WHOIS server is no longer cached as "this TLD has no WHOIS server"
 
