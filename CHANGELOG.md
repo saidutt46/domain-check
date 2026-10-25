@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.1] - 2026-10-24
+
+### Security Release
+
+No behavior changes to the CLI, library API, or MCP server. This release clears new TLS advisories in the dependencies that RDAP lookups use.
+
+### Security
+- **rustls → 0.23.46** — clears RUSTSEC-2026-0346 (`Debug` output of client session values exposed TLS secrets), RUSTSEC-2026-0347 (buffered data sent to the outer server after ECH rejection), RUSTSEC-2026-0348 (Brotli certificate decompression could allocate up to 1 GiB before authentication), and RUSTSEC-2026-0349 (an unauthenticated ServerHello could downgrade later connections to classical key exchange)
+- **rustls-webpki → 0.103.16** — clears RUSTSEC-2026-0382 (certificate verification could accept distrusted intermediates)
+- **webpki-roots → 1.0.11** — clears RUSTSEC-2026-0381 (bundled roots trusted distrusted emSign intermediates)
+
+### Changed
+- Refreshed semver-compatible dependencies in `Cargo.lock`, including `tokio` 1.54 and `rmcp` 3.7, keeping only versions that support the 1.88 MSRV
+
+### Fixed
+- Two CLI tests that check detailed info no longer fail when RDAP is briefly unreachable and WHOIS answers instead
+
 ## [1.2.0] - 2026-10-11
 
 ### WHOIS Rewrite and For-Sale Follow-ups (Issues #33, #39)
